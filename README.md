@@ -1,6 +1,6 @@
 # MinisSkills
 
-A community collection of skills for [Minis](https://minis.ai) — reusable instruction sets that extend Claude's capabilities with specialized workflows, domain knowledge, and bundled resources.
+A community collection of skills for [Minis](https://github.com/OpenMinis) — reusable instruction sets that extend Claude's capabilities with specialized workflows, domain knowledge, and bundled resources.
 
 ---
 
