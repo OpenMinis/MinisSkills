@@ -18,8 +18,8 @@ from pathlib import Path
 _DEFAULT_API_ID   = 2040
 _DEFAULT_API_HASH = "b18441a1ff607e10a989891a5462e627"
 
-# 默认数据目录
-_DEFAULT_DATA_DIR = Path("/var/minis/workspace/tg-hub")
+# 默认数据目录：存放在 home 目录下，跨 session 复用
+_DEFAULT_DATA_DIR = Path.home() / ".tg-hub"
 
 
 def get_api_id() -> int:

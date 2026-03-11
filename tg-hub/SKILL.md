@@ -26,14 +26,14 @@ description: >
 ```
 Telegram MTProto（telethon）
     ↓  sync / refresh（增量）
-本地 SQLite  /var/minis/workspace/tg-hub/messages.db
+本地 SQLite  ~/.tg-hub/messages.db
     ↓  search / today / recent / filter（离线）
 结构化数据
 ```
 
 - **读操作**（search/today/recent）：查本地 SQLite，**不联网**，毫秒级响应
 - **写操作**（sync/refresh）：连接 Telegram 拉取新消息，增量写入 SQLite
-- Session 文件：`/var/minis/workspace/tg-hub/tg_hub.session`
+- Session 文件：`~/.tg-hub/tg_hub.session`
 
 ---
 
@@ -185,7 +185,7 @@ print(f"本地共 {stats['total']} 条消息，{len(stats['chats'])} 个群")
 | `TG_API_ID` | `2040`（Telegram Desktop） | 自定义 API ID |
 | `TG_API_HASH` | 内置 | 自定义 API Hash |
 | `TG_SESSION_NAME` | `tg_hub` | Session 文件名 |
-| `TG_DATA_DIR` | `/var/minis/workspace/tg-hub` | 数据目录 |
+| `TG_DATA_DIR` | `~/.tg-hub` | 数据目录 |
 | `TG_DB_PATH` | `{TG_DATA_DIR}/messages.db` | SQLite 路径 |
 
 ---
