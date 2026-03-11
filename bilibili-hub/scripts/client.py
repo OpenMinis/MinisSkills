@@ -20,16 +20,23 @@ import re
 from typing import Any
 
 import aiohttp
-from bilibili_api import comment, dynamic, favorite_list, homepage, hot, rank, search, user, video
-from bilibili_api.exceptions import (
-    ApiException,
-    CredentialNoBiliJctException,
-    CredentialNoSessdataException,
-    NetworkException,
-    ResponseCodeException,
-    ResponseException,
-)
+from bilibili_api import comment, dynamic, favorite_list, hot, rank, search, user, video
 from bilibili_api.utils.network import Credential
+
+# 兼容 bilibili-api-python 17.x 异常体系
+try:
+    from bilibili_api.exceptions import (
+        ApiException, CredentialNoBiliJctException, CredentialNoSessdataException,
+        NetworkException, ResponseCodeException, ResponseException,
+    )
+except ImportError:
+    # 17.x 部分异常路径不同，用基类兜底
+    ApiException = Exception
+    CredentialNoBiliJctException = Exception
+    CredentialNoSessdataException = Exception
+    NetworkException = Exception
+    ResponseCodeException = Exception
+    ResponseException = Exception
 
 from .exceptions import (
     AuthenticationError,
@@ -101,6 +108,105 @@ async def _call(action: str, awaitable):
 def _run(coro):
     """在同步环境中运行异步协程。"""
     return asyncio.run(coro)
+
+
+# ─── 下载工具 ──────────────────────────────────────────────────────────────────
+
+_DOWNLOAD_HEADERS = {
+    "User-Agent": _USER_AGENT,
+    "Referer": "https://www.bilibili.com",
+}
+
+_SAFE_FILENAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _safe_filename(title: str, max_len: int = 80) -> str:
+    """将视频标题转换为安全的文件名。"""
+    name = _SAFE_FILENAME_RE.sub("_", title).strip(". ")
+    return name[:max_len] or "video"
+
+
+async def _download_stream(url: str, dest: str) -> int:
+    """下载单个流到文件，返回字节数。支持 3 次重试。"""
+    os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+    timeout = aiohttp.ClientTimeout(total=600)
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as sess:
+                async with sess.get(url, headers=_DOWNLOAD_HEADERS) as resp:
+                    if resp.status != 200:
+                        if attempt < 2:
+                            await asyncio.sleep(2 ** attempt)
+                            continue
+                        raise NetworkError(f"下载失败: HTTP {resp.status}")
+                    total = 0
+                    with open(dest, "wb") as f:
+                        async for chunk in resp.content.iter_chunked(256 * 1024):
+                            f.write(chunk)
+                            total += len(chunk)
+                    return total
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt)
+            else:
+                raise NetworkError(f"下载失败: {e}") from e
+    raise NetworkError("下载失败: 重试耗尽")
+
+
+def _ffmpeg_merge(video_path: str, audio_path: str, output_path: str) -> None:
+    """用 ffmpeg 合并视频流和音频流（copy 模式，不重编码）。"""
+    import shutil, subprocess
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise BiliError("ffmpeg 未安装，无法合并音视频流。请先: apk add ffmpeg")
+    cmd = [
+        ffmpeg, "-y",
+        "-i", video_path,
+        "-i", audio_path,
+        "-c:v", "copy", "-c:a", "copy",
+        output_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise BiliError(f"ffmpeg 合并失败:\n{result.stderr[-500:]}")
+
+
+async def _get_download_urls(bvid: str, cred: Credential | None = None) -> dict:
+    """
+    获取视频和音频的下载地址。
+    返回 {"video_url": ..., "audio_url": ..., "is_flv": bool}
+    """
+    from bilibili_api.video import VideoDownloadURLDataDetecter
+    v = video.Video(bvid=bvid, credential=cred)
+    data = await _call("获取下载地址", v.get_download_url(page_index=0))
+    detector = VideoDownloadURLDataDetecter(data)
+    is_flv = detector.check_flv_mp4_stream()
+
+    if is_flv:
+        # FLV/MP4 流：视频音频合一，直接下载
+        streams = detector.detect_best_streams()
+        url = streams[0].url if streams and streams[0] else None
+        if not url:
+            raise BiliError("无法获取 FLV 流地址")
+        return {"video_url": url, "audio_url": None, "is_flv": True}
+    else:
+        # DASH 流：视频和音频分离，需要下载后合并
+        try:
+            from bilibili_api.video import AudioQuality
+            streams = detector.detect_best_streams(
+                audio_max_quality=AudioQuality._192K,
+                no_dolby_audio=True,
+                no_hires=True,
+            )
+        except Exception:
+            streams = detector.detect_best_streams()
+
+        video_url = streams[0].url if len(streams) > 0 and streams[0] else None
+        audio_url = streams[1].url if len(streams) > 1 and streams[1] else None
+
+        if not video_url:
+            raise BiliError("无法获取视频流地址")
+        return {"video_url": video_url, "audio_url": audio_url, "is_flv": False}
 
 
 # ─── 视频 ─────────────────────────────────────────────────────────────────────
@@ -198,19 +304,19 @@ async def _get_user_videos(uid: int, count: int = 10, cred: Credential | None = 
         page += 1
         if len(items) < 30:
             break
-    return results[:count]
-
-# ─── 搜索 ─────────────────────────────────────────────────────────────────────
+    return results[:count]# ─── 搜索 ─────────────────────────────────────────────────────────────────────
 
 async def _search_users(keyword: str, page: int = 1) -> list:
+    from bilibili_api.search import SearchObjectType
     result = await _call("搜索用户", search.search_by_type(
-        keyword, search_type=search.SearchObjectType.USER, page=page,
+        keyword, search_type=SearchObjectType.USER, page=page,
     ))
     return result.get("result", []) or []
 
 async def _search_videos(keyword: str, page: int = 1, count: int = 20) -> list:
+    from bilibili_api.search import SearchObjectType
     result = await _call("搜索视频", search.search_by_type(
-        keyword, search_type=search.SearchObjectType.VIDEO, page=page,
+        keyword, search_type=SearchObjectType.VIDEO, page=page,
     ))
     return (result.get("result", []) or [])[:count]
 
@@ -221,8 +327,12 @@ async def _get_hot(page: int = 1, count: int = 20) -> list:
     return result.get("list", []) or []
 
 async def _get_rank(day: int = 3, count: int = 100) -> list:
-    result = await _call("获取排行榜", rank.get_hot_videos(day=day))
-    return (result.get("list", []) or [])[:count]
+    from bilibili_api.rank import RankDayType
+    day_map = {1: RankDayType.ONE_DAY, 7: RankDayType.SEVEN_DAY}
+    day_type = day_map.get(day, RankDayType.THREE_DAY)
+    result = await _call("获取排行榜", rank.get_rank(day=day_type))
+    items = result.get("list", []) or []
+    return items[:count]
 
 async def _get_feed(offset: int = 0, cred: Credential | None = None) -> dict:
     result = await _call("获取动态 Feed", dynamic.get_dynamic_page_UPs_info(credential=cred, offset=offset))
@@ -264,9 +374,12 @@ async def _get_watch_later(cred: Credential) -> list:
     return result.get("list", []) or []
 
 async def _get_history(cred: Credential) -> list:
-    u = user.User(uid=0, credential=cred)
-    result = await _call("获取历史记录", u.get_history())
-    return result.get("list", []) or []
+    # 17.x 中历史记录通过 user.get_self_history 获取
+    try:
+        result = await _call("获取历史记录", user.get_self_history(credential=cred))
+        return result.get("list", []) or []
+    except Exception:
+        return []
 
 # ─── 互动 ─────────────────────────────────────────────────────────────────────
 
@@ -528,3 +641,148 @@ class BiliClient:
         from .payloads import action_result
         _run(_unfollow_user(uid, self._auth(require_write=True)))
         return action_result("unfollow", uid=uid)
+
+    # ── 下载 ──────────────────────────────────────────────────────────────
+
+    def download_video(
+        self,
+        bvid: str,
+        output_dir: str = "/var/minis/workspace",
+        filename: str | None = None,
+    ) -> str:
+        """
+        下载视频到本地文件，返回输出文件路径。
+
+        流程：
+        1. 获取视频信息（标题）和下载地址
+        2. 若为 DASH 流（音视频分离）：
+           a. 分别下载视频流（.video.mp4）和音频流（.audio.m4a）
+           b. 尝试用 bilibili-api 内置方式合并
+           c. 失败则 fallback 到 ffmpeg 合并
+        3. 若为 FLV/MP4 流（音视频合一）：直接下载，无需合并
+
+        Args:
+            bvid:       BV 号或包含 BV 号的 URL
+            output_dir: 输出目录（默认 /var/minis/workspace）
+            filename:   自定义文件名（不含扩展名），默认用视频标题
+
+        Returns:
+            最终输出文件的绝对路径
+        """
+        import tempfile
+
+        bvid = extract_bvid(bvid)
+        cred = self._cred
+
+        async def _fetch():
+            info = await _get_video_info(bvid, cred)
+            urls = await _get_download_urls(bvid, cred)
+            return info, urls
+
+        info, urls = _run(_fetch())
+
+        title = info.get("title", bvid)
+        safe = filename or _safe_filename(title)
+        os.makedirs(output_dir, exist_ok=True)
+        out_path = os.path.join(output_dir, f"{safe}.mp4")
+
+        if urls["is_flv"]:
+            # ── FLV/MP4：直接下载，无需合并 ──────────────────────────────
+            logger.info("FLV/MP4 流，直接下载 → %s", out_path)
+            size = _run(_download_stream(urls["video_url"], out_path))
+            logger.info("下载完成: %.1f MB", size / 1024 / 1024)
+            return out_path
+
+        # ── DASH：分别下载视频流和音频流，再合并 ─────────────────────────
+        with tempfile.TemporaryDirectory() as tmp:
+            v_tmp = os.path.join(tmp, "video.mp4")
+            a_tmp = os.path.join(tmp, "audio.m4a")
+
+            logger.info("下载视频流 → %s", v_tmp)
+            v_size = _run(_download_stream(urls["video_url"], v_tmp))
+            logger.info("视频流: %.1f MB", v_size / 1024 / 1024)
+
+            if urls.get("audio_url"):
+                logger.info("下载音频流 → %s", a_tmp)
+                a_size = _run(_download_stream(urls["audio_url"], a_tmp))
+                logger.info("音频流: %.1f MB", a_size / 1024 / 1024)
+
+                # 合并：ffmpeg copy 模式（不重编码）
+                logger.info("合并音视频 → %s", out_path)
+                try:
+                    _ffmpeg_merge(v_tmp, a_tmp, out_path)
+                    logger.info("ffmpeg 合并成功")
+                except BiliError as e:
+                    # ffmpeg 失败：至少保留视频流（无声）
+                    import shutil
+                    shutil.copy2(v_tmp, out_path)
+                    logger.warning("ffmpeg 合并失败，已保存无声视频: %s\n原因: %s", out_path, e)
+                    return out_path
+            else:
+                # 无音频流（少见），直接用视频流
+                import shutil
+                shutil.copy2(v_tmp, out_path)
+
+        return out_path
+
+    def download_audio(
+        self,
+        bvid: str,
+        output_dir: str = "/var/minis/workspace",
+        filename: str | None = None,
+    ) -> str:
+        """
+        仅下载视频的音频流，保存为 .m4a 文件，返回输出路径。
+
+        适合需要提取音频做转写（ASR）的场景。
+
+        Args:
+            bvid:       BV 号或包含 BV 号的 URL
+            output_dir: 输出目录（默认 /var/minis/workspace）
+            filename:   自定义文件名（不含扩展名），默认用视频标题
+
+        Returns:
+            输出 .m4a 文件的绝对路径
+        """
+        bvid = extract_bvid(bvid)
+        cred = self._cred
+
+        async def _fetch():
+            info = await _get_video_info(bvid, cred)
+            urls = await _get_download_urls(bvid, cred)
+            return info, urls
+
+        info, urls = _run(_fetch())
+
+        title = info.get("title", bvid)
+        safe = filename or _safe_filename(title)
+        os.makedirs(output_dir, exist_ok=True)
+
+        if urls["is_flv"]:
+            # FLV 流音视频合一，只能下完整视频再用 ffmpeg 提取音频
+            import tempfile, shutil, subprocess
+            out_path = os.path.join(output_dir, f"{safe}.m4a")
+            with tempfile.TemporaryDirectory() as tmp:
+                v_tmp = os.path.join(tmp, "video.mp4")
+                _run(_download_stream(urls["video_url"], v_tmp))
+                import shutil as _shutil
+                ffmpeg = _shutil.which("ffmpeg")
+                if ffmpeg:
+                    cmd = [ffmpeg, "-y", "-i", v_tmp, "-vn", "-acodec", "copy", out_path]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        raise BiliError(f"ffmpeg 提取音频失败:\n{result.stderr[-300:]}")
+                else:
+                    # 无 ffmpeg：直接复制视频文件（兜底）
+                    out_path = os.path.join(output_dir, f"{safe}.mp4")
+                    shutil.copy2(v_tmp, out_path)
+            return out_path
+
+        # DASH：直接下载音频流
+        if not urls.get("audio_url"):
+            raise BiliError("该视频没有独立音频流")
+
+        out_path = os.path.join(output_dir, f"{safe}.m4a")
+        size = _run(_download_stream(urls["audio_url"], out_path))
+        logger.info("音频下载完成: %.1f MB → %s", size / 1024 / 1024, out_path)
+        return out_path

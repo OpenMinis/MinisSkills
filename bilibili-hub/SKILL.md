@@ -182,7 +182,17 @@ for v in hot:
 | `get_watch_later()` | 稍后再看列表（需登录） |
 | `get_history()` | 观看历史（需登录） |
 
-### 互动
+### 下载
+
+| 方法 | 说明 |
+|------|------|
+| `download_video(bvid, output_dir, filename=None)` | 下载完整视频（mp4），自动处理 DASH 合并 |
+| `download_audio(bvid, output_dir, filename=None)` | 仅下载音频流（m4a），适合 ASR 转写 |
+
+**下载流程**：
+- DASH 流（主流）：分别下载视频流 + 音频流 → ffmpeg copy 合并 → 失败则保留无声视频
+- FLV/MP4 流（少见）：直接下载，无需合并
+- 未登录可下最高 480P；登录后可下 1080P（大会员可下更高画质）
 
 | 方法 | 说明 |
 |------|------|
