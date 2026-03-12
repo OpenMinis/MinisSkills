@@ -41,6 +41,26 @@
         {"type": "contains", "text": "Brave"},
         {"type": "contains", "text": "DuckDuckGo"}
       ]
+    },
+    {
+      "id": 5,
+      "prompt": "这个技能和 tavily-search / exa-search 有什么区别？",
+      "expected_output": "指出 web-search 是无需 API key 的浏览器补位搜索技能，而 tavily-search / exa-search 是 API 型搜索技能。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "无需 API key"},
+        {"type": "contains", "text": "补位"}
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "当前页面只有登录框、欢迎语和输入密码提示，应该怎么办？",
+      "expected_output": "判定当前页为弱结果或登录页，触发 fallback 到下一级引擎。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "fallback"},
+        {"type": "contains", "text": "下一级"}
+      ]
     }
   ]
 }
