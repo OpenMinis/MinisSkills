@@ -8,6 +8,64 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || { err "missing command: $1"; exi
 need_env() { name="$1"; eval "val=\${$name-}"; [ -n "$val" ] || { err "missing env: $name"; exit 1; }; }
 repo_root() { git rev-parse --show-toplevel 2>/dev/null; }
 
+# Print and require --yes for dangerous commands
+need_yes() {
+  for a in "$@"; do
+    [ "$a" = "--yes" ] && return 0
+  done
+  err "dangerous operation: re-run with --yes to confirm"
+  exit 2
+}
+
+# Try infer owner/repo from current git remote (origin)
+# Supports https://github.com/owner/repo(.git) and git@github.com:owner/repo(.git)
+# Echoes "owner/repo" or empty.
+infer_repo() {
+  u="$(git remote get-url origin 2>/dev/null || true)"
+  [ -n "$u" ] || { echo ""; return 0; }
+  case "$u" in
+    https://github.com/*)
+      s="${u#https://github.com/}";;
+    git@github.com:*)
+      s="${u#git@github.com:}";;
+    *)
+      echo ""; return 0;;
+  esac
+  s="${s%.git}"
+  # basic validation
+  case "$s" in
+    *"/"*) echo "$s";;
+    *) echo "";;
+  esac
+}
+
+# Minimal GitHub API wrapper. Prints JSON response to stdout. Exits non-zero on HTTP error.
+gh_api() {
+  need_env GITHUB_TOKEN
+  method="$1"; url="$2"; body_json="${3-}"
+  python3 -c 'import os,sys,json,urllib.request,urllib.error
+method=os.environ["M"]; url=os.environ["U"]; tok=os.environ["GITHUB_TOKEN"]; body=os.environ.get("B","")
+data=None
+if body:
+  data=body.encode("utf-8")
+req=urllib.request.Request(url,data=data,method=method)
+req.add_header("Authorization","Bearer "+tok)
+req.add_header("Accept","application/vnd.github+json")
+req.add_header("User-Agent","minis")
+if data is not None:
+  req.add_header("Content-Type","application/json")
+try:
+  with urllib.request.urlopen(req,timeout=30) as r:
+    raw=r.read().decode("utf-8","ignore")
+    print(raw)
+except urllib.error.HTTPError as e:
+  raw=e.read().decode("utf-8","ignore")
+  sys.stderr.write(f"HTTP {e.code} {url}\n")
+  sys.stderr.write(raw[:800]+"\n")
+  sys.exit(1)
+' M="$method" U="$url" B="$body_json"
+}
+
 ensure_git_identity() {
   [ -n "$(git config user.name || true)" ] || git config user.name "mowenyun"
   [ -n "$(git config user.email || true)" ] || git config user.email "mowenyun@users.noreply.github.com"
@@ -61,6 +119,11 @@ Usage:
   sh gh_sync.sh push-main
   sh gh_sync.sh pr --upstream <owner/repo> --head <owner:branch> --base <branch> --title <t> --body <b>
 
+  # PR management
+  sh gh_sync.sh gh-pr-list --repo <owner/repo> [--state open|closed|all]
+  sh gh_sync.sh gh-pr-close --repo <owner/repo> --number <n>
+  sh gh_sync.sh gh-pr-merge --repo <owner/repo> --number <n> [--method merge|squash|rebase]
+
   # GitHub platform APIs
   sh gh_sync.sh gh-issues-list --repo <owner/repo> [--state open|closed|all]
   sh gh_sync.sh gh-issue-create --repo <owner/repo> --title <t> [--body <b>]
@@ -72,6 +135,7 @@ Usage:
   sh gh_sync.sh gh-releases-list --repo <owner/repo>
   sh gh_sync.sh gh-release-create --repo <owner/repo> --tag <vX.Y.Z> --name <n> [--body <b>] [--draft true|false] [--prerelease true|false]
   sh gh_sync.sh gh-actions-list --repo <owner/repo>
+  sh gh_sync.sh gh-actions-runs --repo <owner/repo> [--status queued|in_progress|completed] [--branch <b>]
   sh gh_sync.sh gh-actions-dispatch --repo <owner/repo> --workflow <id_or_file> [--ref <branch>] [--inputs <json>]
 EOF
 }
@@ -279,7 +343,15 @@ case "$cmd" in
     ;;
 
   delete-branches)
-    keep="main"; [ "${1-}" = "--keep" ] && keep="$2"
+    keep="main"; yes=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --keep) keep="$2"; shift 2;;
+        --yes) yes="--yes"; shift 1;;
+        *) break;;
+      esac
+    done
+    need_yes "$yes"
     ensure_askpass
     i=1
     for b in $(git branch --format='%(refname:short)'); do [ "$b" = "$keep" ] && continue; git branch -D "$b" >/dev/null 2>&1 || true; add_row "$i" "delete local branch" OK "$b"; i=$((i+1)); done
@@ -287,8 +359,16 @@ case "$cmd" in
     ;;
 
   empty-dir)
-    dir=""; [ "${1-}" = "--dir" ] && dir="$2"
+    dir=""; yes=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --dir) dir="$2"; shift 2;;
+        --yes) yes="--yes"; shift 1;;
+        *) break;;
+      esac
+    done
     [ -n "$dir" ] || { err "--dir required"; usage; exit 1; }
+    need_yes "$yes"
     ensure_git_identity
     mkdir -p "$dir"
     git rm -r --ignore-unmatch "$dir"/* "$dir"/.[!.]* "$dir"/..?* >/dev/null 2>&1 || true
@@ -297,9 +377,17 @@ case "$cmd" in
     ;;
 
   restore-dir)
-    src=""; dst=""
-    while [ $# -gt 0 ]; do case "$1" in --src) src="$2"; shift 2;; --dst) dst="$2"; shift 2;; *) break;; esac; done
+    src=""; dst=""; yes=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --src) src="$2"; shift 2;;
+        --dst) dst="$2"; shift 2;;
+        --yes) yes="--yes"; shift 1;;
+        *) break;;
+      esac
+    done
     [ -n "$src" ] && [ -n "$dst" ] || { err "--src and --dst required"; usage; exit 1; }
+    need_yes "$yes"
     [ -d "$src" ] || { err "src not found: $src"; exit 1; }
     ensure_git_identity
     rm -f "$dst/.gitkeep" 2>/dev/null || true
@@ -311,6 +399,14 @@ case "$cmd" in
     ;;
 
   push-main)
+    yes=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --yes) yes="--yes"; shift 1;;
+        *) break;;
+      esac
+    done
+    need_yes "$yes"
     ensure_askpass
     ensure_git_identity
     git checkout main >/dev/null 2>&1 || true
@@ -330,13 +426,20 @@ try:
   resp=json.load(urllib.request.urlopen(req,timeout=30)); print(resp.get("html_url",""))
 except urllib.error.HTTPError as e:
   err=e.read().decode("utf-8","ignore"); print("HTTP %s"%e.code+" "+err[:200])' 2>/dev/null)" || true
-    add_row 1 pr OK "$out"
+    if printf '%s' "$out" | grep -q '^https://'; then
+      add_row 1 pr OK "$out"
+    else
+      add_row 1 pr FAIL "$out"
+      print_summary
+      exit 1
+    fi
     ;;
 
   gh-issues-list)
     repo=""; state="open"
     while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --state) state="$2"; shift 2;; *) break;; esac; done
-    [ -n "$repo" ] || { err "--repo required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] || { err "--repo required (or set origin remote)"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo" STATE="$state"
     out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); state=os.environ.get("STATE","open"); url=f"https://api.github.com/repos/{owner}/{repo}/issues?state={state}&per_page=20"; req=urllib.request.Request(url,headers={"Authorization":"Bearer "+tok,"Accept":"application/vnd.github+json","User-Agent":"minis"}); data=json.load(urllib.request.urlopen(req,timeout=30)); lines=[]
@@ -350,7 +453,8 @@ print("; ".join(lines))' 2>/dev/null)" || true
   gh-issue-create)
     repo=""; title=""; body=""
     while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --title) title="$2"; shift 2;; --body) body="$2"; shift 2;; *) break;; esac; done
-    [ -n "$repo" ] && [ -n "$title" ] || { err "--repo --title required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] && [ -n "$title" ] || { err "--repo (or origin remote) and --title required"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo" TITLE="$title" BODY="$body"
     out="$(python3 -c 'import os,json,urllib.request,urllib.error; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); payload={"title":os.environ["TITLE"],"body":os.environ.get("BODY","")}; data=json.dumps(payload).encode("utf-8"); req=urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}/issues",data=data,method="POST"); req.add_header("Authorization","Bearer "+tok); req.add_header("Accept","application/vnd.github+json"); req.add_header("User-Agent","minis"); req.add_header("Content-Type","application/json");
@@ -364,7 +468,8 @@ except urllib.error.HTTPError as e:
   gh-issue-close)
     repo=""; num=""
     while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --number) num="$2"; shift 2;; *) break;; esac; done
-    [ -n "$repo" ] && [ -n "$num" ] || { err "--repo --number required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] && [ -n "$num" ] || { err "--repo (or origin remote) and --number required"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo" NUM="$num"
     out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); num=os.environ["NUM"]; payload={"state":"closed"}; data=json.dumps(payload).encode("utf-8"); req=urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}/issues/{num}",data=data,method="PATCH"); req.add_header("Authorization","Bearer "+tok); req.add_header("Accept","application/vnd.github+json"); req.add_header("User-Agent","minis"); req.add_header("Content-Type","application/json"); resp=json.load(urllib.request.urlopen(req,timeout=30)); print(resp.get("state",""))' 2>/dev/null)" || true
@@ -373,7 +478,8 @@ except urllib.error.HTTPError as e:
 
   gh-labels-list)
     repo=""; [ "${1-}" = "--repo" ] && repo="$2"
-    [ -n "$repo" ] || { err "--repo required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] || { err "--repo required (or set origin remote)"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo"
     out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); url=f"https://api.github.com/repos/{owner}/{repo}/labels?per_page=50"; req=urllib.request.Request(url,headers={"Authorization":"Bearer "+tok,"Accept":"application/vnd.github+json","User-Agent":"minis"}); data=json.load(urllib.request.urlopen(req,timeout=30)); print("; ".join([it.get("name","") for it in data]))' 2>/dev/null)" || true
@@ -383,7 +489,8 @@ except urllib.error.HTTPError as e:
   gh-label-create)
     repo=""; name=""; color=""; desc=""
     while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --name) name="$2"; shift 2;; --color) color="$2"; shift 2;; --description) desc="$2"; shift 2;; *) break;; esac; done
-    [ -n "$repo" ] && [ -n "$name" ] || { err "--repo --name required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] && [ -n "$name" ] || { err "--repo (or origin remote) and --name required"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo" NAME="$name" COLOR="$color" DESC="$desc"
     out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); payload={"name":os.environ["NAME"],"color":(os.environ.get("COLOR") or "ededed"),"description":os.environ.get("DESC","")}; data=json.dumps(payload).encode("utf-8"); req=urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}/labels",data=data,method="POST"); req.add_header("Authorization","Bearer "+tok); req.add_header("Accept","application/vnd.github+json"); req.add_header("User-Agent","minis"); req.add_header("Content-Type","application/json"); resp=json.load(urllib.request.urlopen(req,timeout=30)); print(resp.get("name",""))' 2>/dev/null)" || true
@@ -393,7 +500,8 @@ except urllib.error.HTTPError as e:
   gh-milestones-list)
     repo=""; state="open"
     while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --state) state="$2"; shift 2;; *) break;; esac; done
-    [ -n "$repo" ] || { err "--repo required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] || { err "--repo required (or set origin remote)"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo" STATE="$state"
     out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); state=os.environ.get("STATE","open"); url=f"https://api.github.com/repos/{owner}/{repo}/milestones?state={state}&per_page=30"; req=urllib.request.Request(url,headers={"Authorization":"Bearer "+tok,"Accept":"application/vnd.github+json","User-Agent":"minis"}); data=json.load(urllib.request.urlopen(req,timeout=30)); print("; ".join([f"#{it['number']} {it['title']}" for it in data]))' 2>/dev/null)" || true
@@ -403,7 +511,8 @@ except urllib.error.HTTPError as e:
   gh-milestone-create)
     repo=""; title=""; desc=""; due=""
     while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --title) title="$2"; shift 2;; --description) desc="$2"; shift 2;; --due) due="$2"; shift 2;; *) break;; esac; done
-    [ -n "$repo" ] && [ -n "$title" ] || { err "--repo --title required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] && [ -n "$title" ] || { err "--repo (or origin remote) and --title required"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo" TITLE="$title" DESC="$desc" DUE="$due"
     out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); payload={"title":os.environ["TITLE"],"description":os.environ.get("DESC","")}; due=os.environ.get("DUE","");
@@ -414,7 +523,8 @@ data=json.dumps(payload).encode("utf-8"); req=urllib.request.Request(f"https://a
 
   gh-releases-list)
     repo=""; [ "${1-}" = "--repo" ] && repo="$2"
-    [ -n "$repo" ] || { err "--repo required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] || { err "--repo required (or set origin remote)"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo"
     out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); url=f"https://api.github.com/repos/{owner}/{repo}/releases?per_page=10"; req=urllib.request.Request(url,headers={"Authorization":"Bearer "+tok,"Accept":"application/vnd.github+json","User-Agent":"minis"}); data=json.load(urllib.request.urlopen(req,timeout=30)); print("; ".join([it.get("tag_name","") for it in data]))' 2>/dev/null)" || true
@@ -424,7 +534,8 @@ data=json.dumps(payload).encode("utf-8"); req=urllib.request.Request(f"https://a
   gh-release-create)
     repo=""; tag=""; name=""; body=""; draft="false"; pre="false"
     while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --tag) tag="$2"; shift 2;; --name) name="$2"; shift 2;; --body) body="$2"; shift 2;; --draft) draft="$2"; shift 2;; --prerelease) pre="$2"; shift 2;; *) break;; esac; done
-    [ -n "$repo" ] && [ -n "$tag" ] && [ -n "$name" ] || { err "--repo --tag --name required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] && [ -n "$tag" ] && [ -n "$name" ] || { err "--repo (or origin remote), --tag, --name required"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo" TAG="$tag" NAME="$name" BODY="$body" DRAFT="$draft" PRE="$pre"
     out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); payload={"tag_name":os.environ["TAG"],"name":os.environ["NAME"],"body":os.environ.get("BODY","")}; payload["draft"]= (os.environ.get("DRAFT","false").lower()=="true"); payload["prerelease"]= (os.environ.get("PRE","false").lower()=="true"); data=json.dumps(payload).encode("utf-8"); req=urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}/releases",data=data,method="POST"); req.add_header("Authorization","Bearer "+tok); req.add_header("Accept","application/vnd.github+json"); req.add_header("User-Agent","minis"); req.add_header("Content-Type","application/json"); resp=json.load(urllib.request.urlopen(req,timeout=30)); print(resp.get("html_url",""))' 2>/dev/null)" || true
@@ -433,17 +544,36 @@ data=json.dumps(payload).encode("utf-8"); req=urllib.request.Request(f"https://a
 
   gh-actions-list)
     repo=""; [ "${1-}" = "--repo" ] && repo="$2"
-    [ -n "$repo" ] || { err "--repo required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] || { err "--repo required (or set origin remote)"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo"
     out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); url=f"https://api.github.com/repos/{owner}/{repo}/actions/workflows?per_page=50"; req=urllib.request.Request(url,headers={"Authorization":"Bearer "+tok,"Accept":"application/vnd.github+json","User-Agent":"minis"}); data=json.load(urllib.request.urlopen(req,timeout=30)); w=data.get("workflows",[]); print("; ".join([f"{it['id']} {it['name']}" for it in w[:20]]))' 2>/dev/null)" || true
     add_row 1 gh-actions-list OK "$out"
     ;;
 
+  gh-actions-runs)
+    repo=""; status=""; branch=""
+    while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --status) status="$2"; shift 2;; --branch) branch="$2"; shift 2;; *) break;; esac; done
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] || { err "--repo required (or set origin remote)"; exit 1; }
+    need_env GITHUB_TOKEN
+    export REPO="$repo" STATUS="$status" BRANCH="$branch"
+    out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); status=os.environ.get("STATUS",""); branch=os.environ.get("BRANCH",""); qs=["per_page=10"]; 
+if status: qs.append("status="+status)
+if branch: qs.append("branch="+branch)
+url=f"https://api.github.com/repos/{owner}/{repo}/actions/runs?"+"&".join(qs); req=urllib.request.Request(url,headers={"Authorization":"Bearer "+tok,"Accept":"application/vnd.github+json","User-Agent":"minis"}); d=json.load(urllib.request.urlopen(req,timeout=30)); runs=d.get("workflow_runs",[]); lines=[]
+for r in runs[:10]:
+  lines.append(f"#{r.get('run_number')} {r.get('name')} {r.get('status')} {r.get('conclusion')}")
+print("; ".join(lines))' 2>/dev/null)" || true
+    add_row 1 gh-actions-runs OK "$out"
+    ;;
+
   gh-actions-dispatch)
     repo=""; wf=""; ref="main"; inputs="{}"
     while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --workflow) wf="$2"; shift 2;; --ref) ref="$2"; shift 2;; --inputs) inputs="$2"; shift 2;; *) break;; esac; done
-    [ -n "$repo" ] && [ -n "$wf" ] || { err "--repo --workflow required"; exit 1; }
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] && [ -n "$wf" ] || { err "--repo (or origin remote) and --workflow required"; exit 1; }
     need_env GITHUB_TOKEN
     export REPO="$repo" WF="$wf" REF="$ref" INPUTS="$inputs"
     out="$(python3 -c 'import os,json,urllib.request,urllib.error; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); wf=os.environ["WF"]; ref=os.environ.get("REF","main");
@@ -457,6 +587,39 @@ try:
 except urllib.error.HTTPError as e:
   print(e.code)' 2>/dev/null)" || true
     add_row 1 gh-actions-dispatch OK "$out"
+    ;;
+
+  gh-pr-list)
+    repo=""; state="open"
+    while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --state) state="$2"; shift 2;; *) break;; esac; done
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] || { err "--repo required (or set origin remote)"; exit 1; }
+    need_env GITHUB_TOKEN
+    export REPO="$repo" STATE="$state"
+    out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); state=os.environ.get("STATE","open"); url=f"https://api.github.com/repos/{owner}/{repo}/pulls?state={state}&per_page=20"; req=urllib.request.Request(url,headers={"Authorization":"Bearer "+tok,"Accept":"application/vnd.github+json","User-Agent":"minis"}); arr=json.load(urllib.request.urlopen(req,timeout=30)); lines=[f"#{p.get('number')} {p.get('title')} ({p.get('state')})" for p in arr[:20]]; print("; ".join(lines))' 2>/dev/null)" || true
+    add_row 1 gh-pr-list OK "$out"
+    ;;
+
+  gh-pr-close)
+    repo=""; num=""
+    while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --number) num="$2"; shift 2;; *) break;; esac; done
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] && [ -n "$num" ] || { err "--repo (or origin remote) and --number required"; exit 1; }
+    need_env GITHUB_TOKEN
+    export REPO="$repo" NUM="$num"
+    out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); num=os.environ["NUM"]; payload={"state":"closed"}; data=json.dumps(payload).encode("utf-8"); req=urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}/pulls/{num}",data=data,method="PATCH"); req.add_header("Authorization","Bearer "+tok); req.add_header("Accept","application/vnd.github+json"); req.add_header("User-Agent","minis"); req.add_header("Content-Type","application/json"); d=json.load(urllib.request.urlopen(req,timeout=30)); print(d.get("state",""))' 2>/dev/null)" || true
+    add_row 1 gh-pr-close OK "$out"
+    ;;
+
+  gh-pr-merge)
+    repo=""; num=""; method="merge"
+    while [ $# -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; --number) num="$2"; shift 2;; --method) method="$2"; shift 2;; *) break;; esac; done
+    [ -n "$repo" ] || repo="$(infer_repo)"
+    [ -n "$repo" ] && [ -n "$num" ] || { err "--repo (or origin remote) and --number required"; exit 1; }
+    need_env GITHUB_TOKEN
+    export REPO="$repo" NUM="$num" METHOD="$method"
+    out="$(python3 -c 'import os,json,urllib.request; tok=os.environ["GITHUB_TOKEN"]; owner,repo=os.environ["REPO"].split("/",1); num=os.environ["NUM"]; method=os.environ.get("METHOD","merge"); payload={"merge_method":method}; data=json.dumps(payload).encode("utf-8"); req=urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}/pulls/{num}/merge",data=data,method="PUT"); req.add_header("Authorization","Bearer "+tok); req.add_header("Accept","application/vnd.github+json"); req.add_header("User-Agent","minis"); req.add_header("Content-Type","application/json"); d=json.load(urllib.request.urlopen(req,timeout=30)); print("merged" if d.get("merged") else "not merged")' 2>/dev/null)" || true
+    add_row 1 gh-pr-merge OK "$out"
     ;;
 
   *)

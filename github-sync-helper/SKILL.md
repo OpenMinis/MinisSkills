@@ -12,6 +12,7 @@ compatibility: >
 
 1) 清晰的命令速查（解释 + 何时用）
 2) 可执行的一键脚本（避免重复手工步骤）
+3) 常用输出尽量“带编号”，方便你直接回复编号选择（例如：仓库列表）
 
 ## 安全与约束（必须遵守）
 
@@ -106,13 +107,52 @@ sh /var/minis/skills/github-sync-helper/scripts/gh_sync.sh commit --message "res
 sh /var/minis/skills/github-sync-helper/scripts/gh_sync.sh push-main
 ```
 
-### 2）删除除 main 外的所有分支（本地+远程）
+### 4）仅替换仓库目标文件内容（保留原路径/文件名），然后提交并推送
+
+适用场景：用户要求“只内容替换”“只替换里面的 worker”“保留仓库原文件名/路径”，本意是：**只覆盖目标文件内容，不新增上传源文件名，不改仓库中的目标路径**。
+
+推荐执行顺序：
+
+```bash
+# 1. 拉取/刷新仓库
+repo_dir=/var/minis/workspace/<repo>
+if [ -d "$repo_dir/.git" ]; then
+  cd "$repo_dir" && git fetch --all --prune && git reset --hard origin/main
+else
+  gh repo clone <owner/repo> "$repo_dir"
+fi
+
+# 2. 仅内容覆盖：用源文件内容覆盖仓库目标文件
+cp <source_file> "$repo_dir/<target_path>"
+
+# 3. 如未配置 Git 身份，优先复用 GitHub 登录名，并使用 GitHub noreply 邮箱
+cd "$repo_dir"
+git config user.name '<GitHub显示名>'
+git config user.email '<login>@users.noreply.github.com'
+
+# 4. 提交并直推 main（仅在用户明确要求提交/推送时执行）
+git add <target_path>
+git commit -m 'replace <target_path> content'
+git push origin main
+```
+
+执行要点：
+- 用户说“只内容替换”时，统一理解为：**保留仓库中的原文件路径与文件名，仅覆盖内容**。
+- 不要把源文件名直接放进仓库；目标仍应是仓库里原本那个文件（例如 `worker.js`）。
+- 若目标路径已知，直接覆盖该路径；若未知，先在仓库中定位目标文件再替换。
+- 提交前若报 `Author identity unknown`，可在当前仓库写入：
+  - `git config user.name '<GitHub显示名>'`
+  - `git config user.email '<login>@users.noreply.github.com'`
+- 默认先 `git fetch` + `git reset --hard origin/main`，避免在旧工作树上误提交。
+- 若用户已经明确要求“提交”“推送”，可直接继续执行，无需重复确认。
+
+### 5）删除除 main 外的所有分支（本地+远程）
 
 ```bash
 sh /var/minis/skills/github-sync-helper/scripts/gh_sync.sh delete-branches --keep main
 ```
 
-### 3）不建分支，fork:main → upstream:main 直接开 PR
+### 6）不建分支，fork:main → upstream:main 直接开 PR
 
 ```bash
 sh /var/minis/skills/github-sync-helper/scripts/gh_sync.sh pr \
@@ -123,7 +163,11 @@ sh /var/minis/skills/github-sync-helper/scripts/gh_sync.sh pr \
   --body "..."
 ```
 
-## 故障排查
+- **仓库列表输出必须使用 Markdown 表格**，并包含 `编号` 列，便于用户直接回复编号选择。
+- 字段建议：`编号 | 仓库(owner/repo) | 可见性 | Fork | 默认分支 | 最近更新 | URL`
+- 交互建议：表格后提示“回复编号即可继续（clone/pull/提交推送/只内容替换等）”。
+
+> 备注：若用户需要更多字段（description、language、stars），再加 `--json ...` 扩展。
 
 | 序号 | 现象 | 处理 |
 |---:|---|---|
