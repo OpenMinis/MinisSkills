@@ -1,10 +1,8 @@
 ---
 name: ttyd-web-terminal
 description: >
-When users need to access the terminal 
-through a browser, please use this skill
+  When users need to access the terminal through a browser, please use this skill
 ---
-
 # ttyd Web Terminal Deployment Skill
 
 This skill deploys and manages a web-based terminal service using ttyd on port 5222.
