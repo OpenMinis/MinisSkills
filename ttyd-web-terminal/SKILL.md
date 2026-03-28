@@ -1,6 +1,6 @@
 ---
 name: ttyd-web-terminal
-description: Deploy and manage a web-based terminal service using ttyd on port 5222. Use this skill when the user wants to set up a web terminal accessible via browser.
+When users need to access the terminal through a browser, please use this skill.
 ---
 
 # ttyd Web Terminal Deployment Skill
