@@ -2,10 +2,10 @@
 name: autoglm-install
 version: 4.0.0
 description: >
-	安装和配置 AutoGLM Phone Agent（AI 手机自动化工具）。
-	当用户说"安装 AutoGLM"、"设置 AutoGLM"、"用 AI 控制手机"等时触发此技能，
-	自动执行完整部署并创建快捷脚本。支持在 iSH/Minis 环境学习测试，
-	或在远程 Linux 服务器部署完整版。
+  安装和配置 AutoGLM Phone Agent（AI 手机自动化工具）。
+  当用户说"安装 AutoGLM"、"设置 AutoGLM"、"用 AI 控制手机"等时触发此技能，
+  自动执行完整部署并创建快捷脚本。支持在 iSH/Minis 环境学习测试，
+  或在远程 Linux 服务器部署完整版。
 ---
 
 # AutoGLM Phone Agent 安装与使用
