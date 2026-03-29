@@ -1,5 +1,6 @@
 ---
 name: ttyd-web-terminal
+description: >
 When users need to access the terminal through a browser, please use this skill.
 ---
 
