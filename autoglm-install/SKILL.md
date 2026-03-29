@@ -1,0 +1,160 @@
+---
+name: autoglm-install
+version: 4.0.0
+description: >
+	安装和配置 AutoGLM Phone Agent（AI 手机自动化工具）。
+	当用户说"安装 AutoGLM"、"设置 AutoGLM"、"用 AI 控制手机"等时触发此技能，
+	自动执行完整部署并创建快捷脚本。支持在 iSH/Minis 环境学习测试，
+	或在远程 Linux 服务器部署完整版。
+---
+
+# AutoGLM Phone Agent 安装与使用
+
+一键安装 **AutoGLM** —— AI 驱动的手机自动化框架，通过自然语言指令操作手机应用。
+
+## 🚀 快速开始
+
+### 一键安装（非交互式）
+
+```sh
+/var/minis/skills/autoglm-install/scripts/install.sh
+```
+
+自动完成所有步骤，安装到 `/root/AutoGLM`。
+
+## 💻 使用方式
+
+### 基础用法
+
+```sh
+# 方式 1: 快捷脚本
+/root/aglm.sh "打开小红书搜索美食"
+/root/aglm.sh "打开高德地图导航回家"
+
+# 方式 2: 直接运行
+cd /root/AutoGLM
+source venv/bin/activate
+python3 quickstart.py "打开微信"
+```
+
+### 自定义 API 配置
+
+```sh
+# 使用智谱 API
+python3 quickstart.py \
+  --base-url https://open.bigmodel.cn/api/paas/v4 \
+  --model autoglm-phone-9b \
+  --apikey YOUR_KEY \
+  "测试任务"
+
+# 使用自定义模型
+python3 quickstart.py \
+  --base-url https://api-inference.modelscope.cn/v1 \
+  --model ZhipuAI/AutoGLM-Phone-9B \
+  --apikey YOUR_KEY \
+  "检查当前屏幕"
+```
+
+### 多设备支持
+
+```sh
+# 指定设备 ID
+python3 quickstart.py -d "emulator-5554" "打开抖音"
+python3 quickstart.py -d "192.168.1.100:5555" "打开京东"
+```
+
+## ⚙️ 配置说明
+
+### 环境变量（可选）
+
+在 `~/.bashrc` 中添加：
+
+```bash
+export AUTOGLM_BASE_URL="https://open.bigmodel.cn/api/paas/v4"
+export AUTOGLM_MODEL="autoglm-phone"
+export AUTOGLM_API_KEY="your-api-key-here"
+export DEVICE_ID="192.168.100.150:5555"
+```
+
+### 配置文件
+
+创建 `/root/AutoGLM/.env`：
+
+```
+AUTOGLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+AUTOGLM_MODEL=autoglm-phone
+AUTOGLM_API_KEY=sk-xxx
+DEVICE_ID=192.168.100.150:5555
+```
+
+## 🔑 API 密钥获取
+
+### 方式 1: 智谱 BigModel（推荐中文场景）
+
+1. 访问：https://bigmodel.cn/
+2. 注册账号并实名认证
+3. 进入控制台 → API Key
+4. 复制 Key 填入配置
+
+### 方式 2: ModelScope 魔搭社区
+
+1. 访问：https://modelscope.cn/models/ZhipuAI/AutoGLM-Phone-9B
+2. 注册并登录
+3. 申请模型权限
+4. 获取 API Key
+
+## 🔍 故障排查
+
+| 问题 | 现象 | 解决方法 |
+|------|------|---------|
+| 设备未找到 | `No output from dumpsys window` | `adb kill-server && adb connect IP:5555` |
+| 连接超时 | `Operation timed out` | `ping -c 3 IP` 检查设备在线 |
+| 模块导入错误 | `ModuleNotFoundError` | `cd /root/AutoGLM && pip install -e .` |
+| 文本输入失败 | 输入无响应 | 安装 ADB Keyboard APK |
+| API Key 无效 | `401 Unauthorized` | 检查 Key 是否正确或重新生成 |
+
+### 文本输入失败解决
+
+```sh
+# 方法 1: 安装 ADB Keyboard（推荐）
+curl -L https://github.com/senzhk/ADBKeyBoard/raw/master/ADBKeyboard.apk -o adb_keyboard.apk
+adb install adb_keyboard.apk
+
+# 方法 2: 启用其他输入法
+adb shell ime enable com.iflytek.inputmethod/.FlyIME
+```
+
+## 📱 手机端准备
+
+- **Android**: Android 7.0+，需开启 USB 调试
+- **HarmonyOS**: NEXT 版本以上，需启用 HDC 调试
+- **iOS**: 需配置 WebDriverAgent（参考 iOS 专用文档）
+
+### 开启调试步骤
+
+1. 开发者模式：设置 → 关于手机 → 版本号（连续点击 7 次）
+2. USB 调试：设置 → 开发者选项 → USB 调试 → 启用
+3. 无线调试：设置 → 开发者选项 → 无线调试 → 启用
+4. 安装 ADB Keyboard：设置 → 输入法 → 启用
+
+## 🧪 测试任务
+
+验证安装是否成功：
+
+```sh
+cd /root/AutoGLM && python3 quickstart.py "检查当前屏幕状态"
+```
+
+预期输出：
+```
+✅ 任务完成!
+当前运行的是：**系统桌面（Home）**
+从截图可以看到...
+```
+
+## 📚 参考资源
+
+- [完整使用指南](minis://skills/autoglm-install/references/README.md)
+- [GitHub 仓库](https://github.com/zai-org/Open-AutoGLM)
+- [模型下载](https://modelscope.cn/models/ZhipuAI/AutoGLM-Phone-9B)
+- [智谱 API 文档](https://docs.bigmodel.cn/cn/api/introduction)
