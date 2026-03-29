@@ -1,8 +1,8 @@
 ---
 name: ttyd-web-terminal
-description: >
-  When users need to access the terminal through a browser, please use this skill
+When users need to access the terminal through a browser, please use this skill.
 ---
+
 # ttyd Web Terminal Deployment Skill
 
 This skill deploys and manages a web-based terminal service using ttyd on port 5222.
@@ -26,7 +26,9 @@ To deploy the ttyd web terminal service:
 ## Technical Details
 
 - Port: 5222
-- Process: ttyd with improved configuration parameters
+- Process: ttyd with improved configuration (`-W --term xterm-256color`)
+  - `-W`: Enable writable mode (otherwise terminal is read-only)
+  - `--term xterm-256color`: Specify terminal type for better input handling
 - Log file: /root/ttyd.log
 - PID file: /root/ttyd.pid
 
