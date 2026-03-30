@@ -1,0 +1,35 @@
+#!/bin/sh
+# ttyd状态检查脚本
+
+PID_FILE="/root/ttyd.pid"
+
+echo "=== ttyd 网页终端服务状态 ==="
+
+# 检查ttyd是否安装
+if ! command -v ttyd >/dev/null 2>&1; then
+    echo "ttyd: 未安装"
+    exit 1
+fi
+
+# 检查进程
+TTYD_PID=$(pgrep -f "ttyd.*5222" | head -n 1)
+if [ ! -z "$TTYD_PID" ]; then
+    echo "状态: 运行中"
+    echo "PID: $TTYD_PID"
+    echo "端口: 5222"
+    echo "PID文件: $PID_FILE"
+    echo $TTYD_PID > $PID_FILE
+elif [ -f $PID_FILE ]; then
+    echo "状态: PID文件存在但进程未运行"
+    echo "PID文件: $PID_FILE (内容: $(cat $PID_FILE))"
+    rm -f $PID_FILE
+else
+    echo "状态: 未运行"
+fi
+
+# 检查日志文件
+if [ -f "/root/ttyd.log" ]; then
+    echo "日志文件: /root/ttyd.log"
+    echo "最后5行日志:"
+    tail -5 /root/ttyd.log 2>/dev/null | sed 's/^/  /'
+fi

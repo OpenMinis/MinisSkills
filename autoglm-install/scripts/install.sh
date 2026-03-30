@@ -207,6 +207,7 @@ python3 quickstart.py \\
     --apikey "\$AUTOGLM_API_KEY" \\
     "\$TASK"
 SCRIPT_EOF
+
 chmod +x /root/aglm.sh
 
 # ==============================================================================

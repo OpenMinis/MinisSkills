@@ -1,0 +1,20 @@
+#!/bin/sh
+# ttyd停止脚本
+
+PID_FILE="/root/ttyd.pid"
+
+if [ -f $PID_FILE ]; then
+    PID=$(cat $PID_FILE)
+    kill $PID 2>/dev/null
+    rm -f $PID_FILE
+    echo "ttyd服务已停止 (PID: $PID)"
+else
+    # 通过进程查找并停止
+    TTYD_PID=$(pgrep -f "ttyd.*5222" | head -n 1)
+    if [ ! -z "$TTYD_PID" ]; then
+        kill $TTYD_PID 2>/dev/null
+        echo "ttyd服务已停止 (PID: $TTYD_PID)"
+    else
+        echo "ttyd服务未运行"
+    fi
+fi

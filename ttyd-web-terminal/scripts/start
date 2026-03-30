@@ -1,0 +1,42 @@
+#!/bin/sh
+# ttyd 启动脚本
+
+# PID 和日志文件路径
+PID_FILE="/root/ttyd.pid"
+LOG_FILE="/root/ttyd.log"
+
+# 检查系统中是否已安装 ttyd
+if ! command -v ttyd >/dev/null 2>&1; then
+    echo "错误：系统中未安装 ttyd，请先运行部署脚本安装"
+    exit 1
+fi
+
+# 检查是否已有 ttyd 服务在运行
+TTYD_PID=$(pgrep -f "ttyd.*5222" | head -n 1)
+if [ ! -z "$TTYD_PID" ]; then
+    echo "ttyd 服务已在运行 (PID: $TTYD_PID, 端口：5222)"
+    echo $TTYD_PID > $PID_FILE
+    exit 0
+fi
+
+# 停止可能的残留服务
+if [ -f $PID_FILE ]; then
+    kill $(cat $PID_FILE) 2>/dev/null
+    rm -f $PID_FILE
+fi
+
+# 使用改进的配置启动 ttyd 服务
+# -W: 启用可写模式 (allow write)，否则终端为只读无法输入
+# --term xterm-256color: 指定终端类型以优化输入处理
+nohup ttyd -p 5222 -W --term xterm-256color -t fontSize=14 -t fontFamily='Monaco, Consolas, monospace' sh > $LOG_FILE 2>&1 & echo $! > $PID_FILE
+
+if [ $? -eq 0 ]; then
+    echo "ttyd 网页终端服务已启动，端口：5222"
+    echo "请在浏览器中访问：http://localhost:5222"
+    echo "PID 文件：$PID_FILE"
+    echo "日志文件：$LOG_FILE"
+else
+    echo "启动失败，请检查日志：$LOG_FILE"
+    rm -f $PID_FILE
+    exit 1
+fi

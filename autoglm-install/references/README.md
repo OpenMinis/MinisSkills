@@ -87,11 +87,9 @@ DEVICE_ID=ip:port
 ### 基础用法
 
 ```sh
-
 # 执行操作
 python3 quickstart.py "打开小红书搜索美食"
 python3 quickstart.py "打开高德地图导航回家"
-
 ```
 
 ### 自定义 API 端点
@@ -106,8 +104,8 @@ python3 quickstart.py \
 
 # 使用自定义模型
 python3 quickstart.py \
-  --base-url ‘your-api-key-here’ \
-  --model ‘自定义模型,默认autoglm-phone-9b‘ \
+  --base-url 'your-api-key-here' \
+  --model '自定义模型，默认 autoglm-phone-9b' \
   "检查当前屏幕"
 ```
 
@@ -199,6 +197,15 @@ adb shell ime enable com.iflytek.inputmethod/.FlyIME
 2. 注册并登录
 3. 申请 AutoGLM-Phone-9B 模型权限
 4. 获取 API Key
+
+### 方式 3: 本地部署（高级用户）
+
+如需本地部署模型，需要：
+- NVIDIA GPU (建议 24GB+ 显存)
+- 安装 vLLM 或 SGLang
+- 下载约 20GB 的模型文件
+
+详细请参考：https://github.com/zai-org/Open-AutoGLM
 
 ---
 

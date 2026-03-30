@@ -1,10 +1,10 @@
----
 name: autoglm-install
 version: 4.0.0
 description: >
-	安装和配置 AutoGLM Android Phone Agent
-	当用户说"安装 AutoGLM"、"设置 AutoGLM"、"控制安卓手机"等控制手机类时触发技能，
-	自动执行完整部署并创建快捷脚本。
+  安装和配置 AutoGLM Phone Agent（AI 手机自动化工具）。
+  当用户说"安装 AutoGLM"、"设置 AutoGLM"、"用 AI 控制手机"等时触发此技能，
+  自动执行完整部署并创建快捷脚本。支持在 iSH/Minis 环境学习测试，
+  或在远程 Linux 服务器部署完整版。
 ---
 
 # AutoGLM Phone Agent 安装与使用
@@ -61,7 +61,7 @@ python3 quickstart.py \
 ```sh
 # 指定设备 ID
 python3 quickstart.py -d "emulator-5554" "打开抖音"
-python3 quickstart.py -d "ip:port" "打开京东"
+python3 quickstart.py -d "192.168.1.100:5555" "打开京东"
 ```
 
 ## ⚙️ 配置说明
@@ -88,7 +88,7 @@ DEVICE_ID=ip:port
 export AUTOGLM_BASE_URL="https://open.bigmodel.cn/api/paas/v4"
 export AUTOGLM_MODEL="autoglm-phone"
 export AUTOGLM_API_KEY="your-api-key-here"
-export DEVICE_ID="ip:port"
+export DEVICE_ID="192.168.100.150:5555"
 ```
 
 ## 🔑 API 密钥获取
@@ -102,8 +102,9 @@ export DEVICE_ID="ip:port"
 
 ### 方式 2: 使用自定义模型
 
-1. 准备APIurl+APIkey
-2. 模型id(必须使用图片识别能力的)
+1. 准备 API url+API key
+2. 模型 id(必须使用图片识别能力的)
+
 ## 🔍 故障排查
 
 | 问题 | 现象 | 解决方法 |
