@@ -1,6 +1,7 @@
 ---
 name: qbt-hub
-description: Manage qBittorrent downloads via WebUI API (v5.0+). Use this skill whenever the user asks to add a torrent or magnet link, check download progress, search/filter tasks, delete tasks, set speed limits, manage tags/categories, or do anything related to qBittorrent. Trigger keywords: "qBittorrent", "qbt", "torrent", "magnet", "download task", "seeding", "add torrent", "qbt-hub".
+description: >
+  Manage qBittorrent downloads via WebUI API (v5.0+). Use this skill whenever the user asks to add a torrent or magnet link, check download progress, search/filter tasks, delete tasks, set speed limits, manage tags/categories, or do anything related to qBittorrent. Trigger keywords: "qBittorrent", "qbt", "torrent", "magnet", "download task", "seeding", "add torrent", "qbt-hub".
 ---
 
 # qbt-hub
