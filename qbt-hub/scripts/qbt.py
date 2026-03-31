@@ -30,9 +30,9 @@ Authentication (priority: CLI args > env vars > defaults):
 
 import os, sys, json, argparse, urllib.request, urllib.parse, urllib.error, http.cookiejar, datetime
 
-DEFAULT_HOST = ""
-DEFAULT_USER = ""
-DEFAULT_PASS = ""
+DEFAULT_HOST = "http://qbt.wsen.me"
+DEFAULT_USER = "admin"
+DEFAULT_PASS = "adminadmin"
 
 STATUS_MAP = {
     "downloading":        "Downloading",
@@ -209,9 +209,6 @@ class QBTClient:
     def properties(self, h): return self._json("torrents/properties", {"hash": h})
     def files(self, h):      return self._json("torrents/files",      {"hash": h})
     def trackers(self, h):   return self._json("torrents/trackers",   {"hash": h})
-    def peers(self, h):
-        data = self._json("sync/torrentPeers", {"hash": h, "rid": "0"})
-        return data.get("peers", {}) if data else {}
 
     def get_global_dl_limit(self):    return int(self._get("transfer/downloadLimit") or 0)
     def get_global_ul_limit(self):    return int(self._get("transfer/uploadLimit") or 0)
@@ -366,19 +363,6 @@ def cmd_info(client, keyword):
         print(f"\n  Trackers ({len(trks)} total):")
         for tk in active_trks[:5]:
             print(f"    [{tk.get('status','?')}]  {tk.get('url','?')[:60]}")
-    # peers summary
-    peers = client.peers(h)
-    if peers:
-        seeders  = sum(1 for p in peers.values() if p.get("progress", 0) >= 1.0)
-        leechers = len(peers) - seeders
-        active   = [p for p in peers.values() if p.get("dl_speed", 0) > 0]
-        top_dl   = sorted(peers.values(), key=lambda x: x.get("dl_speed", 0), reverse=True)[:3]
-        print(f"\n  Peers ({len(peers)} total — {seeders} seeding / {leechers} leeching):")
-        for p in top_dl:
-            if p.get("dl_speed", 0) > 0:
-                print(f"    {p.get('ip','?'):<18} {p.get('country_code','--')}  {p.get('client','?')[:24]:<26}  DL: {fmt_speed(p.get('dl_speed',0))}")
-        if len(peers) > 3:
-            print(f"    ... run 'peers' command for full list")
     print()
 
 def cmd_limit(client, keyword, dl, ul):
@@ -507,36 +491,6 @@ def cmd_top(client, n, sort_by):
     sorted_list = sorted(torrents, key=key_map.get(sort_by, key_map["size"]), reverse=True)[:n]
     print_torrents(sorted_list, title=f"Top {n} by {label_map.get(sort_by, sort_by)}")
 
-def cmd_peers(client, keyword):
-    matches = client.find(keyword)
-    if not matches:
-        print(f'ERROR: no task matched "{keyword}"')
-        return
-    t = matches[0]
-    peers = client.peers(t["hash"])
-    if not peers:
-        print("No peers connected.")
-        return
-    seeders  = [p for p in peers.values() if p.get("progress", 0) >= 1.0]
-    leechers = [p for p in peers.values() if p.get("progress", 0) < 1.0]
-    sep(100)
-    print(f"  Peers for: {t['name'][:60]}")
-    print(f"  {len(peers)} total — {len(seeders)} seeding / {len(leechers)} leeching")
-    sep(100)
-    print(f"  {'IP':<24} {'CC':<4} {'Client':<28} {'DL':>10} {'UL':>10} {'Progress':>9}  Flags")
-    sep(100)
-    for p in sorted(peers.values(), key=lambda x: x.get("dl_speed", 0), reverse=True):
-        ip       = f"{p.get('ip','?')}:{p.get('port','')}"
-        cc       = p.get("country_code", "--")
-        client_s = p.get("client", "?")[:26]
-        dl       = fmt_speed(p.get("dl_speed", 0))
-        ul       = fmt_speed(p.get("up_speed", 0))
-        progress = f"{p.get('progress', 0)*100:.1f}%"
-        flags    = p.get("flags", "")
-        print(f"  {ip:<24} {cc:<4} {client_s:<28} {dl:>10} {ul:>10} {progress:>9}  {flags}")
-    print()
-
-
 def cmd_rss(client, action, url, path, rule_name, rule_pattern, rule_category):
     if action == "list":
         items = client.rss_items()
@@ -663,9 +617,6 @@ examples:
     p = sub.add_parser("info", help="Show task details")
     p.add_argument("keyword")
 
-    p = sub.add_parser("peers", help="Show peer list for a task")
-    p.add_argument("keyword")
-
     p = sub.add_parser("limit", help="Set per-task speed limit")
     p.add_argument("keyword")
     p.add_argument("--dl", type=float, help="DL limit KB/s (0=unlimited)")
@@ -732,7 +683,6 @@ examples:
     elif cmd == "resume":     cmd_resume(client, args.keyword)
     elif cmd == "delete":     cmd_delete(client, args.keyword, args.files)
     elif cmd == "info":       cmd_info(client, args.keyword)
-    elif cmd == "peers":      cmd_peers(client, args.keyword)
     elif cmd == "limit":      cmd_limit(client, args.keyword, args.dl, args.ul)
     elif cmd == "speedlimit": cmd_speedlimit(client, args.dl, args.ul, args.alt)
     elif cmd == "tag":        cmd_tag(client, args.keyword, args.tags)
