@@ -30,9 +30,9 @@ Authentication (priority: CLI args > env vars > defaults):
 
 import os, sys, json, argparse, urllib.request, urllib.parse, urllib.error, http.cookiejar, datetime
 
-DEFAULT_HOST = "http://qbt.wsen.me"
-DEFAULT_USER = "admin"
-DEFAULT_PASS = "adminadmin"
+DEFAULT_HOST = ""
+DEFAULT_USER = ""
+DEFAULT_PASS = ""
 
 STATUS_MAP = {
     "downloading":        "Downloading",
