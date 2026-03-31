@@ -73,7 +73,8 @@ python3 qbt.py status                 # DL/UL speed, totals, limits, turtle mode
 ### Task details
 
 ```bash
-python3 qbt.py info ubuntu            # progress, files, trackers, peers
+python3 qbt.py info ubuntu            # progress, files, trackers + top peers summary
+python3 qbt.py peers ubuntu           # full peer list: IP, country, client, DL/UL speed, progress, flags
 ```
 
 ### Pause / Resume / Recheck
