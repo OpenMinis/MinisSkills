@@ -1,6 +1,7 @@
-"""Data models for twitter-fetch.
+"""Data models for twitter-x-hub.
 
-Adapted from https://github.com/jackwener/twitter-cli
+Synced from https://github.com/public-clis/twitter-cli (v0.8.6)
+Adapted: zero third-party dependencies (stdlib only).
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ class Metrics:
     replies: int = 0
     quotes: int = 0
     views: int = 0
-    bookmarks: int = 0
+    bookmarks: int = 0  # added upstream v0.8+
 
 
 @dataclass
@@ -49,6 +50,17 @@ class Tweet:
     lang: str = ""
     retweeted_by: Optional[str] = None
     quoted_tweet: Optional["Tweet"] = None
+    score: Optional[float] = None
+    # Twitter Article fields (added upstream)
+    article_title: Optional[str] = None
+    article_text: Optional[str] = None
+    is_subscriber_only: bool = False
+
+
+@dataclass
+class BookmarkFolder:
+    id: str
+    name: str
 
 
 @dataclass

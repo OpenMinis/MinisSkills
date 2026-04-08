@@ -1,6 +1,6 @@
-"""Command-line interface for twitter-fetch.
+"""Command-line interface for twitter-x-hub.
 
-Adapted from https://github.com/jackwener/twitter-cli
+Adapted from https://github.com/public-clis/twitter-cli (v0.8.6)
 Auth is provided via --auth-token / --ct0 flags or
 TWITTER_AUTH_TOKEN / TWITTER_CT0 environment variables.
 
@@ -15,13 +15,13 @@ import dataclasses
 import json
 import os
 import sys
-from typing import List, Any
+from typing import Any, List
 
-from .client import TwitterClient, TwitterAPIError
-from .models import Tweet, UserProfile
+from .client import TwitterAPIError, TwitterClient
+from .models import BookmarkFolder, Tweet, UserProfile
 
 
-# ── Auth helpers ─────────────────────────────────────────────────────────────
+# ── Auth helpers ─────────────────────────────────────────────────────────
 
 def _get_client(args: argparse.Namespace) -> TwitterClient:
     auth_token = getattr(args, "auth_token", None) or os.environ.get("TWITTER_AUTH_TOKEN", "")
@@ -37,12 +37,14 @@ def _get_client(args: argparse.Namespace) -> TwitterClient:
     return TwitterClient(auth_token=auth_token, ct0=ct0)
 
 
-def _add_auth_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--auth-token", metavar="TOKEN", help="Twitter auth_token cookie (or set TWITTER_AUTH_TOKEN)")
-    parser.add_argument("--ct0", metavar="CT0", help="Twitter ct0 cookie (or set TWITTER_CT0)")
+def _add_auth_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--auth-token", metavar="TOKEN",
+                   help="Twitter auth_token cookie (or set TWITTER_AUTH_TOKEN)")
+    p.add_argument("--ct0", metavar="CT0",
+                   help="Twitter ct0 cookie (or set TWITTER_CT0)")
 
 
-# ── Output helpers ────────────────────────────────────────────────────────────
+# ── Output helpers ────────────────────────────────────────────────────────
 
 def _to_dict(obj: Any) -> Any:
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
@@ -62,12 +64,18 @@ def _print_tweets(tweets: List[Tweet], as_json: bool) -> None:
         return
     for t in tweets:
         rt_tag = f"  [RT by @{t.retweeted_by}]" if t.is_retweet else ""
-        print(f"── @{t.author.screen_name}{rt_tag}  [{t.created_at}]")
-        print(f"   {t.text[:200]}")
+        sub_tag = " [subscriber only]" if t.is_subscriber_only else ""
+        print(f"── @{t.author.screen_name}{rt_tag}{sub_tag}  [{t.created_at}]")
+        print(f"   {t.text[:280]}")
         m = t.metrics
         print(f"   ❤️ {m.likes}  🔁 {m.retweets}  💬 {m.replies}  👁 {m.views}  🔖 {m.bookmarks}")
         if t.quoted_tweet:
-            print(f"   ↳ QT @{t.quoted_tweet.author.screen_name}: {t.quoted_tweet.text[:100]}")
+            q = t.quoted_tweet
+            print(f"   ↳ QT @{q.author.screen_name}: {q.text[:120]}")
+        if t.article_title:
+            print(f"   📄 Article: {t.article_title}")
+        if t.media:
+            print(f"   📎 {len(t.media)} media item(s)")
         print()
 
 
@@ -84,7 +92,7 @@ def _print_users(users: List[UserProfile], as_json: bool) -> None:
         print()
 
 
-# ── Subcommand handlers ───────────────────────────────────────────────────────
+# ── Subcommand handlers ───────────────────────────────────────────────────
 
 def cmd_feed(args: argparse.Namespace) -> None:
     client = _get_client(args)
@@ -99,6 +107,16 @@ def cmd_bookmarks(args: argparse.Namespace) -> None:
     client = _get_client(args)
     tweets = client.fetch_bookmarks(count=args.max)
     _print_tweets(tweets, args.json)
+
+
+def cmd_bookmark_folders(args: argparse.Namespace) -> None:
+    client = _get_client(args)
+    folders = client.fetch_bookmark_folders()
+    if args.json:
+        _print_json(folders)
+    else:
+        for f in folders:
+            print(f"[{f.id}] {f.name}")
 
 
 def cmd_search(args: argparse.Namespace) -> None:
@@ -146,6 +164,17 @@ def cmd_tweet(args: argparse.Namespace) -> None:
     _print_tweets(tweets, args.json)
 
 
+def cmd_tweet_by_id(args: argparse.Namespace) -> None:
+    """Fetch a single tweet by ID (TweetResultByRestId — faster than TweetDetail)."""
+    client = _get_client(args)
+    tweet_id = args.tweet_id.rstrip("/").split("/")[-1]
+    tweet = client.fetch_tweet_by_id(tweet_id)
+    if tweet is None:
+        print(f"Tweet {tweet_id} not found.", file=sys.stderr)
+        sys.exit(1)
+    _print_tweets([tweet], args.json)
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     client = _get_client(args)
     tweets = client.fetch_list_timeline(args.list_id, count=args.max)
@@ -166,8 +195,15 @@ def cmd_following(args: argparse.Namespace) -> None:
 
 def cmd_post(args: argparse.Namespace) -> None:
     client = _get_client(args)
-    tweet_id = client.create_tweet(args.text, reply_to_id=args.reply_to)
-    print(f"Posted: https://x.com/i/web/status/{tweet_id}")
+    result = client.post_tweet(args.text, reply_to_id=getattr(args, "reply_to", None))
+    tweet_id = (
+        result.get("data", {}).get("create_tweet", {}).get("tweet_results", {})
+        .get("result", {}).get("rest_id", "")
+    )
+    if tweet_id:
+        print(f"Posted: https://x.com/i/web/status/{tweet_id}")
+    else:
+        print("Posted (no ID returned).")
 
 
 def cmd_delete(args: argparse.Namespace) -> None:
@@ -212,12 +248,12 @@ def cmd_unbookmark(args: argparse.Namespace) -> None:
     print(f"Removed bookmark {args.tweet_id}")
 
 
-# ── Argument parser ───────────────────────────────────────────────────────────
+# ── Argument parser ───────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="twitter-fetch",
-        description="Fetch Twitter/X data via internal GraphQL API (cookie auth).",
+        prog="twitter-x-hub",
+        description="Twitter/X GraphQL client (cookie auth, zero third-party deps).",
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
     sub.required = True
@@ -236,6 +272,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     _add_auth_args(p)
     p.set_defaults(func=cmd_bookmarks)
+
+    # bookmark-folders
+    p = sub.add_parser("bookmark-folders", help="List bookmark folders")
+    p.add_argument("--json", action="store_true")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_bookmark_folders)
 
     # search
     p = sub.add_parser("search", help="Search tweets")
@@ -262,7 +304,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_user_posts)
 
     # user-likes
-    p = sub.add_parser("user-likes", help="Tweets liked by a user")
+    p = sub.add_parser("user-likes", help="Tweets liked by a user (own account only)")
     p.add_argument("screen_name")
     p.add_argument("--max", type=int, default=20, metavar="N")
     p.add_argument("--json", action="store_true")
@@ -270,12 +312,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_user_likes)
 
     # tweet
-    p = sub.add_parser("tweet", help="Tweet detail and reply thread")
+    p = sub.add_parser("tweet", help="Tweet detail + reply thread")
     p.add_argument("tweet_id", help="Tweet ID or full URL")
     p.add_argument("--max", type=int, default=20, metavar="N")
     p.add_argument("--json", action="store_true")
     _add_auth_args(p)
     p.set_defaults(func=cmd_tweet)
+
+    # tweet-by-id (new — TweetResultByRestId, faster single-tweet fetch)
+    p = sub.add_parser("tweet-by-id", help="Fetch a single tweet by ID (no replies)")
+    p.add_argument("tweet_id", help="Tweet ID or full URL")
+    p.add_argument("--json", action="store_true")
+    _add_auth_args(p)
+    p.set_defaults(func=cmd_tweet_by_id)
 
     # list
     p = sub.add_parser("list", help="Twitter List timeline")
@@ -294,7 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_followers)
 
     # following
-    p = sub.add_parser("following", help="Users that a user follows (requires user_id)")
+    p = sub.add_parser("following", help="Users a user follows (requires user_id)")
     p.add_argument("user_id")
     p.add_argument("--max", type=int, default=20, metavar="N")
     p.add_argument("--json", action="store_true")
@@ -304,7 +353,7 @@ def build_parser() -> argparse.ArgumentParser:
     # post
     p = sub.add_parser("post", help="Post a new tweet")
     p.add_argument("text")
-    p.add_argument("--reply-to", metavar="TWEET_ID")
+    p.add_argument("--reply-to", metavar="TWEET_ID", dest="reply_to")
     _add_auth_args(p)
     p.set_defaults(func=cmd_post)
 
