@@ -128,6 +128,57 @@ tl.to(".subtitle", { y: -30, opacity: 0, duration: 0.3, ease: "power2.in" }, 3.1
 tl.to(".logo", { scale: 0.9, opacity: 0, duration: 0.3, ease: "power2.in" }, 3.2);
 ```
 
+### Multi-scene compositions: one container per scene
+
+When a composition has multiple scenes that appear sequentially (A exits, then B enters), **never put all scenes' elements in a single shared flex container**. Even though each element starts at `opacity: 0`, flex still allocates height for every child. With 5 scenes worth of content in one container, the container's total height far exceeds the stage height — flex `justify-content: center` then centers content relative to that oversized container, pushing the visible content outside the screenshot crop.
+
+**WRONG — all scenes in one flex container:**
+
+```html
+<div class="scene-content"> <!-- flex column, height:100% -->
+  <!-- Scene A elements -->
+  <div id="title-a" style="opacity:0">Title A</div>
+  <div id="body-a"  style="opacity:0">Body A</div>
+  <!-- Scene B elements — also take up flex height even when invisible -->
+  <div id="title-b" style="opacity:0">Title B</div>
+  <div id="body-b"  style="opacity:0">Body B</div>
+  <!-- Scene C ... -->
+</div>
+```
+
+**RIGHT — each scene is its own absolute layer:**
+
+```html
+<!-- Scene A -->
+<div class="scene" id="scene-a">
+  <div id="title-a" style="opacity:0">Title A</div>
+  <div id="body-a"  style="opacity:0">Body A</div>
+</div>
+<!-- Scene B — zero height impact on Scene A -->
+<div class="scene" id="scene-b">
+  <div id="title-b" style="opacity:0">Title B</div>
+  <div id="body-b"  style="opacity:0">Body B</div>
+</div>
+```
+
+```css
+/* Each scene fills the stage independently */
+.scene {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 80px 120px;
+  box-sizing: border-box;
+  z-index: 2;
+  gap: 24px;
+}
+```
+
+This is the only correct pattern for sequential scenes. The `position: absolute; inset: 0` on each scene container does NOT conflict with the "Layout Before Animation" guideline — that guideline bans absolute-positioning *content elements* (titles, cards, stats) at hardcoded pixel offsets. Scene *containers* that fill the full stage via `inset: 0` are correct and required.
+
 ### When elements share space across time
 
 If element A exits before element B enters in the same area, both should have correct CSS positions for their respective hero frames. The timeline ordering guarantees they never visually coexist — but if you skip the layout step, you won't catch the case where they accidentally overlap due to a timing error.

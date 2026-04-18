@@ -212,6 +212,17 @@ tl.to("#glow", {
 - No `<meta name="viewport">` — the renderer sets viewport externally via `set_viewport`
 - No scale wrappers, no `transform: scale()` on the stage — these break pixel accuracy
 - Project must be under `/var/minis/workspace/` — the renderer converts the path to a `minis://` URL
+- **Multi-scene layout: use `position:absolute; inset:0` per scene** — see note below
+
+> **⚠️ Minis layout difference from standard HyperFrames:**
+> The standard skill says `.scene-content` should use `width:100%; height:100%`. In Minis/iOS
+> WebKit, `set_viewport` sets the CSS viewport *width* but iOS Safari's height is influenced by
+> system UI, so `height:100%` on a flex container can exceed the stage height. Content then
+> centers relative to that oversized container and lands outside the screenshot crop.
+>
+> **Fix:** for compositions with multiple sequential scenes, give each scene its own
+> `position:absolute; inset:0` container (see the `hyperframes` skill → "Multi-scene compositions"
+> section). For single-scene compositions, `width:100%; height:100%` is fine.
 
 ```html
 <!-- Correct HTML structure -->
