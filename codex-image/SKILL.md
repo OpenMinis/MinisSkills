@@ -26,6 +26,8 @@ Generate images via `chatgpt.com/backend-api/codex/responses` using the `image_g
 
 ## Usage
 
+### Text-to-image
+
 ```bash
 python3 scripts/codex_image.py "a cute rabbit on a light background" \
   --output rabbit.png \
@@ -33,16 +35,29 @@ python3 scripts/codex_image.py "a cute rabbit on a light background" \
   --effort low
 ```
 
+### Image-to-image / reference image
+
+```bash
+python3 scripts/codex_image_edit.py "turn this person into a cinematic iOS AI assistant portrait" \
+  --image reference.jpg \
+  --output portrait.png \
+  --model gpt-5.4 \
+  --effort low
+```
+
+`codex_image_edit.py` encodes the local reference image as a base64 data URL and sends it as multimodal input (`input_text` + `input_image`) to the same Codex responses endpoint, then asks the `image_generation` tool to create a new image from the reference.
+
 ### Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `prompt` | (required) | Image description |
-| `--output` | `codex_image.png` | Output file path |
+| `prompt` | (required) | Image description or edit instruction |
+| `--image` | (edit only, required) | Local reference image path for image-to-image generation |
+| `--output` | `codex_image.png` / `codex_image_edit.png` | Output file path |
 | `--model` | `gpt-5.4` | Codex model |
 | `--effort` | `low` | Reasoning effort: low/medium/high |
-| `--token` | - | Access token directly (skips auto auth) |
-| `--token-file` | - | File containing token (skips auto auth) |
+| `--token` | - | Access token directly (skips auto auth; text-to-image script only) |
+| `--token-file` | - | File containing token (skips auto auth; text-to-image script only) |
 
 ### Output
 
