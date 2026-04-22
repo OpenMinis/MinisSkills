@@ -83,9 +83,13 @@ def fetch_session_json(tab_id=None) -> dict | None:
 
 
 def save_cache(data: dict):
-    data["_cached_at"] = int(time.time())
+    """Only cache the token and timestamp — discard PII fields (email, user_id, etc.)."""
+    cache = {
+        "accessToken": data["accessToken"],
+        "_cached_at": int(time.time()),
+    }
     with open(AUTH_CACHE, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(cache, f)
     os.chmod(AUTH_CACHE, 0o600)
 
 
@@ -119,7 +123,8 @@ def main():
     cached = load_cache()
     if cached:
         print("[auth] Using cached token.", file=sys.stderr)
-        print(json.dumps({"success": True, "accessToken": cached["accessToken"], "source": "cache"}))
+        # Token is NOT printed to stdout — callers must read from AUTH_CACHE directly
+        print(json.dumps({"success": True, "source": "cache"}))
         return
 
     # 2. Try fetching session directly (user may already be logged in)
@@ -128,7 +133,8 @@ def main():
     if data and data.get("accessToken"):
         save_cache(data)
         print("[auth] Got token from existing session.", file=sys.stderr)
-        print(json.dumps({"success": True, "accessToken": data["accessToken"], "source": "session"}))
+        # Token is NOT printed to stdout — callers must read from AUTH_CACHE directly
+        print(json.dumps({"success": True, "source": "session"}))
         return
 
     # 3. If --no-login, bail out immediately without opening login page
@@ -165,7 +171,8 @@ def main():
                 browser("close_tab", tab_id=poll_tab_id)
             save_cache(data)
             print("[auth] Login detected! Token saved.", file=sys.stderr)
-            print(json.dumps({"success": True, "accessToken": data["accessToken"], "source": "login"}))
+            # Token is NOT printed to stdout — callers must read from AUTH_CACHE directly
+            print(json.dumps({"success": True, "source": "login"}))
             return
 
     print("[auth] Timed out waiting for login.", file=sys.stderr)

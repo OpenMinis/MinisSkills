@@ -10,7 +10,12 @@ AUTH_CACHE = os.path.expanduser("~/.chatgpt_auth.json")
 
 def get_token_auto(no_login=False) -> str:
     """Get ChatGPT access token via get_auth.py (auto login flow).
-    
+
+    get_auth.py intentionally does NOT print the token to stdout (to avoid
+    leaking credentials into logs or conversation context). Instead, it writes
+    the token to AUTH_CACHE (~/.chatgpt_auth.json, chmod 600) and we read it
+    from there after the subprocess exits successfully.
+
     Args:
         no_login: If True, only check session/cache, don't open login page.
     """
@@ -19,7 +24,7 @@ def get_token_auto(no_login=False) -> str:
     if no_login:
         cmd.append("--no-login")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
-    # Print auth progress to stderr
+    # Print auth progress to stderr (contains no token values)
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
     stdout = result.stdout.strip()
@@ -28,7 +33,16 @@ def get_token_auto(no_login=False) -> str:
     data = json.loads(stdout)
     if not data.get("success"):
         raise RuntimeError(data.get("error", "Auth failed"))
-    return data["accessToken"]
+    # Read token from cache file — never from stdout
+    try:
+        with open(AUTH_CACHE) as f:
+            cached = json.load(f)
+        token = cached.get("accessToken", "")
+        if not token:
+            raise RuntimeError("Cache file exists but accessToken is empty.")
+        return token
+    except Exception as e:
+        raise RuntimeError(f"Failed to read token from cache after auth: {e}")
 
 def is_oauth_error(result: dict) -> bool:
     """Check if the error is an OAuth/auth related error."""

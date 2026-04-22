@@ -19,9 +19,10 @@ Generate images via `chatgpt.com/backend-api/codex/responses` using the `image_g
 3. `--token-file` argument (CLI only)
 4. `~/.chatgpt_auth.json` cache (valid for 8 hours)
 5. **Auto login flow** — fetches from `https://chatgpt.com/api/auth/session` via `minis-browser-use`:
-   - If already logged in → token extracted immediately
-   - If not logged in → opens `chatgpt.com/auth/login` in the browser, then polls every 30s in a new tab for up to 5 minutes
-   - On success → saves token to `~/.chatgpt_auth.json` (chmod 600)
+   - If already logged in → token extracted and saved to cache immediately
+   - If not logged in → opens `chatgpt.com/auth/login` in the browser, then polls every 10s in a new tab for up to 5 minutes
+   - On success → saves token to `~/.chatgpt_auth.json` (chmod 600, token + timestamp only)
+   - **Token is never printed to stdout or logs** — it stays in the cache file only
 
 ## Usage
 
@@ -53,8 +54,7 @@ JSON with `success`, `path`, `size`, `revised_prompt` on success.
 python3 scripts/get_auth.py
 ```
 
-Returns JSON `{"success": true, "accessToken": "...", "source": "cache|session|login"}`.
-Can be used independently to refresh or pre-fetch the token.
+Returns JSON `{"success": true, "source": "cache|session|login"}` — **the token itself is never printed to stdout**. It is written only to `~/.chatgpt_auth.json` (chmod 600, token + timestamp only, no PII). This prevents the token from appearing in shell logs, conversation context, or screenshots.
 
 ## Workflow
 
@@ -68,7 +68,8 @@ Can be used independently to refresh or pre-fetch the token.
 
 ## Notes
 
-- Token is cached in `~/.chatgpt_auth.json` for 8 hours (chmod 600).
+- Token is cached in `~/.chatgpt_auth.json` for 8 hours (chmod 600, token + timestamp only — no PII stored).
+- **Token is never printed to stdout or conversation context** — always read from cache file internally.
 - The endpoint requires `stream: true`; the script handles SSE parsing internally.
 - Token is a ChatGPT session token, not an OpenAI API key. It expires and is refreshed automatically on next use.
 - Image generation uses `gpt-image-2` under the hood with auto quality/size.
