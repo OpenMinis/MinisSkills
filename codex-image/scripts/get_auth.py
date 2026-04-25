@@ -112,41 +112,14 @@ def load_cache() -> dict | None:
         return None
 
 
-def test_open(url: str):
-    """Quick test: open a URL via minis-open and verify it succeeds."""
-    print(f"[test-open] 正在用 minis-open 打开: {url}", file=sys.stderr)
-    result = subprocess.run(["minis-open", url], capture_output=True, text=True)
-    ok = result.returncode == 0
-    stdout = result.stdout.strip()
-    stderr = result.stderr.strip()
-    if ok:
-        print(f"[test-open] ✅ 成功 (returncode=0)", file=sys.stderr)
-        if stdout:
-            print(f"[test-open] stdout: {stdout}", file=sys.stderr)
-    else:
-        print(f"[test-open] ❌ 失败 (returncode={result.returncode})", file=sys.stderr)
-        if stderr:
-            print(f"[test-open] stderr: {stderr}", file=sys.stderr)
-    print(json.dumps({"success": ok, "url": url, "returncode": result.returncode,
-                      "stdout": stdout, "stderr": stderr}))
-    sys.exit(0 if ok else 1)
-
-
 def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-login", action="store_true",
                         help="Only check session, do not open login page. Exit with error if not logged in.")
-    parser.add_argument("--test-open", metavar="URL", nargs="?",
-                        const="https://chatgpt.com",
-                        help="快速测试 minis-open 是否能正常打开 URL（默认: https://chatgpt.com），测试后直接退出。")
     parser.add_argument("--start-auth", action="store_true",
                         help="跳过 cache/session 检查，直接打开 ChatGPT 登录页开始授权流程。")
     args = parser.parse_args()
-
-    # --test-open: 快速验证 minis-open 是否正常工作
-    if args.test_open is not None:
-        test_open(args.test_open)
 
     # --start-auth: 跳过缓存和 session 检查，直接跳转登录页
     if args.start_auth:
