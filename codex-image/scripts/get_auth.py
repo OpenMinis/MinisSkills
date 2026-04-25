@@ -112,12 +112,71 @@ def load_cache() -> dict | None:
         return None
 
 
+def test_open(url: str):
+    """Quick test: open a URL via minis-open and verify it succeeds."""
+    print(f"[test-open] 正在用 minis-open 打开: {url}", file=sys.stderr)
+    result = subprocess.run(["minis-open", url], capture_output=True, text=True)
+    ok = result.returncode == 0
+    stdout = result.stdout.strip()
+    stderr = result.stderr.strip()
+    if ok:
+        print(f"[test-open] ✅ 成功 (returncode=0)", file=sys.stderr)
+        if stdout:
+            print(f"[test-open] stdout: {stdout}", file=sys.stderr)
+    else:
+        print(f"[test-open] ❌ 失败 (returncode={result.returncode})", file=sys.stderr)
+        if stderr:
+            print(f"[test-open] stderr: {stderr}", file=sys.stderr)
+    print(json.dumps({"success": ok, "url": url, "returncode": result.returncode,
+                      "stdout": stdout, "stderr": stderr}))
+    sys.exit(0 if ok else 1)
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-login", action="store_true",
                         help="Only check session, do not open login page. Exit with error if not logged in.")
+    parser.add_argument("--test-open", metavar="URL", nargs="?",
+                        const="https://chatgpt.com",
+                        help="快速测试 minis-open 是否能正常打开 URL（默认: https://chatgpt.com），测试后直接退出。")
+    parser.add_argument("--start-auth", action="store_true",
+                        help="跳过 cache/session 检查，直接打开 ChatGPT 登录页开始授权流程。")
     args = parser.parse_args()
+
+    # --test-open: 快速验证 minis-open 是否正常工作
+    if args.test_open is not None:
+        test_open(args.test_open)
+
+    # --start-auth: 跳过缓存和 session 检查，直接跳转登录页
+    if args.start_auth:
+        print("[auth] --start-auth: 直接打开 ChatGPT 登录页...", file=sys.stderr)
+        subprocess.run(["minis-open", LOGIN_URL])
+        print("[auth] 请在弹出的页面中完成 ChatGPT 登录，登录后脚本将自动继续...", file=sys.stderr)
+        print(f"[auth] 将每 {POLL_INTERVAL}s 检查一次，最多等待 {MAX_WAIT}s。", file=sys.stderr)
+        # 直接进入 polling 逻辑
+        deadline = time.time() + MAX_WAIT
+        poll_tab_id = None
+        while time.time() < deadline:
+            time.sleep(POLL_INTERVAL)
+            remaining = int(deadline - time.time())
+            print(f"[auth] Polling session... ({remaining}s remaining)", file=sys.stderr)
+            if poll_tab_id is None:
+                new_tab_result = browser("new_tab")
+                if isinstance(new_tab_result, dict):
+                    data_field = new_tab_result.get("data", new_tab_result)
+                    poll_tab_id = data_field.get("tab_id") if isinstance(data_field, dict) else None
+            data = fetch_session_json(tab_id=poll_tab_id)
+            if data and data.get("accessToken"):
+                if poll_tab_id is not None:
+                    browser("close_tab", tab_id=poll_tab_id)
+                save_cache(data)
+                print("[auth] Login detected! Token saved.", file=sys.stderr)
+                print(json.dumps({"success": True, "source": "login"}))
+                return
+        print("[auth] Timed out waiting for login.", file=sys.stderr)
+        print(json.dumps({"success": False, "error": "Timed out waiting for ChatGPT login (5 min)"}))
+        sys.exit(1)
 
     # 1. Check cache first
     cached = load_cache()
