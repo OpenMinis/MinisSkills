@@ -2,6 +2,8 @@
 
 A community collection of skills for [Minis](https://github.com/OpenMinis) — reusable instruction sets that extend Claude's capabilities with specialized workflows, domain knowledge, and bundled resources.
 
+If you want a Chinese place to search and install skills, check out Skills宝: https://skilery.com
+
 ---
 
 ## What is a Skill?
