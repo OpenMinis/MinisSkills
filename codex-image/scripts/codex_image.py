@@ -23,17 +23,18 @@ def get_token_auto(no_login=False) -> str:
     cmd = [sys.executable, script]
     if no_login:
         cmd.append("--no-login")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
-    # Print auth progress to stderr (contains no token values)
+    # T172: do NOT capture stdout. get_auth.py emits OSC 1337 markers (via
+    # `minis-open <login_url>`) that the host ChatViewModel must see in order
+    # to pop the WebView login sheet. capture_output=True swallows those
+    # markers so the user never sees the login page and the script polls
+    # uselessly for 5 minutes. Pass stdout through; success signal comes
+    # from process exit code + presence of the auth cache file.
+    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True, timeout=360)
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
-    stdout = result.stdout.strip()
-    if not stdout:
-        raise RuntimeError(f"get_auth.py returned no output. stderr: {result.stderr[:300]}")
-    data = json.loads(stdout)
-    if not data.get("success"):
-        raise RuntimeError(data.get("error", "Auth failed"))
-    # Read token from cache file — never from stdout
+    if result.returncode != 0:
+        raise RuntimeError(f"get_auth.py exited rc={result.returncode}. stderr: {result.stderr[:300]}")
+    # Read token from cache file — get_auth.py writes it on success
     try:
         with open(AUTH_CACHE) as f:
             cached = json.load(f)
@@ -41,6 +42,8 @@ def get_token_auto(no_login=False) -> str:
         if not token:
             raise RuntimeError("Cache file exists but accessToken is empty.")
         return token
+    except FileNotFoundError:
+        raise RuntimeError("get_auth.py exited 0 but no cache file was written")
     except Exception as e:
         raise RuntimeError(f"Failed to read token from cache after auth: {e}")
 
