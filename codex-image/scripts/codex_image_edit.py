@@ -16,11 +16,14 @@ def get_token():
                 return c['accessToken']
         except Exception:
             pass
-    r = subprocess.run([sys.executable, os.path.join(SCRIPT_DIR, 'get_auth.py')], capture_output=True, text=True, timeout=360)
+    # T172: stdout pass-through so OSC 1337 markers from minis-open reach
+    # the host ChatViewModel and the login WebView pops up. capture_output
+    # would swallow them and the script would poll fruitlessly for 5 min.
+    r = subprocess.run([sys.executable, os.path.join(SCRIPT_DIR, 'get_auth.py')], stderr=subprocess.PIPE, text=True, timeout=360)
     if r.stderr:
         print(r.stderr, end='', file=sys.stderr)
     if r.returncode != 0:
-        raise SystemExit(r.stdout + r.stderr)
+        raise SystemExit(r.stderr or 'get_auth.py failed')
     with open(AUTH_CACHE) as f:
         return json.load(f)['accessToken']
 
