@@ -64,7 +64,7 @@ pip install alibabacloud-bailian20231229 alibabacloud-tea-openapi alibabacloud-t
 - [设置 ALIBABA_CLOUD_ACCESS_KEY_ID](minis://settings/environments?create_key=ALIBABA_CLOUD_ACCESS_KEY_ID&create_value=)
 - [设置 ALIBABA_CLOUD_ACCESS_KEY_SECRET](minis://settings/environments?create_key=ALIBABA_CLOUD_ACCESS_KEY_SECRET&create_value=)
 
-> 获取 AccessKey：登录 [阿里云控制台](https://ram.aliyun.com/manage/ak) → 访问控制 → 用户 → 创建 AccessKey
+> 获取 AccessKey：登录 [阿里云控制台](https://ram.console.aliyun.com/profile/access-keys) → 访问控制 → 用户 → 创建 AccessKey
 
 ### 知识库定位
 - [设置 DEFAULT_WORKSPACE_ID](minis://settings/environments?create_key=DEFAULT_WORKSPACE_ID&create_value=)
