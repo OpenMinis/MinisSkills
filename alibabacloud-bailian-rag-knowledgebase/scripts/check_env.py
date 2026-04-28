@@ -19,11 +19,10 @@ def check_environment():
     
     cred_ok = bool(ak and sk)
     cred_icon = "✅" if cred_ok else "❌"
-    ak_display = f"{ak[:5]}{'*'*(len(ak)-9)}{ak[-4:]}" if ak else "未设置"
     
     print(f"\n[凭证配置] {cred_icon}")
-    print(f"  AccessKey ID: {ak_display}")
-    if sk: print("  AccessKey Secret: [已配置]")
+    print(f"  AccessKey ID: {'已配置' if ak else '未配置'}")
+    print(f"  AccessKey Secret: {'已配置' if sk else '未配置'}")
     if not ak or not sk:
         print("  ⚠️  未检测到完整的凭证环境变量！")
         print("     请在 Minis 设置中配置：")
