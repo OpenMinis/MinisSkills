@@ -6,7 +6,7 @@ description: 通过 iOS 快捷指令「极速分享」分享 iCloud Drive 文件
 
 # 分享文件 — 快捷指令「极速分享」
 
-快捷指令链接：https://www.icloud.com/shortcuts/05320f270ce34b01a728a7bc5f06955c
+快捷指令链接：https://www.icloud.com/shortcuts/c0cd9fbdc42149c3b98e4f9fcb103011
 
 ## 核心原则
 
@@ -43,13 +43,13 @@ cp <源文件路径> /var/minis/mounts/iCloud/极速分享/<filename>
 ```
 
 计算参数后缀：
-- **来自 iCloud 其他目录** → `--0S`
-- **来自 attachments 等外部来源** → `--<ceil(file_size_MB / upload_MBs * 1.2)>S`（加 20% 余量应对网络波动）
+- **来自 iCloud 其他目录** → `--0Second`
+- **来自 attachments 等外部来源** → `--<ceil(file_size_MB / upload_MBs * 1.2)>Second`（加 20% 余量应对网络波动）
 
 ### C. 调用快捷指令
 
 ```
-apple-open "shortcuts://run-shortcut?name=%E6%9E%81%E9%80%9F%E5%88%86%E4%BA%AB&input=text&text=%E6%9E%81%E9%80%9F%E5%88%86%E4%BA%AB/<filename>--<time>S"
+apple-open "shortcuts://run-shortcut?name=%E6%9E%81%E9%80%9F%E5%88%86%E4%BA%AB&input=text&text=%E6%9E%81%E9%80%9F%E5%88%86%E4%BA%AB/<filename>--<time>Second"
 ```
 
 ## 反馈用户
