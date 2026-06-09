@@ -177,12 +177,23 @@ FCFF₁₀ = FCFF₀ × (1+g₁)¹⁰
 
 ## 数据源推荐
 
-- 股价/市值：新浪财经、雪球
-- 财报数据：东方财富财务分析页面（emweb.securities.eastmoney.com）
-- 行业β/ERP：Damodaran Online (pages.stern.nyu.edu/~adamodar/)
-- 10年期国债收益率：各国央行官网或TradingView
-- 当前可实现FCFF/现金流/负债情况均需使用工具获取最新数据，不要依赖训练数据
+| 数据 | 推荐获取方式 |
+|:---|---|
+| 股价/市值 | browser_use navigate 新浪财经或雪球个股页面，get_text 提取 |
+| 财报数据 | browser_use navigate `https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/Index?type=web&code=<股票代码>`（利润表/资产负债表/现金流量表三个tab信息完全） |
+| 有息负债明细 | 同上，资产负债表tab——短期借款、长期借款、租赁负债、应付债券各科目 |
+| CFO/Capex | 同上，现金流量表tab——经营活动现金流净额、购建固定资产支付的现金 |
+| 行业β/ERP | Damodaran Online (pages.stern.nyu.edu/~adamodar/) |
+| 10年期国债收益率 | TradingView 或各国央行官网，browser_use navigate 获取 |
+| 历史收入/CAGR | 东方财富PC_HSF10 利润表tab，拉5-10年收入数据手动算 |
+
+> 注：所有数据都应通过 browser_use 实时抓取，不要依赖训练数据。A股股票代码在 emweb 格式为 `SH600519`（沪）或 `SZ000651`（深），港股为 `HK00700`。
 
 ## 实战案例参考
 
-参考知乎文章《市场对SK海力士隐含的预期是什么？》——用Reverse DCF算出SK海力士当前股价隐含未来10年FCFF年化增长25%，10年后FCFF需达208万亿韩元（2025年收入的9倍），是过去10年实际增速（13%）的两倍。
+系列文章（作者：monokuro，东京四大会计师事务所估值团队Manager）：
+
+1. **核心案例**：《[市场对SK海力士隐含的预期是什么？反推DCF告诉你一个吓人的数字](https://zhuanlan.zhihu.com/p/2036428331852228430)》——用Reverse DCF算出SK海力士当前股价隐含未来10年FCFF年化增长25%，10年后FCFF需达208万亿韩元（2025年收入的9倍），是过去10年实际增速（13%）的两倍。
+2. **方法修正**：《[上一篇AI芯片五巨头的反推DCF，有三处需要修正](https://zhuanlan.zhihu.com/p/2038261840434701481)》——指出Exit Multiple替代GGM、周期中位FCFF替换单年FCFF、数据源修正等实操陷阱，可作为Reverse DCF局限性章节的补充参考。
+
+方法论核心参考 Aswath Damodaran 的估值框架（《Investment Valuation》及每年更新的各国风险溢价数据）。
