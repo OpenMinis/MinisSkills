@@ -311,33 +311,157 @@ async def api_mkdir(cookie: str, name: str, pdir_fid: str = "0") -> str:
         raise RuntimeError(f"创建目录失败：{j.get('message')}")
     return j["data"]["fid"]
 
-async def download_file(url: str, save_path: Path, cookie: str) -> None:
+def download_file(url: str, save_path: Path, cookie: str) -> None:
     """
-    【需要登录】流式下载单个文件，带进度输出。
+    【需要登录】同步流式下载单个文件（适合在线程中调用）。
     下载 URL 指向阿里云 OSS，不能带 Content-Type（签名校验会失败）。
     """
+    import urllib.request as _ur
     dl_headers = {
         "User-Agent": UA_WEB,
         "Cookie": cookie,
         "Referer": QUARK_HOME + "/",
     }
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    async with aiohttp.ClientSession() as s:
-        async with s.get(
-            url, headers=dl_headers,
-            timeout=aiohttp.ClientTimeout(total=300),
-            allow_redirects=True,
-        ) as r:
-            total = int(r.headers.get("Content-Length", 0))
-            done = 0
-            with open(save_path, "wb") as f:
-                async for chunk in r.content.iter_chunked(1024 * 256):
-                    f.write(chunk)
-                    done += len(chunk)
-                    if total:
-                        print(f"\r  {save_path.name}  {done/total*100:.1f}%",
-                              end="", flush=True)
+    req = _ur.Request(url, headers=dl_headers)
+    with _ur.urlopen(req, timeout=60) as resp:
+        total = int(resp.headers.get("Content-Length") or 0)
+        done = 0
+        with open(save_path, "wb") as f:
+            while True:
+                chunk = resp.read(512 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                if total:
+                    print(f"\r  {save_path.name}  {done/total*100:.1f}%",
+                          end="", flush=True)
     print()
+
+
+# ── 后台多文件下载（线程 + 进度报告）────────────────────────────────────────
+
+import threading
+from collections import deque
+
+class _DLTask:
+    """单文件下载任务，记录进度和速度历史。"""
+    def __init__(self, name: str, save_path: Path, url: str, cookie: str):
+        self.name = name
+        self.save_path = save_path
+        self.url = url
+        self.cookie = cookie
+        self.total_size = 0
+        self.done_bytes = 0
+        self.finished = False
+        self.error: Optional[Exception] = None
+        # (timestamp, cumulative_bytes) 用于计算过去 1min 均速
+        self.speed_history: deque = deque()
+
+    def speed_1min(self) -> float:
+        now = time.time()
+        while self.speed_history and now - self.speed_history[0][0] > 60:
+            self.speed_history.popleft()
+        if len(self.speed_history) < 2:
+            return 0.0
+        t0, b0 = self.speed_history[0]
+        t1, b1 = self.speed_history[-1]
+        dt = t1 - t0
+        return (b1 - b0) / dt if dt > 0.1 else 0.0
+
+    def progress_line(self) -> str:
+        pct = f"{self.done_bytes / self.total_size * 100:.1f}%" if self.total_size else "??%"
+        done_s  = _fmt_size(self.done_bytes)
+        total_s = _fmt_size(self.total_size) if self.total_size else "?"
+        spd     = _fmt_size(self.speed_1min()) + "/s"
+        if self.finished:
+            status = "✅ 完成"
+        elif self.error:
+            status = f"❌ {self.error}"
+        else:
+            status = "⬇ 下载中"
+        return f"  [{status}] {self.name}  {done_s}/{total_s} ({pct})  1min均速: {spd}"
+
+def _run_dl_task(task: _DLTask) -> None:
+    """线程入口：流式下载并更新进度。"""
+    import urllib.request as _ur
+    dl_headers = {
+        "User-Agent": UA_WEB,
+        "Cookie": task.cookie,
+        "Referer": QUARK_HOME + "/",
+    }
+    try:
+        req = _ur.Request(task.url, headers=dl_headers)
+        task.save_path.parent.mkdir(parents=True, exist_ok=True)
+        with _ur.urlopen(req, timeout=60) as resp:
+            cl = resp.headers.get("Content-Length")
+            if cl:
+                task.total_size = int(cl)
+            with open(task.save_path, "wb") as f:
+                while True:
+                    chunk = resp.read(512 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    task.done_bytes += len(chunk)
+                    now = time.time()
+                    task.speed_history.append((now, task.done_bytes))
+        task.finished = True
+    except Exception as e:
+        task.error = e
+
+async def download_files_bg(items: list[dict], save_dir: Path, cookie: str,
+                            report_interval: int = 10) -> None:
+    """
+    后台线程下载多个文件，每隔 report_interval 秒打印一次进度。
+
+    items 格式：[{"file_name": str, "download_url": str}, ...]
+    每项可选 "save_name" 覆盖保存文件名。
+    打印 download_url（截断到 80 字符）供调试。
+    """
+    save_dir.mkdir(parents=True, exist_ok=True)
+    tasks: list[_DLTask] = []
+
+    for item in items:
+        orig_name = item["file_name"]
+        save_name = item.get("save_name", orig_name)
+        url       = item["download_url"]
+        save_path = save_dir / save_name
+
+        print(f"\n📎 {orig_name}  →  {save_name}")
+        print(f"   URL: {url[:80]}...")
+
+        tasks.append(_DLTask(save_name, save_path, url, cookie))
+
+    print(f"\n🚀 启动 {len(tasks)} 个后台下载线程...\n")
+    threads = []
+    for t in tasks:
+        th = threading.Thread(target=_run_dl_task, args=(t,), daemon=True)
+        th.start()
+        threads.append(th)
+
+    start = time.time()
+    while True:
+        await asyncio.sleep(report_interval)
+        elapsed = time.time() - start
+        print(f"\n⏱ 已用时 {elapsed:.0f}s  [{time.strftime('%H:%M:%S')}]")
+        for t in tasks:
+            print(t.progress_line())
+        if all(t.finished or t.error for t in tasks):
+            break
+
+    for th in threads:
+        th.join(timeout=5)
+
+    print("\n" + "=" * 60)
+    print("📦 下载结果：")
+    for t in tasks:
+        if t.finished:
+            size = t.save_path.stat().st_size
+            print(f"  ✅ {t.save_path.name}  ({_fmt_size(size)})")
+        else:
+            print(f"  ❌ {t.name}  失败: {t.error}")
 
 
 # ── 命令实现 ──────────────────────────────────────────────────────────────────
@@ -395,21 +519,40 @@ async def cmd_ls(cookie: str, pdir_fid: str = "0") -> None:
         print(f"{t:<4} {size:>10}  {f['fid']:<32}  {f['file_name']}")
 
 async def cmd_save(cookie: str, share_url: str, to_fid: str = "0") -> None:
-    """【需要登录】转存分享链接中的文件到网盘。"""
+    """
+    【需要登录】转存分享链接中的文件到网盘。
+    转存前先检查目标目录是否已有同名文件夹/文件，已有则跳过转存直接复用。
+    返回实际可用的目标 fid（已有文件所在目录 fid 或转存后的 fid）。
+    """
     pwd_id, password = parse_share_url(share_url)
     tok = await get_stoken(pwd_id, password)
-    is_owner, files = await get_share_detail(pwd_id, tok)
+    is_owner, share_files = await get_share_detail(pwd_id, tok)
     if is_owner:
         print("[save] 该分享是您自己的文件，无需转存")
         return
-    if not files:
+    if not share_files:
         print("[save] 分享为空或已失效")
         return
-    print(f"[save] 共 {len(files)} 个条目，开始转存……")
+
+    # ── 转存前检查网盘是否已有同名内容 ──────────────────────────────────────
+    share_names = {f["file_name"] for f in share_files}
+    existing = await api_list_all(cookie, to_fid)
+    existing_map = {f["file_name"]: f for f in existing}
+    already = share_names & existing_map.keys()
+    if already:
+        print(f"[save] ℹ️  网盘目标目录已有相同文件/文件夹，跳过转存：")
+        for name in sorted(already):
+            f = existing_map[name]
+            size_str = "-" if f.get("dir") else _fmt_size(f.get("size", 0))
+            print(f"         {name}  ({size_str})  fid={f['fid']}")
+        return
+
+    # ── 正式转存 ──────────────────────────────────────────────────────────────
+    print(f"[save] 共 {len(share_files)} 个条目，开始转存……")
     task_id = await api_save_share(
         cookie, pwd_id, tok,
-        [f["fid"] for f in files],
-        [f["share_fid_token"] for f in files],
+        [f["fid"] for f in share_files],
+        [f["share_fid_token"] for f in share_files],
         to_fid,
     )
     print(f"[save] 等待任务完成……")
@@ -417,31 +560,57 @@ async def cmd_save(cookie: str, share_url: str, to_fid: str = "0") -> None:
     folder = result.get("save_as", {}).get("to_pdir_name", "根目录")
     print(f"[save] ✅ 转存完成，已保存至：{folder}")
 
-async def cmd_dl(cookie: str, share_url: str,
-                 save_dir: Optional[str] = None) -> None:
+async def cmd_dl(cookie: str, share_url_or_fids: str,
+                 save_dir: Optional[str] = None,
+                 extra_fids: Optional[list[str]] = None,
+                 rename_map: Optional[dict[str, str]] = None) -> None:
     """
-    【需要登录】下载自己分享的文件到本地。
-    夸克限制：/file/download 只允许下载自己网盘内的文件。
-    他人分享请先 save 转存后再下载。
+    【需要登录】下载网盘文件到本地，支持两种模式：
+
+    模式 1 — 分享链接（必须是自己的分享）：
+        python3 quark_hub.py dl <分享链接> [本地目录]
+    模式 2 — 直接传 fid（不依赖分享链接，适合已在网盘的文件）：
+        内部调用时传 extra_fids=[fid1, fid2, ...]
+
+    rename_map: {原文件名: 保存文件名}，可选，用于字幕等重命名。
+    使用后台线程下载，每 10s 打印进度和 1min 均速。
     """
-    pwd_id, password = parse_share_url(share_url)
-    tok = await get_stoken(pwd_id, password)
-    is_owner, files = await get_share_detail(pwd_id, tok)
-    if not is_owner:
-        print("[dl] ⚠️  只能下载自己网盘的分享文件，请先 save 转存后再下载")
-        return
-    file_only = [f for f in files if not f["dir"]]
-    if not file_only:
-        print("[dl] 没有可直接下载的文件")
-        return
-    dl_list = await api_get_download_urls(cookie, [f["fid"] for f in file_only])
     base = Path(save_dir) if save_dir else DOWNLOAD_DIR
-    base.mkdir(parents=True, exist_ok=True)
-    print(f"[dl] 共 {len(dl_list)} 个文件，保存至 {base}")
+    rename_map = rename_map or {}
+
+    if extra_fids:
+        # 模式 2：直接 fid
+        fids = extra_fids
+    else:
+        # 模式 1：通过分享链接
+        pwd_id, password = parse_share_url(share_url_or_fids)
+        tok = await get_stoken(pwd_id, password)
+        is_owner, files = await get_share_detail(pwd_id, tok)
+        if not is_owner:
+            print("[dl] ⚠️  只能下载自己网盘的分享文件，请先 save 转存后再下载")
+            return
+        file_only = [f for f in files if not f["dir"]]
+        if not file_only:
+            print("[dl] 没有可直接下载的文件")
+            return
+        fids = [f["fid"] for f in file_only]
+
+    dl_list = await api_get_download_urls(cookie, fids)
+    if not dl_list:
+        print("[dl] 未获取到下载地址")
+        return
+
+    items = []
     for item in dl_list:
-        print(f"[dl] ⬇  {item['file_name']}")
-        await download_file(item["download_url"], base / item["file_name"], cookie)
-    print("[dl] ✅ 全部完成")
+        orig_name = item["file_name"]
+        items.append({
+            "file_name": orig_name,
+            "save_name": rename_map.get(orig_name, orig_name),
+            "download_url": item["download_url"],
+        })
+
+    print(f"[dl] 共 {len(items)} 个文件，保存至 {base}")
+    await download_files_bg(items, base, cookie)
 
 async def cmd_mkdir(cookie: str, name: str, pdir_fid: str = "0") -> None:
     """【需要登录】在网盘中创建目录。"""
