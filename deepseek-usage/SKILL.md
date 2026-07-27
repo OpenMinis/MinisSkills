@@ -1,87 +1,87 @@
 ---
 name: deepseek-usage
 description: >
-  查询 DeepSeek API 用量（余额、本月消费、各模型 Token 明细、日维度明细、缓存命中率）。
-  通过 browser_use 访问 DeepSeek 开放平台，自动登录并导出月度数据。
-  需要用户自行配置 DeepSeek 账号到本地环境变量。
-  当用户说"查用量"、"看token消耗"、"查消费"、"余额还剩多少"、"今天跑了多少"时触发。
+  Check DeepSeek API usage (balance, this month's spending, token breakdown by model, daily breakdown, and cache hit rate).
+  Access the DeepSeek Open Platform through browser_use, automatically log in, and export monthly data.
+  Users must configure their DeepSeek account in local environment variables.
+  Triggered when the user says "check usage," "view token consumption," "check spending," "how much balance is left," or "how much was used today."
 version: 1.1.0
 compatibility: Requires python3. DEEPSEEK_EMAIL and DEEPSEEK_PASSWORD env vars.
 ---
 
-# DeepSeek API 用量查询
+# DeepSeek API Usage Query
 
-> ⚠️ **安全提示**
-> 本技能需要 DeepSeek 登录凭据才能工作。
-> 凭据仅存储在本地环境变量中，**Minis 不会上传到任何服务器**。
-> 如果你不信任此方式，请删除本技能或不要设置凭据。
+> ⚠️ **Security Notice**
+> This skill requires DeepSeek login credentials to work.
+> Credentials are stored only in local environment variables. **Minis does not upload them to any server**.
+> If you do not trust this method, delete this skill or do not set any credentials.
 
-## 前置配置（首次使用，只需一次）
+## Prerequisite Configuration (first use only)
 
-### 1. 设置环境变量
+### 1. Set Environment Variables
 
-在 Minis 设置 → 环境变量中添加以下两个变量：
+Add the following two variables in Minis Settings → Environment Variables:
 
-| 变量名 | 说明 | 示例值 |
+| Variable Name | Description | Example Value |
 |--------|------|--------|
-| `DEEPSEEK_EMAIL` | 你的 DeepSeek 平台登录邮箱 | `user@example.com` |
-| `DEEPSEEK_PASSWORD` | 你的 DeepSeek 平台登录密码 | `your_password_here` |
+| `DEEPSEEK_EMAIL` | Your DeepSeek platform login email address | `user@example.com` |
+| `DEEPSEEK_PASSWORD` | Your DeepSeek platform login password | `your_password_here` |
 
-🔗 [点此打开环境变量设置](minis://settings/environments)
+🔗 [Click here to open the environment variable settings](minis://settings/environments)
 
-> 如果你的账号使用 Google/微信等第三方登录，则无法使用本技能。
+> If your account uses a third-party login such as Google or WeChat, you cannot use this skill.
 
-### 2. 验证配置
+### 2. Verify the Configuration
 
 ```bash
-[ -n "$DEEPSEEK_EMAIL" ] && [ -n "$DEEPSEEK_PASSWORD" ] && echo "已配置" || echo "未配置"
+[ -n "$DEEPSEEK_EMAIL" ] && [ -n "$DEEPSEEK_PASSWORD" ] && echo "Configured" || echo "Not configured"
 ```
 
-## 查询流程（仅需 2 个 tool call）
+## Query Process (requires only 2 tool calls)
 
-### 第 1 步：导航并确保登录（1 个 tool call）
+### Step 1: Navigate and Ensure Login (1 tool call)
 
 ```yaml
-动作:
+Action:
   - set_user_agent: desktop_chrome
   - navigate: https://platform.deepseek.com/usage
-  - 如果未登录，从环境变量填充 DEEPSEEK_EMAIL / DEEPSEEK_PASSWORD 并提交登录
+  - If not logged in, fill DEEPSEEK_EMAIL / DEEPSEEK_PASSWORD from environment variables and submit the login form
   - wait_for_dom_stable
 ```
 
-### 第 2 步：一键执行完整 JS 脚本（1 个 execute_js）
+### Step 2: Run the complete JS script in one step (1 `execute_js`)
 
-以下 JS 脚本完成**取 Token → 下载 zip → 解压 → 解析 CSV → 输出**全部逻辑。
+The following JS script completes all logic: **get token → download ZIP → unzip → parse CSV → output**.
 
-将整个 JS 脚本作为 `execute_js --script` 的参数一次性执行。
+Run the entire JS script as the argument to `execute_js --script` in a single execution.
 
 ```js
 (async () => {
-  // === 获取汇总文本 ===
-  // 用 get_readable 提取（在 execute_js 外部完成）
+  // === Get summary text ===
+  // Extract with get_readable (done outside execute_js)
 
-  // === 获取 Token ===
+  // === Get Token ===
   const token = JSON.parse(localStorage.getItem('userToken')).value;
   if (!token) return JSON.stringify({ error: 'no_token' });
 
-  // === 下载 zip ===
+  // === Download zip ===
   const resp = await fetch('https://platform.deepseek.com/api/v0/usage/export?month=5&year=2026', {
     headers: { 'Authorization': 'Bearer ' + token }
   });
   const blob = await resp.blob();
 
-  // === 加载 JSZip ===
+  // === Load JSZip ===
   const script = document.createElement('script');
   script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
   await new Promise(r => { script.onload = r; document.head.appendChild(script); });
 
-  // === 解压 ===
+  // === Unzip ===
   const zip = await JSZip.loadAsync(blob);
   const costText = await zip.file('cost-2026-5.csv').async('text');
   const amountText = await zip.file('amount-2026-5.csv').async('text');
 
-  // === 解析 cost（费用）===
-  // ⚠️ 表头: user_id, utc_date, model, wallet_type, cost, currency
+  // === Parse cost (fees) ===
+  // ⚠️ Header: user_id, utc_date, model, wallet_type, cost, currency
   const costLines = costText.trim().split('\n').slice(1);
   const modelCost = {};
   let totalCost = 0;
@@ -92,16 +92,16 @@ compatibility: Requires python3. DEEPSEEK_EMAIL and DEEPSEEK_PASSWORD env vars.
     totalCost += cost;
   }
 
-  // === 解析 amount（用量，按需筛选日期）===
-  // ⚠️ 表头: user_id, utc_date, model, api_key_name, api_key(敏感!), type, price, amount
-  // ⚠️ 安全警告：第5列是 api_key 明文，禁止打印整行！必须用索引引用。
+  // === Parse amount (usage, filter by date as needed) ===
+  // ⚠️ Header: user_id, utc_date, model, api_key_name, api_key(sensitive!), type, price, amount
+  // ⚠️ Security warning: Column 5 is the plaintext api_key. Do not print entire lines! You must use index references.
   const allLines = amountText.trim().split('\n').slice(1);
 
-  // 筛选规则：用户问当日用量 → 筛当天；用户问当月用量 → 全月
-  // 默认当日。如需当日，取消下面这行的注释：
-  // const targetDate = '当前日期的 YYYY-MM-DD 格式';
+  // Filtering rule: if the user asks about today's usage, filter to today; if the user asks about this month's usage, use the full month
+  // Default is today. For today's usage, uncomment the following line:
+  // const targetDate = 'current date in YYYY-MM-DD format';
   // const filteredLines = targetDate ? allLines.filter(l => l.split(',')[1] === targetDate) : allLines;
-  const filteredLines = allLines; // 默认全月
+  const filteredLines = allLines; // Default: full month
 
   const models = {};
   for (const line of filteredLines) {
@@ -114,7 +114,7 @@ compatibility: Requires python3. DEEPSEEK_EMAIL and DEEPSEEK_PASSWORD env vars.
     else if (type === 'output_tokens') models[model].output += amount;
   }
 
-  // === 汇总输出 ===
+  // === Summary output ===
   let result = '';
   let gr = 0, go = 0, gh = 0, gm = 0;
 
@@ -134,52 +134,52 @@ compatibility: Requires python3. DEEPSEEK_EMAIL and DEEPSEEK_PASSWORD env vars.
 })();
 ```
 
-> ⚠️ 注意：`execute_js` 返回的是包裹在 JSON 中的文本，AI 需要解析 `data.text` 获取实际结果。
+> ⚠️ Note: `execute_js` returns text wrapped in JSON. The AI needs to parse `data.text` to get the actual result.
 
-### 第 3 步：截图（1 个 tool call，可选）
+### Step 3: Screenshot (1 tool call, optional)
 
 ```yaml
-screenshot: 当前页面
+screenshot: current page
 ```
 
-### 第 4 步：汇报（memory_write 由用户决定）
+### Step 4: Report (memory_write is decided by the user)
 
-是否需要将结果写入 daily log **由用户决定**。用户明确要求时才写入。
+Whether to write the results to the daily log is **decided by the user**. Write only when the user explicitly asks.
 
-### 输出格式
+### Output Format
 
-**余额：** ¥X.XX | **本月已消费：** ¥X.XX
+**Balance:** ¥X.XX | **Spent This Month:** ¥X.XX
 
-![用量截图](minis://browser/screenshot_xxx.jpg)
+![Usage Screenshot](minis://browser/screenshot_xxx.jpg)
 
-| 模型 | 请求次数 | 输出 Tokens | 缓存命中 | 缓存未命中 | 总输入 Tokens | 缓存命中率 | 费用 |
+| Model | Requests | Output Tokens | Cache Hits | Cache Misses | Total Input Tokens | Cache Hit Rate | Cost |
 |------|---------|------------|---------|-----------|-------------|-----------|------|
 | deepseek-v4-pro | X | X | X | X | X | X% | ¥X.XX |
 | deepseek-v4-flash | X | X | X | X | X | X% | ¥X.XX |
-| **总计** | **X** | **X** | **X** | **X** | **X** | **X%** | **¥X.XX** |
+| **Total** | **X** | **X** | **X** | **X** | **X** | **X%** | **¥X.XX** |
 
-## ⚠️ 安全注意事项（必须遵守）
+## ⚠️ Security Precautions (must be followed)
 
-### API Key 泄露风险
-amount CSV 第 5 列（索引 4）为 `api_key` 字段，包含用户的 DeepSeek API Key **明文**。
+### API Key Leakage Risk
+Column 5 (index 4) of the amount CSV is the `api_key` field and contains the user's DeepSeek API Key in **plaintext**.
 
-**必须遵守：**
-- 解析 CSV 时使用列索引引用（如 `p[2]`、`p[5]`、`p[7]`），不要引用整行
-- **禁止**在任何回复、日志或截图中间接展示 api_key 内容
-- 如果需要在调试时查看 CSV 内容，只打印表头（第 1 行），不要打印数据行
+**Requirements:**
+- When parsing CSV, use column index references such as `p[2]`, `p[5]`, and `p[7]`; do not reference the entire line
+- **Do not** directly or indirectly display `api_key` content in any reply, log, or screenshot
+- If you need to inspect CSV content during debugging, print only the header (row 1), not the data rows
 
-### 凭据安全
-- 邮箱密码存储在 Minis 本地环境变量，不会上传
-- localStorage Token 仅当前浏览器 session 有效
-- 建议定期修改密码
+### Credential Security
+- Email and password are stored in Minis local environment variables and are not uploaded
+- The localStorage token is valid only for the current browser session
+- We recommend changing your password regularly
 
-## 踩坑记录
+## Troubleshooting Notes
 
-| 问题 | 原因 | 解决方案 |
+| Issue | Cause | Solution |
 |------|------|---------|
-| 导出按钮点击无效 | 导出按钮是 `<div>` 不是 `<button>` | 用 `querySelector` 匹配文本"导出"后 `.click()` |
-| browser_use fetch 返回 Missing Token | fetch 不携带页面 cookie | 改用 `execute_js` 在页面上下文中执行 fetch |
-| JSZip 加载失败 | `import()` 方式不支持 | 用 `document.createElement('script')` 动态加载 CDN |
-| CSV 解析出 0 条 | 字段索引猜错 | 先确认表头（amount 8 列，cost 6 列），再按索引引用 |
-| amount.csv 含 API Key 明文 | 第 5 列是 api_key | 解析时使用列名引用，不打印整行 |
-| minis-browser-use CLI 跨调用状态丢失 | 每次调用是独立进程 | 全 JS 逻辑放在一个 execute_js 中执行，不要跨 navigate/execute_js 传递状态 |
+| Export button click has no effect | The export button is a `<div>`, not a `<button>` | Use `querySelector` to match the text "Export", then call `.click()` |
+| browser_use fetch returns Missing Token | fetch does not include page cookies | Use `execute_js` instead to run fetch in the page context |
+| JSZip fails to load | The `import()` method is not supported | Use `document.createElement('script')` to dynamically load the CDN |
+| CSV parses to 0 records | Incorrect field indexes were guessed | First confirm the headers (8 columns for amount, 6 columns for cost), then reference by index |
+| amount.csv contains plaintext API Key | Column 5 is `api_key` | Use column indexes during parsing; do not print the entire row |
+| minis-browser-use CLI loses state across calls | Each call is a separate process | Put all JS logic in a single `execute_js` execution; do not pass state across `navigate` and `execute_js` |

@@ -3,8 +3,8 @@ name: pdf-converter
 description: >
   Convert Markdown, HTML, plain text, images, and pandoc-supported formats to PDF
   with CJK font rendering, half-width numbers, and emoji support. Use this skill
-  whenever the user asks to convert a file to PDF, generate a PDF from markdown or
-  HTML, export a PDF, or run "转PDF" / "生成PDF" / "导出PDF".
+  whenever the user asks to convert a file to PDF, generate a PDF from Markdown or
+  HTML, export a PDF, or run "Convert to PDF" / "Generate PDF" / "Export PDF".
 ---
 
 # pdf-converter
@@ -18,7 +18,7 @@ Use this skill when the user needs to:
 - Convert Markdown (`.md`) to PDF while preserving formatting, emoji, and Chinese text
 - Convert HTML (`.htm`, `.html`) to PDF
 - Convert plain text (`.txt`) to PDF
-- Convert images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.webp`) to PDF — including multi-image merge
+- Convert images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.webp`) to PDF, including multi-image merge
 - Convert any pandoc-supported format (`.rst`, `.org`, `.latex`, etc.) to PDF
 
 ## Workflow
@@ -35,7 +35,7 @@ Execute the conversion script with the required arguments:
 python3 scripts/to_pdf.py input.md -o output.pdf
 ```
 
-The script handles all format detection automatically based on the file extension.
+The script automatically detects the format based on the file extension.
 
 ### Step 3: Verify the output
 
@@ -60,7 +60,7 @@ The PDF uses an amber theme with these conventions:
 - **Tables**: amber header (#D97706 with white text) + zebra-striped rows (gray/white) + thin grid borders
 - **Code blocks**: light gray background (#f2f3f5) + monospace font (DejaVu Sans Mono) + top gray bar
 - **Blockquotes**: left amber border (#D97706) + light orange background (#fef7ed)
-- **Headings**: h1 gets an amber underline; h1-h4 have clear visual hierarchy
+- **Headings**: h1 gets an amber underline; h1-h4 have a clear visual hierarchy
 - **Page footers**: centered page numbers
 
 ## How It Works
@@ -77,9 +77,9 @@ The conversion pipeline has three stages:
 |---|---|---|
 | ASCII (digits/letters) | DejaVu Sans | Subsetted @font-face; half-width glyphs |
 | CJK characters | WenQuanYi Zen Hei | Subsetted @font-face; excludes ASCII so digits fall back to DejaVu Sans |
-| Emoji | Twemoji SVG | Downloaded from CDN in real-time; base64 inline in the HTML |
+| Emoji | Twemoji SVG | Downloaded from CDN in real time; base64 inline in the HTML |
 
-**Full-width digit fix**: A custom fontconfig configuration isolates system CJK fonts so weasyprint uses only the @font-face subset fonts + DejaVu Sans fallback, ensuring all numbers render as half-width.
+**Full-width digit fix**: A custom fontconfig configuration isolates system CJK fonts so weasyprint uses only the @font-face subset fonts + DejaVu Sans fallback, ensuring that all numbers render as half-width.
 
 ## File Structure
 
@@ -101,10 +101,10 @@ All of the following must be installed on the system:
 - **fontTools** (font subsetting)
 - **weasyprint** (HTML5 → PDF)
 - **WenQuanYi Zen Hei** font and **DejaVu Sans** font (the script auto-detects them from common paths)
-- **Internet access** — emoji rendering depends on downloading Twemoji SVGs from cdn.jsdelivr.net
+- **Internet access**: emoji rendering depends on downloading Twemoji SVGs from cdn.jsdelivr.net
 
 ## Error Handling
 
-- Missing input file → print an error and exit with code 1
-- weasyprint rendering error → print the error message and exit with code 2
-- Missing output directory → attempt to create it automatically
+- Missing input file: print an error and exit with code 1
+- weasyprint rendering error: print the error message and exit with code 2
+- Missing output directory: attempt to create it automatically

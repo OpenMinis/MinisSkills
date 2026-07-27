@@ -1,148 +1,174 @@
 # Learnings
+
 ## [LRN-20260317-EUC] category
 
-**记录时间**: 2026-03-17T14:05:12Z
-**优先级**: medium
-**状态**: pending
-**领域**: docs
+**Time Logged**: 2026-03-17T14:05:12Z
+**Priority**: medium
+**Status**: pending
+**Domain**: docs
 
-### 摘要
-初始化 self-improving-agent 时脚本无执行权限
+### Summary
 
-### 详情
-在 Minis 中此脚本应通过 sh 显式调用，避免 Permission denied；优先用 sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh init
+The script lacks execute permission when initializing `self-improving-agent`
 
-### 建议动作
-（待补充）
+### Details
 
-### 元数据
-- 来源: conversation
-- 关联文件: (可选)
-- 标签: (可选)
+In Minis, this script should be called explicitly with `sh` to avoid a "Permission denied" error. Prefer `sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh init`.
+
+### Recommended Actions
+
+(To be added)
+
+### Metadata
+
+- Source: conversation
+- Related files: (optional)
+- Tags: (optional)
 
 ---
+
 ## [LRN-20260317-EXY] category
 
-**记录时间**: 2026-03-17T14:16:26Z
-**优先级**: medium
-**状态**: pending
-**领域**: docs
+**Recorded Time**: 2026-03-17T14:16:26Z
+**Priority**: medium
+**Status**: pending
+**Domain**: docs
 
-### 摘要
-学习日志默认位置改为 workspace/learnings
+### Summary
 
-### 详情
-隐藏目录 .learnings 在跨项目检索与文件选择场景下可见性较差。默认改为 /var/minis/workspace/learnings；同时保留 --project 项目级隔离与 --base 自定义路径，形成共享沉淀 + 项目隔离双线并行。
+The default location for learning logs has been changed to `workspace/learnings`
 
-### 建议动作
-（待补充）
+### Details
 
-### 元数据
-- 来源: conversation
-- 作用域: workspace
-- 基础路径: /var/minis/workspace/learnings
-- 关联文件: (可选)
-- 标签: (可选)
+The hidden directory `.learnings` has poor visibility in cross-project search and file selection scenarios. The default has been changed to `/var/minis/workspace/learnings`. At the same time, `--project` project-level isolation and `--base` custom paths are retained, creating a dual track of shared accumulated learnings and project isolation.
+
+### Recommended Actions
+
+(To be added)
+
+### Metadata
+
+- Source: conversation
+- Scope: workspace
+- Base path: /var/minis/workspace/learnings
+- Related Files: (optional)
+- Tags: (optional)
 
 ---
+
 ## [LRN-20260317-KNL] category
 
-**记录时间**: 2026-03-17T14:26:04Z
-**优先级**: medium
-**状态**: pending
-**领域**: docs
+**Recorded Time**: 2026-03-17T14:26:04Z
+**Priority**: medium
+**Status**: pending
+**Domain**: docs
 
-### 摘要
-demo-b 重复问题
+### Summary
 
-### 详情
-用于后续公共区提升测试
+Duplicate issue for `demo-b`
 
-### 建议动作
-（待补充）
+### Details
 
-### 元数据
-- 来源: conversation
-- 作用域: project
-- 基础路径: /var/minis/workspace/demo-b/.learnings
-- 项目路径: /var/minis/workspace/demo-b
-- 关联文件: (可选)
-- 标签: (可选)
+Used for subsequent testing of promotion to the public area
+
+### Recommended Action
+
+(To be added)
+
+### Metadata
+
+- Source: conversation
+- Scope: project
+- Base path: /var/minis/workspace/demo-b/.learnings
+- Project Path: /var/minis/workspace/demo-b
+- Related Files: (optional)
+- Tags: (optional)
 
 ---
 
 ## [LRN-20260317-JJ4] category
 
-**记录时间**: 2026-03-17T15:10:28Z
-**优先级**: medium
-**状态**: pending
-**领域**: docs
+**Recorded Time**: 2026-03-17T15:10:28Z
+**Priority**: medium
+**Status**: pending
+**Domain**: docs
 
-### 摘要
-promote回写测试
+### Summary
 
-### 详情
-测试提升后是否自动写回 promoted
+`promote` write-back test
 
-### 建议动作
-（待补充）
+### Details
 
-### 元数据
-- 来源: conversation
-- 作用域: skill
-- 基础路径: /var/minis/skills/self-improving-agent/data
-- 关联文件: (可选)
-- 标签: (可选)
+Test whether `promoted` is automatically written back after promotion
+
+### Recommended Action
+
+(To be added)
+
+### Metadata
+
+- Source: conversation
+- Scope: skill
+- Base path: /var/minis/skills/self-improving-agent/data
+- Related Files: (optional)
+- Tags: (optional)
 
 ---
 
 ## [LRN-20260317-QQG] category
 
-**记录时间**: 2026-03-17T15:12:21Z
-**优先级**: medium
-**状态**: pending
-**领域**: docs
+**Recorded Time**: 2026-03-17T15:12:21Z
+**Priority**: medium
+**Status**: pending
+**Domain**: docs
 
-### 摘要
-promote版式二次测试
+### Summary
 
-### 详情
-检查回写位置是否在分隔线前
+Second layout test for `promote`
 
-### 建议动作
-（待补充）
+### Details
 
-### 元数据
-- 来源: conversation
-- 作用域: skill
-- 基础路径: /var/minis/skills/self-improving-agent/data
-- 关联文件: (可选)
-- 标签: (可选)
+Check whether the write-back position is before the separator line
+
+### Recommended Action
+
+(To be added)
+
+### Metadata
+
+- Source: conversation
+- Scope: skill
+- Base path: /var/minis/skills/self-improving-agent/data
+- Related Files: (optional)
+- Tags: (optional)
 
 ---
 
 ## [LRN-20260317-2LU] category
 
-**记录时间**: 2026-03-17T15:16:42Z
-**优先级**: medium
-**状态**: pending
-**领域**: docs
+**Recorded Time**: 2026-03-17T15:16:42Z
+**Priority**: medium
+**Status**: pending
+**Domain**: docs
 
-### 摘要
-重复提升保护测试
+### Summary
 
-### 详情
-测试第二次 promote 是否被阻止
+Repeated `promote` protection test
 
-### 建议动作
-（待补充）
+### Details
 
-### 元数据
-- 来源: conversation
-- 作用域: skill
-- 基础路径: /var/minis/skills/self-improving-agent/data
-- 关联文件: (可选)
-- 标签: (可选)
+Test whether the second `promote` action is blocked
+
+### Recommended Action
+
+(To be added)
+
+### Metadata
+
+- Source: conversation
+- Scope: skill
+- Base path: /var/minis/skills/self-improving-agent/data
+- Related Files: (optional)
+- Tags: (optional)
 
 ---
-

@@ -1,96 +1,96 @@
 ---
 name: tg-hub
 description: >
-  使用 Python + UV 读写 Telegram 数据的技能，仅依赖 telethon，本地优先架构（消息同步到
-  SQLite 后离线查询）。首次使用需在 terminal 中完成手机号验证码登录，之后 session 持久化免登录。
-  支持同步群/频道消息到本地、关键词搜索、多关键词过滤、今日消息、最近消息、发言排行、时间线统计等。
-  当用户提到"Telegram"、"TG"、"电报"、"tg-hub"、"同步 Telegram 消息"、"搜索 TG 群"、
-  "Telegram 关键词"、"获取 TG 消息"，或任何需要以编程方式读写 Telegram 数据的场景，必须触发本技能。
+  A skill for reading and writing Telegram data with Python and UV. It depends only on Telethon and uses a local-first architecture: messages are synced to
+  SQLite and then queried offline. On first use, you must log in from the terminal with a phone number verification code. After that, the session is persisted and you do not need to log in again.
+  Supports syncing group and channel messages locally, keyword search, multi-keyword filtering, today's messages, recent messages, speaker rankings, timeline statistics, and more.
+  This skill must be triggered whenever the user mentions "Telegram", "TG", "Telegram", "tg-hub", "sync Telegram messages", "search TG groups",
+  "Telegram keywords", "get TG messages", or any scenario that requires programmatically reading or writing Telegram data.
 ---
 
 # tg-hub
 
-> **改造来源**：[jackwener/tg-cli](https://github.com/jackwener/tg-cli)（Apache-2.0）
+> **Based on**: [jackwener/tg-cli](https://github.com/jackwener/tg-cli) (Apache-2.0)
 >
-> 本技能在原仓库基础上做了以下简化：
-> - 移除 `click` / `rich` / `python-dotenv` / `pyyaml` 依赖
-> - 仅保留 `telethon` 一个第三方依赖
-> - 移除 CLI 层，所有功能封装为同步 Python API
-> - 默认 session/db 路径改为 `/var/minis/workspace/tg-hub/`
-> - 配置改为直接读取环境变量，无需 `.env` 文件
+> This skill simplifies the original repository as follows:
+> - Removed the `click` / `rich` / `python-dotenv` / `pyyaml` dependencies
+> - Kept only `telethon` as a third-party dependency
+> - Removed the CLI layer and encapsulated all functionality as a synchronous Python API
+> - Changed the default session/db path to `/var/minis/workspace/tg-hub/`
+> - Changed configuration to read environment variables directly, with no `.env` file required
 
 ---
 
-## 架构特点：本地优先（Local-First）
+## Architecture: Local-First
 
 ```
-Telegram MTProto（telethon）
-    ↓  sync / refresh（增量）
-本地 SQLite  ~/.tg-hub/messages.db
-    ↓  search / today / recent / filter（离线）
-结构化数据
+Telegram MTProto (telethon)
+    ↓  sync / refresh (incremental)
+Local SQLite  ~/.tg-hub/messages.db
+    ↓  search / today / recent / filter (offline)
+Structured data
 ```
 
-- **读操作**（search/today/recent）：查本地 SQLite，**不联网**，毫秒级响应
-- **写操作**（sync/refresh）：连接 Telegram 拉取新消息，增量写入 SQLite
-- Session 文件：`~/.tg-hub/tg_hub.session`
+- **Read operations** (search/today/recent): query the local SQLite database, with **no network access**, and respond in milliseconds
+- **Write operations** (sync/refresh): connect to Telegram to fetch new messages and write them incrementally to SQLite
+- Session file: `~/.tg-hub/tg_hub.session`
 
 ---
 
-## 文件结构
+## File Structure
 
 ```
 /var/minis/skills/tg-hub/
 ├── SKILL.md
-├── pyproject.toml          # 仅 telethon
+├── pyproject.toml          # telethon only
 └── scripts/
     ├── __init__.py
-    ├── config.py           # 配置（环境变量 / 默认路径）
-    ├── db.py               # SQLite 消息存储
-    ├── exceptions.py       # 结构化异常
-    └── client.py           # TGClient 核心类（全部 API）
+    ├── config.py           # Configuration (environment variables / default paths)
+    ├── db.py               # SQLite message storage
+    ├── exceptions.py       # Structured exceptions
+    └── client.py           # TGClient core class (all APIs)
 ```
 
 ---
 
-## 首次登录（必须在 Terminal 中操作）
+## First-Time Login (Must Be Done in Terminal)
 
-tg-hub 使用 **MTProto 协议**（非 Bot API），需要用你的 Telegram 账号登录。
+tg-hub uses the **MTProto protocol** (not the Bot API), so you need to log in with your Telegram account.
 
-> **建议**：优先使用你自己的 `TG_API_ID` / `TG_API_HASH`。
-> 我已按上游 tg-cli 的反风控实现同步：使用 Telegram Desktop 5.x 指纹，并在继续使用默认 `api_id=2040` 时给出 warning。公共 APP ID 仅作兜底，长期仍建议使用自有凭证。
+> **Recommendation**: Use your own `TG_API_ID` / `TG_API_HASH` whenever possible.
+> I have synced the upstream tg-cli anti-risk-control implementation: it uses a Telegram Desktop 5.x fingerprint and prints a warning if you continue using the default `api_id=2040`. The public app ID is only a fallback. Using your own credentials is still recommended for long-term use.
 
 ```
-1. 打开 Terminal
-2. （推荐）先设置自己的 TG_API_ID / TG_API_HASH
+1. Open Terminal
+2. (Recommended) Set your own TG_API_ID / TG_API_HASH first
 3. cd /var/minis/skills/tg-hub
 4. uv run python -c "
    import sys; sys.path.insert(0,'.')
    from scripts.client import TGClient
    me = TGClient().login()
-   print('登录成功：', me)
+   print('Login successful:', me)
    "
-5. 按提示输入手机号（+86XXXXXXXXXX 格式）
-6. 输入 Telegram App 收到的验证码
-7. 登录成功后 session 自动保存，后续免登录
+5. Enter your phone number when prompted (in +86XXXXXXXXXX format)
+6. Enter the verification code received in the Telegram app
+7. After login succeeds, the session is saved automatically and future logins are not required
 ```
 
-> 如暂时没有自己的凭证，可先用内置公共凭证登录；如遇登录/拉取异常，优先切换为自己的 APP ID。
+> If you do not have your own credentials for now, you can log in with the built-in public credentials first. If you encounter login or fetch errors, switch to your own APP ID first.
 
-[打开 Terminal 登录](minis://open_terminal?init_command=cd%20%2Fvar%2Fminis%2Fskills%2Ftg-hub%20%26%26%20uv%20run%20python%20-c%20%22import%20sys%3B%20sys.path.insert(0%2C'.')%3B%20from%20scripts.client%20import%20TGClient%3B%20TGClient().login()%22)
+[Open Terminal to log in](minis://open_terminal?init_command=cd%20%2Fvar%2Fminis%2Fskills%2Ftg-hub%20%26%26%20uv%20run%20python%20-c%20%22import%20sys%3B%20sys.path.insert(0%2C'.')%3B%20from%20scripts.client%20import%20TGClient%3B%20TGClient().login()%22)
 
 ---
 
-## 快速使用
+## Quick Start
 
-### 环境准备
+### Environment Setup
 
 ```bash
 cd /var/minis/skills/tg-hub
 uv sync
 ```
 
-### Python 调用
+### Python Usage
 
 ```python
 import sys
@@ -99,123 +99,123 @@ from scripts.client import TGClient
 
 client = TGClient()
 
-# 查看当前账号
+# View the current account
 me = client.whoami()
 print(me["name"], me["phone"])
 
-# 列出所有对话（实时从 TG 获取）
+# List all conversations (fetched from TG in real time)
 chats = client.list_chats()
 for c in chats[:10]:
-    print(f"  [{c['type']}] {c['name']}  未读: {c['unread']}")
+    print(f"  [{c['type']}] {c['name']}  Unread: {c['unread']}")
 
-# 增量同步单个群
-n = client.sync("群名或用户名", limit=1000)
-print(f"新增 {n} 条消息")
+# Incrementally sync a single group
+n = client.sync("Group name or username", limit=1000)
+print(f"Added {n} messages")
 
-# 快速刷新所有群（每群最多 500 条新消息）
-# 默认带轻微节流；也可以限制本轮只刷前 30 个 chat
+# Quickly refresh all groups (up to 500 new messages per group)
+# Slight throttling is enabled by default; you can also limit this round to only the first 30 chats
 result = client.refresh(delay=1.0, max_chats=30)
 for name, count in result.items():
     if count > 0:
         print(f"  {name}: +{count}")
 
-# 搜索关键词
+# Search by keyword
 msgs = client.search("Python", hours=48)
 for m in msgs:
     print(f"[{m['chat_name']}] {m['sender_name']}: {m['content'][:80]}")
 
-# 多关键词过滤（OR 逻辑）
-msgs = client.filter("招聘,remote,兼职", hours=24)
+# Multi-keyword filtering (OR logic)
+msgs = client.filter("hiring,remote,part-time", hours=24)
 
-# 今日消息
+# Today's messages
 msgs = client.today()
 
-# 最近 12 小时消息
+# Messages from the last 12 hours
 msgs = client.recent(hours=12, limit=200)
 
-# 发言排行
+# Speaker rankings
 top = client.top_senders(hours=24)
 for t in top[:5]:
-    print(f"  {t['sender_name']}: {t['msg_count']} 条")
+    print(f"  {t['sender_name']}: {t['msg_count']} messages")
 
-# 时间线统计
+# Timeline statistics
 tl = client.timeline(granularity="hour", hours=48)
 
-# 本地数据库统计
+# Local database statistics
 stats = client.stats()
-print(f"本地共 {stats['total']} 条消息，{len(stats['chats'])} 个群")
+print(f"{stats['total']} local messages across {len(stats['chats'])} groups")
 ```
 
 ---
 
-## API 速查
+## API Quick Reference
 
-### 认证
+### Authentication
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `login()` | 交互式登录（首次，需 terminal） |
-| `whoami()` | 获取当前账号信息 |
+| `login()` | Interactive login (first time, requires terminal) |
+| `whoami()` | Get current account information |
 
-### 同步（联网）
+### Sync (Online)
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `list_chats(chat_type=None)` | 列出所有对话（实时） |
-| `sync(chat, limit=5000)` | 同步单个群到本地 SQLite |
-| `sync_all(limit_per_chat=5000, delay=1.0, max_chats=None)` | 同步所有群（带节流/数量限制） |
-| `refresh(limit_per_chat=500, delay=1.0, max_chats=None)` | 快速增量刷新（推荐日常使用） |
+| `list_chats(chat_type=None)` | List all conversations (real time) |
+| `sync(chat, limit=5000)` | Sync a single group to local SQLite |
+| `sync_all(limit_per_chat=5000, delay=1.0, max_chats=None)` | Sync all groups (with throttling/count limit) |
+| `refresh(limit_per_chat=500, delay=1.0, max_chats=None)` | Quick incremental refresh (recommended for daily use) |
 
-### 查询（本地，不联网）
+### Query (Local, Offline)
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `search(keyword, *, chat, sender, hours, regex, limit)` | 关键词/正则搜索 |
-| `filter(keywords, *, chat, hours)` | 多关键词 OR 过滤 |
-| `today(chat=None)` | 今日消息 |
-| `recent(hours=24, *, chat, sender, limit)` | 最近 N 小时消息 |
-| `top_senders(chat, hours, limit)` | 发言排行 |
-| `timeline(chat, hours, granularity)` | 时间线统计 |
-| `stats()` | 数据库统计 |
-| `local_chats()` | 本地已同步的群列表 |
-| `delete_chat(chat)` | 删除某群的本地消息 |
+| `search(keyword, *, chat, sender, hours, regex, limit)` | Keyword/regex search |
+| `filter(keywords, *, chat, hours)` | Multi-keyword OR filtering |
+| `today(chat=None)` | Today's messages |
+| `recent(hours=24, *, chat, sender, limit)` | Messages from the last N hours |
+| `top_senders(chat, hours, limit)` | Speaker rankings |
+| `timeline(chat, hours, granularity)` | Timeline statistics |
+| `stats()` | Database statistics |
+| `local_chats()` | List of locally synced groups |
+| `delete_chat(chat)` | Delete local messages for a group |
 
 ---
 
-## 环境变量
+## Environment Variables
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default Value | Description |
 |------|--------|------|
-| `TG_API_ID` | `2040`（仅兜底） | **推荐改为你自己的** API ID |
-| `TG_API_HASH` | 内置（仅兜底） | **推荐改为你自己的** API Hash |
-| `TG_SESSION_NAME` | `tg_hub` | Session 文件名 |
-| `TG_DATA_DIR` | `~/.tg-hub` | 数据目录 |
-| `TG_DB_PATH` | `{TG_DATA_DIR}/messages.db` | SQLite 路径 |
-| `TG_DEVICE_MODEL` | `Desktop` | Telethon 客户端设备型号 |
-| `TG_SYSTEM_VERSION` | `macOS 15.3` | Telethon 客户端系统版本 |
-| `TG_APP_VERSION` | `5.12.1` | Telethon 客户端版本 |
-| `TG_LANG_CODE` | `en` | 客户端语言代码 |
-| `TG_SYSTEM_LANG_CODE` | `en-US` | 系统语言代码 |
+| `TG_API_ID` | `2040` (fallback only) | **Recommended: replace with your own** API ID |
+| `TG_API_HASH` | Built in (fallback only) | **Recommended: replace with your own** API Hash |
+| `TG_SESSION_NAME` | `tg_hub` | Session filename |
+| `TG_DATA_DIR` | `~/.tg-hub` | Data directory |
+| `TG_DB_PATH` | `{TG_DATA_DIR}/messages.db` | SQLite path |
+| `TG_DEVICE_MODEL` | `Desktop` | Telethon client device model |
+| `TG_SYSTEM_VERSION` | `macOS 15.3` | Telethon client system version |
+| `TG_APP_VERSION` | `5.12.1` | Telethon client version |
+| `TG_LANG_CODE` | `en` | Client language code |
+| `TG_SYSTEM_LANG_CODE` | `en-US` | System language code |
 
 ---
 
-## 账号安全建议
+## Account Security Recommendations
 
-1. **优先使用自己的 API 凭证**：前往 `https://my.telegram.org` 创建应用后设置 `TG_API_ID` / `TG_API_HASH`。
-2. **控制同步频率**：避免高频反复执行 `refresh()`。
-3. **使用 `delay` 和 `max_chats`**：建议日常增量刷新时限制每轮同步数量，并保留 chat 之间的间隔。
-4. **首次全量同步不要太激进**：tg-hub 已对首次同步 chat 自动限制更低的抓取量。
-5. **优先读操作**：搜索/统计等本地查询不联网，风险远低于频繁同步。
+1. **Use your own API credentials whenever possible**: Go to `https://my.telegram.org`, create an application, and then set `TG_API_ID` / `TG_API_HASH`.
+2. **Control sync frequency**: Avoid repeatedly running `refresh()` at high frequency.
+3. **Use `delay` and `max_chats`**: For daily incremental refreshes, we recommend limiting the number of chats synced per round and keeping an interval between chats.
+4. **Do not be too aggressive with the first full sync**: tg-hub automatically applies a lower fetch limit for the first sync of each chat.
+5. **Prefer read operations**: Local queries such as search and statistics do not use the network, so they are much lower risk than frequent syncs.
 
 ---
 
-## 注意事项
+## Notes
 
-- 首次登录必须在交互式 terminal 中完成（需要输入验证码）
-- **强烈建议优先使用自己的 `TG_API_ID` / `TG_API_HASH`**，避免公共 APP ID 被滥用带来的风控问题
-- tg-hub 已对齐上游 tg-cli 的 Telegram Desktop 5.x 客户端指纹，并保留环境变量覆盖能力，用于降低异常指纹风险
-- 若仍使用默认 `api_id=2040`，连接时会打印 warning，提醒改用自己的 `TG_API_ID` / `TG_API_HASH`
-- Session 文件保存在 `/var/minis/workspace/tg-hub/tg_hub.session`，妥善保管
-- `sync_all` 首次运行时间较长（取决于群数量和历史消息量）
-- 建议用 `refresh()` 做日常增量更新，用 `sync(chat, limit=10000)` 做首次全量同步
-- Telegram 对 API 请求有频率限制，大量同步时 telethon 会自动处理 flood wait
+- The first login must be completed in an interactive terminal (a verification code is required).
+- **Using your own `TG_API_ID` / `TG_API_HASH` is strongly recommended** to avoid risk-control issues caused by abuse of the public APP ID.
+- tg-hub is aligned with the upstream tg-cli Telegram Desktop 5.x client fingerprint and retains environment variable overrides to reduce the risk of abnormal fingerprints.
+- If you are still using the default `api_id=2040`, a warning is printed during connection to remind you to switch to your own `TG_API_ID` / `TG_API_HASH`.
+- The session file is stored at `/var/minis/workspace/tg-hub/tg_hub.session`. Keep it safe.
+- The first run of `sync_all` may take a long time, depending on the number of groups and the amount of historical messages.
+- We recommend using `refresh()` for daily incremental updates and `sync(chat, limit=10000)` for the initial full sync.
+- Telegram applies rate limits to API requests. During large syncs, Telethon automatically handles flood waits.

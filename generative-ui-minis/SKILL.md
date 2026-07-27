@@ -1,6 +1,6 @@
 ---
 name: generative-ui-minis
-description: 在 Minis 当前环境里，把文本说明自动转换成更像 Claude Artifact 的单文件 HTML 生成器，统一支持卡片、表格、记录、时间线、代码块、图表等输出；当用户提到这些组件或可视化页面时应优先调用。
+description: In the current Minis environment, automatically convert text descriptions into a single-file HTML generator similar to Claude Artifact, with unified support for outputs such as cards, tables, records, timelines, code blocks, and charts. Use this skill first when users mention these components or visualization pages.
 metadata:
   openclaw:
     emoji: "🧩"
@@ -10,59 +10,59 @@ metadata:
 
 # Generative UI Minis Skill
 
-这是一个面向当前 Minis / iSH 环境的 **Claude Artifact 风格生成器 skill**。
+This is a **Claude Artifact-style generator skill** designed for the current Minis / iSH environment.
 
-目标不是修改聊天宿主本身，而是：
+The goal is not to modify the chat host itself, but to:
 
-1. 将用户说明整理为结构化 spec
-2. 用 Python 渲染为单文件 HTML artifact
-3. 保存到 `/var/minis/workspace/`
-4. 让用户直接预览、分享、继续迭代
+1. Organize user instructions into a structured spec
+2. Render them with Python into a single-file HTML artifact
+3. Save it to `/var/minis/workspace/`
+4. Let users preview, share, and continue iterating directly
 
-## 自动触发场景
+## Automatic Trigger Scenarios
 
-当用户表达以下意图时，应优先调用本 skill：
+Use this skill first when users express any of the following intentions:
 
-- “做个 Claude Artifact / Claude 风格页面”
-- “把回答变成卡片”
-- “生成表格 / 记录表 / checklist”
-- “把内容整理成时间线”
-- “生成代码块展示页面”
-- “做个图表 / 可视化页面”
-- “把这些内容渲染成 HTML 原型”
-- “做个交互式说明页 / artifact”
+- "Create a Claude Artifact / Claude-style page"
+- "Turn the answer into cards"
+- "Generate a table / record sheet / checklist"
+- "Organize the content into a timeline"
+- "Generate a code block display page"
+- "Create a chart / visualization page"
+- "Render this content as an HTML prototype"
+- "Create an interactive explanation page / artifact"
 
-特别是当用户同时提到：
-**卡片、表格、记录、代码块、时间线、图表、可视化页面、artifact**
-时，默认认为需要调用本 skill 生成额外页面。
+In particular, when the user also mentions:
+**cards, tables, records, code blocks, timelines, charts, visualization pages, artifacts**
+assume by default that this skill should be invoked to generate an additional page.
 
-## 当前支持的统一组件
+## Currently Supported Unified Components
 
-- `cards`：信息卡片 / KPI 卡片
-- `table`：表格
-- `records`：记录列表
-- `timeline`：时间线 / 步骤流
-- `code`：代码块
-- `chart`：内置条形图
-- `details`：折叠详情
+- `cards`: information cards / KPI cards
+- `table`: table
+- `records`: record list
+- `timeline`: timeline / step flow
+- `code`: code block
+- `chart`: built-in bar chart
+- `details`: collapsible details
 
-## 主要脚本
+## Main Scripts
 
-### 1）完整 Artifact 生成器
+### 1) Complete Artifact Generator
 
 ```bash
 python3 /var/minis/skills/generative-ui-minis/scripts/generative_ui_artifact.py \
-  "项目周报" \
-  --text "需要概览卡片\n需要风险表格\n需要时间线\n需要代码块\n需要图表"
+  "Weekly Project Report" \
+  --text "Need overview cards\nNeed risk table\nNeed timeline\nNeed code block\nNeed chart"
 ```
 
-默认会输出到：
+By default, this outputs to:
 
 ```bash
 /var/minis/workspace/<title>_artifact.html
 ```
 
-### 2）传入 JSON spec 渲染
+### 2) Render from a JSON spec
 
 ```bash
 python3 /var/minis/skills/generative-ui-minis/scripts/generative_ui_artifact.py \
@@ -72,78 +72,78 @@ python3 /var/minis/skills/generative-ui-minis/scripts/generative_ui_artifact.py 
   --json-out /var/minis/workspace/demo_spec.json
 ```
 
-## spec 格式
+## spec Format
 
 ```json
 {
-  "title": "生成式 UI 示例",
-  "summary": "统一输出多种组件。",
+  "title": "Generative UI Example",
+  "summary": "Unified output of multiple components.",
   "chips": ["Artifact", "Cards", "Table"],
   "blocks": [
     {
       "type": "cards",
-      "title": "概览卡片",
+      "title": "Overview Cards",
       "items": [
-        {"title": "状态", "value": "进行中", "desc": "当前迭代中"}
+        {"title": "Status", "value": "In Progress", "desc": "In the current iteration"}
       ]
     },
     {
       "type": "table",
-      "title": "记录表",
-      "columns": ["日期", "事项", "状态"],
-      "rows": [["03-17", "生成器开发", "完成"]]
+      "title": "Record Sheet",
+      "columns": ["Date", "Item", "Status"],
+      "rows": [["03-17", "Generator Development", "Done"]]
     },
     {
       "type": "timeline",
-      "title": "时间线",
+      "title": "Timeline",
       "items": [
-        {"title": "阶段一", "desc": "需求整理"},
-        {"title": "阶段二", "desc": "页面渲染"}
+        {"title": "Phase One", "desc": "Requirements Organization"},
+        {"title": "Phase Two", "desc": "Page Rendering"}
       ]
     },
     {
       "type": "code",
-      "title": "示例代码",
+      "title": "Sample Code",
       "language": "python",
       "content": "print('hello artifact')"
     },
     {
       "type": "chart",
-      "title": "进度图表",
+      "title": "Progress Chart",
       "series": [
-        {"label": "设计", "value": 70},
-        {"label": "开发", "value": 85}
+        {"label": "Design", "value": 70},
+        {"label": "Development", "value": 85}
       ]
     }
   ]
 }
 ```
 
-## 推荐工作流
+## Recommended Workflow
 
-1. 识别用户是否需要 artifact 页面
-2. 若只是自然语言说明，先用脚本自动推断基础 blocks
-3. 若内容复杂，整理成 JSON spec 再渲染
-4. 生成 HTML 后，把 workspace 链接直接发给用户
-5. 根据反馈继续修改 spec 或模板
+1. Determine whether the user needs an artifact page
+2. If the input is only a natural-language description, first use the script to automatically infer the basic blocks
+3. If the content is complex, organize it into a JSON spec before rendering
+4. After generating the HTML, send the workspace link directly to the user
+5. Continue modifying the spec or template based on feedback
 
-## 能力边界
+## Capability Boundaries
 
-**能做：**
-- 统一生成单文件 artifact HTML
-- 支持卡片、表格、记录、时间线、代码块、图表
-- 适合作为回答的可视化补充页面
+**Can do:**
+- Generate a unified single-file artifact HTML
+- Support cards, tables, records, timelines, code blocks, and charts
+- Serve as a visual supplement to an answer
 
-**暂不直接做：**
-- 聊天宿主原生消息级组件注入
-- 实时数据库驱动的复杂前端应用
-- 长期运行的交互服务端
+**Does not directly do yet:**
+- Native message-level component injection into the chat host
+- Complex frontend applications driven by real-time databases
+- Long-running interactive server-side services
 
-## 触发建议
+## Trigger Recommendations
 
-如果用户说：
-- “给我做个卡片版”
-- “顺便生成表格/时间线/代码块”
-- “整理成 artifact 页面”
+If the user says:
+- "Make me a card version"
+- "Also generate a table/timeline/code block"
+- "Organize it into an artifact page"
 
-不要只用文字回答，应该直接运行本 skill 生成额外 HTML artifact。
+Do not respond with text only. Run this skill directly to generate an additional HTML artifact.

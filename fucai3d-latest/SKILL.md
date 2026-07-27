@@ -1,65 +1,65 @@
 ---
 name: fucai3d-latest
-description: 查询最近一次中国福利彩票3D开奖结果时使用。适用于用户要查福彩3D最新开奖、最近一期号码、百度搜索“3d/福彩3d”第一个结果、或快速返回期号日期号码的场景。也适用于在查询后记录历史结果，并基于历史记录给出娱乐性质的下一次建议号码、冷热号分析与多策略号码推荐。
+description: Use when querying the most recent China Welfare Lottery 3D draw results. Suitable when the user wants to check the latest Welfare Lottery 3D draw, the most recent issue's numbers, the first Baidu search result for "3d/Welfare Lottery 3D", or quickly return the issue number, date, and numbers. Also suitable for recording historical results after the query and, based on the history, providing entertainment-only suggested numbers for the next draw, hot and cold number analysis, and multi-strategy number recommendations.
 ---
 
-# 福彩3D最新开奖结果
+# Latest China Welfare Lottery 3D Draw Results
 
-当用户要查询最近一次中国福利彩票3D开奖结果时：
+When the user wants to query the most recent China Welfare Lottery 3D draw results:
 
-1. 优先使用 browser 工具访问 `https://www.baidu.com`
-2. 搜索 `福彩3d`
-3. 优先读取百度结果页顶部的“官方福彩3D - 开奖结果”卡片
-4. 先提取当前默认展示的：
-   - 期号
-   - 开奖日期
-   - 开奖号码
-5. 如果用户要求“更新结果”“补落下的”“核对最近几期”或怀疑数字有误：
-   - 不要只依赖当前卡片默认展示结果
-   - 必须优先检查开奖号码上方的期号/日期选择区域（如 `第2026086期 2026-04-06...` 这一类可切换入口）
-   - 需要逐个切换最近几期进行核对，至少核对当前期及前 1~3 期
-   - 如百度卡片下方或搜索结果正文直接出现“历史开奖”文本（例如 `2026086期 382 / 2026085期 118 / 2026084期 456`），应以该逐期列表作为补录与纠错依据
-6. 只有在百度结果页无法完成逐期核对时，才退回中国福彩网或其他权威来源，并明确说明数据来源
+1. Prefer using the browser tool to visit `https://www.baidu.com`
+2. Search for `Fucai 3D`
+3. Prefer reading the "Official Welfare Lottery 3D - Draw Results" card at the top of the Baidu results page
+4. First extract the information currently shown by default:
+   - Issue number
+   - Draw date
+   - Winning numbers
+5. If the user asks to "update results", "fill in missed draws", "check the recent draws", or suspects that the numbers are wrong:
+   - Do not rely only on the result shown by default in the current card
+   - First check the issue/date selector above the winning numbers, such as a switchable entry like `Issue 2026086, 2026-04-06...`
+   - Switch through the most recent issues one by one to verify them, checking at least the current issue and the previous 1 to 3 issues
+   - If "historical draw results" text appears directly below the Baidu card or in the body of the search results, such as `Issue 2026086: 382 / Issue 2026085: 118 / Issue 2026084: 456`, use that issue-by-issue list as the basis for backfilling and correcting data
+6. Only fall back to the China Welfare Lottery website or other authoritative sources when issue-by-issue verification cannot be completed from the Baidu results page, and clearly state the data source
 
-拿到结果后，额外执行娱乐功能：
+After obtaining the result, perform these additional entertainment functions:
 
-1. 使用 `/var/minis/shared/fucai3d/recommender.py update ISSUE DATE DIGITS` 把本次开奖结果写入历史记录 `/var/minis/shared/fucai3d/history.json`
-2. 如果发现有缺失期号，要把缺失的几期一并补录；如果发现历史里已有错误号码，要以最新核对结果修正本地历史
-3. 使用 `/var/minis/shared/fucai3d/recommender.py bundle 5` 生成：
-   - 基础娱乐推荐 5 组
-   - 冷号偏好推荐 3 组
-   - 热号混合推荐 3 组
-   - 最近窗口内的 0~9 出现频率
-   - 热号 / 冷号摘要
-4. 明确说明这些建议号码只是基于历史排除规则与简单频率偏好生成的“玩具推荐”，不代表真实预测能力
+1. Use `/var/minis/shared/fucai3d/recommender.py update ISSUE DATE DIGITS` to write this draw result to the history file `/var/minis/shared/fucai3d/history.json`
+2. If any issue numbers are missing, backfill the missing issues as well; if any incorrect numbers already exist in the history, correct the local history using the latest verified results
+3. Use `/var/minis/shared/fucai3d/recommender.py bundle 5` to generate:
+   - 5 sets of basic entertainment recommendations
+   - 3 sets of cold-number preference recommendations
+   - 3 sets of hot-number mixed recommendations
+   - Frequencies of 0 to 9 in the recent window
+   - Hot-number and cold-number summary
+4. Clearly state that these suggested numbers are only "toy recommendations" generated from historical exclusion rules and simple frequency preferences, and do not represent any real predictive ability
 
-输出尽量简洁，默认格式：
+Keep the output as concise as possible. Default format:
 
-- 期号：第XXXXXXX期
-- 开奖日期：YYYY-MM-DD
-- 开奖号码：X X X
-- 历史记录：已更新 / 已存在 / 已纠错
-- 如有补录：已补录第XXXXXXX期、第XXXXXXX期...
-- 娱乐推荐：A B C / D E F / ...
-- 冷号偏好：A B C / D E F / ...
-- 热号混合：A B C / D E F / ...
-- 近30期热号：x, x, x...
-- 近30期冷号：x, x, x...
-- 说明：仅基于历史记录做简单排除与频率统计，不构成预测建议
+- Issue number: Issue XXXXXXX
+- Draw date: YYYY-MM-DD
+- Winning numbers: X X X
+- History: updated / already exists / corrected
+- If backfilled: backfilled Issue XXXXXXX, Issue XXXXXXX...
+- Entertainment recommendations: A B C / D E F / ...
+- Cold-number preference: A B C / D E F / ...
+- Hot-number mix: A B C / D E F / ...
+- Hot numbers in the last 30 issues: x, x, x...
+- Cold numbers in the last 30 issues: x, x, x...
+- Note: Based only on historical records for simple exclusion and frequency statistics; does not constitute predictive advice
 
-推荐逻辑说明（无需向用户展开太多）：
+Recommendation logic notes (no need to explain too much to the user):
 
-- 优先避开近期已出现的完全相同三位数组合
-- 尽量避开近期相同和值
-- 尽量避开近期相邻两位重复模式
-- 使用最近窗口统计冷热号频率
-- 如果历史太少或约束太强，则退化为随机补足
+- Prefer avoiding exact three-digit combinations that have appeared recently
+- Avoid recent identical sum values as much as possible
+- Avoid recent repeated patterns in adjacent digit pairs as much as possible
+- Use the recent window to calculate hot and cold number frequencies
+- If the history is too sparse or the constraints are too strict, fall back to random completion
 
-如果百度结果页无法直接给出开奖号码：
+If the Baidu results page cannot directly provide the winning numbers:
 
-1. 尝试点击第一个结果继续读取
-2. 优先寻找百度结果正文中的历史开奖列表文本并解析
-3. 如仍失败，可改查中国福彩网或其他权威来源
-4. 明确说明数据来源
+1. Try clicking the first result to continue reading
+2. Prefer finding and parsing historical draw list text in the Baidu result body
+3. If that still fails, check the China Welfare Lottery website or other authoritative sources
+4. Clearly state the data source
 
-如果查询到的信息可能不是最新一期，要明确提示“基于当前搜索结果”。
+If the retrieved information may not be from the latest issue, clearly state "based on current search results."

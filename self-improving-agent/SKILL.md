@@ -1,334 +1,346 @@
 ---
 name: self-improving-agent
-description: "自我改进记录与闭环：当命令/操作失败、用户纠错、发现知识过时、外部 API 失败、或出现可复用更优方案时触发。重要任务前可回顾历史 learnings。避免在普通闲聊、无需记录的临时失误或用户已明确不需要记录时触发。"
+description: "Self-improvement logging and closed-loop feedback: Trigger when a command or operation fails, the user corrects you, outdated knowledge is identified, an external API fails, or a better reusable solution is found. Review historical learnings before important tasks. Avoid triggering during ordinary chat, for temporary mistakes that do not need to be logged, or when the user has explicitly said not to log."
 metadata:
-  language: zh-CN
+  language: en-US
   scope: minis
 ---
 
-# 自我改进技能（Minis 版）
+# Self-Improvement Skill (Minis Edition)
 
-本技能用于在 Minis 环境内**记录错误、纠正与可复用的最佳实践**，形成可追踪的学习闭环。
+This skill is used in the Minis environment to **record errors, corrections, and reusable best practices**, creating a traceable learning loop.
 
-## Minis 目录约定
+## Minis Directory Conventions
 
-- **工作目录**：`/var/minis/workspace/`
-- **技能默认学习日志目录**：`/var/minis/skills/self-improving-agent/data/`
-- **技能内公共学习日志目录（提升后）**：`/var/minis/skills/self-improving-agent/data/public/`
-- **项目级学习日志目录（可选）**：`<project>/.learnings/`
-- **学习日志文件**：
-  - `LEARNINGS.md`（纠错、知识缺口、最佳实践）
-  - `ERRORS.md`（命令失败、异常输出）
-  - `FEATURE_REQUESTS.md`（用户提出的新能力）
+- **Working directory**: `/var/minis/workspace/`
+- **Default learning log directory for this skill**: `/var/minis/skills/self-improving-agent/data/`
+- **Public learning log directory within this skill (after promotion)**: `/var/minis/skills/self-improving-agent/data/public/`
+- **Project-level learning log directory (optional)**: `<project>/.learnings/`
+- **Learning log files**:
+  - `LEARNINGS.md` (corrections, knowledge gaps, best practices)
+  - `ERRORS.md` (command failures, exception output)
+  - `FEATURE_REQUESTS.md` (new capabilities requested by users)
 
-> 默认先记到技能自己的 data 目录；当你明确指定项目时，再写到项目级日志；当问题已抽象为跨项目通用规则时，再提升到技能内公共区或 Minis 记忆系统。
+> By default, log entries go first to the skill's own `data` directory. When you explicitly specify a project, write to the project-level log. When an issue has been abstracted into a cross-project rule, promote it to the skill's public area or the Minis memory system.
 
-## 当前最终规则
+## Current Final Rules
 
-- **默认记录位置**：`/var/minis/skills/self-improving-agent/data/`
-- **技能内公共区**：`/var/minis/skills/self-improving-agent/data/public/`
-- **项目级记录**：仅在显式传入 `--project <path>` 时使用 `<project>/.learnings/`
-- **推荐公共参数**：`--public`
-- **兼容别名**：`--workspace` 仍可用，但仅作兼容，不再推荐
-- **提升行为**：`promote <条目ID>` 会将条目复制到技能内公共区，并自动把源条目标记为 `promoted`，写回 `**已提升到**` 与 `### 解决记录`
-- **重复保护**：若条目已存在于技能内公共区，重复执行 `promote` 不会重复追加
+- **Default logging location**: `/var/minis/skills/self-improving-agent/data/`
+- **Public area within the skill**: `/var/minis/skills/self-improving-agent/data/public/`
+- **Project-level logging**: Use `<project>/.learnings/` only when `--project <path>` is passed explicitly
+- **Recommended public parameter**: `--public`
+- **Compatibility alias**: `--workspace` is still available, but only for compatibility and is no longer recommended
+- **Promotion behavior**: `promote <entryID>` copies the entry to the public area within the skill, automatically marks the source entry as `promoted`, and writes back `**Promoted to**` and `### Resolution Record`
+- **Duplicate protection**: If the entry already exists in the skill's public area, running `promote` again will not append a duplicate
 
-## 快速参考（Quick Reference）
+## Quick Reference
 
-| 情景 | 动作 |
+| Scenario | Action |
 |-----------|--------|
-| 命令/操作失败 | 默认记录到技能目录 `data/ERRORS.md` |
-| 用户纠正你 | 默认记录到技能目录 `data/LEARNINGS.md`，类别 `correction` |
-| 用户需要缺失能力 | 默认记录到技能目录 `data/FEATURE_REQUESTS.md` |
-| 明确指定项目上下文 | 记录到 `<project>/.learnings/` |
-| 外部 API/工具失败 | 记录到当前作用域的 `ERRORS.md`，包含集成细节 |
-| 知识过时 | 记录到当前作用域的 `LEARNINGS.md`，类别 `knowledge_gap` |
-| 发现更优方案 | 先记录到当前作用域，确认通用后再提升 |
-| 同类问题跨多个项目复发 | 提升到技能内公共区 `data/public/` |
-| 与已有条目类似 | 用 `**See Also**` 链接，并考虑提升优先级 |
-| 广泛适用的经验 | 提升到技能内公共区或 Minis 记忆（见下方“提升到 Minis 记忆”） |
+| Command or operation fails | Log to the skill directory by default: `data/ERRORS.md` |
+| The user corrects you | Log to the skill directory by default: `data/LEARNINGS.md`, category `correction` |
+| The user needs a missing capability | Log to the skill directory by default: `data/FEATURE_REQUESTS.md` |
+| Project context is explicitly specified | Log to `<project>/.learnings/` |
+| External API or tool fails | Log to `ERRORS.md` in the current scope, including integration details |
+| Knowledge is outdated | Log to `LEARNINGS.md` in the current scope, category `knowledge_gap` |
+| A better solution is found | First log it to the current scope, then promote it after confirming it is generally applicable |
+| Similar issues recur across multiple projects | Promote to the public area within the skill: `data/public/` |
+| Similar to an existing entry | Link with `**See Also**` and consider raising the priority |
+| Widely applicable experience | Promote to the public area within the skill or to Minis memory. See "Promoting to Minis Memory" below |
 
-## 触发记录规则（Minis 运行时约定）
+## Trigger Logging Rules (Minis Runtime Conventions)
 
-> 说明：本技能默认**不会后台自动监听**。当满足触发条件时，由助手（或你）主动调用 `scripts/minis_auto_log.sh` 落盘。
+> Note: By default, this skill **does not automatically listen in the background**. When trigger conditions are met, the assistant (or you) should actively call `scripts/minis_auto_log.sh` to write the log to disk.
 
-### 建议“必须记录”的触发条件
-满足以下任一条，就应该记录（除非你明确说“不用记”）：
+### Recommended Triggers That "Must Be Logged"
 
-1. **命令/操作失败且非显然**：例如权限、路径、依赖、网络、第三方 API 异常，需要排查才能定位。
-2. **用户纠正**：你指出我哪里理解错、逻辑不符合本软件实际、路径/规范不对。
-3. **知识更新/过时修正**：发现之前假设不适配 Minis，或文档/实现需要纠偏。
-4. **可复用的更优方案**：形成稳定做法、约定、模板、或能显著减少返工的流程。
-5. **复发模式**：同类问题在同一任务中反复出现，或跨任务/跨项目出现。
+If any of the following conditions are met, the event should be logged unless you explicitly say "do not log it":
 
-### 一般不记录的情况
-- 普通闲聊、一次性小改动、没有复用价值的细枝末节。
-- 你明确要求“不要记录”。
+1. **A command or operation fails and the cause is not obvious**: For example, permissions, paths, dependencies, network issues, or third-party API exceptions that require investigation to diagnose.
+2. **User correction**: You point out where my understanding is wrong, where my logic does not match the actual behavior of this software, or where paths or conventions are incorrect.
+3. **Knowledge update or outdated assumption correction**: A previous assumption is found not to apply to Minis, or documentation or implementation needs correction.
+4. **Reusable better solution**: A stable practice, convention, template, or workflow emerges that can significantly reduce rework.
+5. **Recurring pattern**: Similar issues appear repeatedly within the same task, or across tasks or projects.
 
-### 记录位置建议
-- **默认**先写入技能区 `data/`。
-- 确认具备跨任务复用价值后，用 `promote` 提升到技能内公共区 `data/public/`。
+### Situations That Generally Should Not Be Logged
 
-## 与 Minis 记忆（memory）的区别与提升标准
+- Ordinary chat, one-off small changes, or minor details with no reuse value.
+- You explicitly ask "do not log this."
 
-### 区别（建议理解方式）
-- 本技能日志（`data/` 与 `data/public/`）是**可编辑的工作复盘库**：记录上下文、排错过程、方案演进，允许长文本与细节。
-- Minis 记忆（`memory_write` 写入 `/var/minis/memory/`）是**跨会话长期规则/偏好**：应短、稳定、可复用；写得不好会长期“污染”后续决策。
+### Recommended Logging Location
 
-### 写入选择（先记日志，再提炼成记忆）
-- **先写本技能日志**：当内容需要上下文（错误输出、排查路径、对比方案）、暂不确定是否通用、或仍在迭代。
-- **再提升到记忆**：当结论已稳定、跨任务/跨技能都适用，且能用一句话表达。
+- **By default**, write to the skill area `data/` first.
+- After confirming that the entry has reuse value across tasks, use `promote` to move it to the public area within the skill: `data/public/`.
 
-### 何时提升到记忆（硬标准）
-满足以下任一条，才考虑 `memory_write`：
-1. 可以浓缩成一句“**以后遇到 X 就做 Y**”的规则，并且不依赖特定项目细节。
-2. **30 天内复发 ≥ 3 次**，或至少出现在 **2 个不同任务/领域**。
-3. 明确属于你的长期偏好/约定（例如工具使用约束、路径规范、输出格式规则），且你明确说“记住/以后都这样”。
+## Difference from Minis Memory and Promotion Criteria
 
-### 提升动作建议
-- 先用 `promote` 提升到技能内公共区 `data/public/`（可见性更高、便于复盘）。
-- 再从公共区条目中提炼 1~3 条短规则，用 `memory_write` 写入当日日记忆。
+### Difference (Suggested Interpretation)
 
+- This skill's logs (`data/` and `data/public/`) are an **editable work review repository**: they record context, troubleshooting processes, and solution evolution, and they allow long text and details.
+- Minis memory (`memory_write` writing to `/var/minis/memory/`) is for **cross-session long-term rules and preferences**: entries should be short, stable, and reusable. Poorly written entries can "pollute" future decisions for a long time.
 
-用法示例：
+### Where to Write (Log First, Then Refine into Memory)
+
+- **Write to this skill's logs first**: When the content needs context, such as error output, troubleshooting paths, or solution comparisons; when it is not yet clear whether it is generally applicable; or when it is still being iterated on.
+- **Then promote to memory**: When the conclusion is stable, applies across tasks or skills, and can be expressed in one sentence.
+
+### When to Promote to Memory (Hard Criteria)
+
+Consider `memory_write` only if at least one of the following is true:
+
+1. It can be condensed into a rule of the form "**When X happens in the future, do Y**" and does not depend on specific project details.
+2. It **recurs 3 or more times within 30 days**, or appears in at least **2 different tasks or domains**.
+3. It clearly belongs to your long-term preferences or conventions, such as tool usage constraints, path conventions, or output format rules, and you explicitly say "remember this" or "do this from now on."
+
+### Recommended Promotion Actions
+
+- First use `promote` to promote the entry to the public area within the skill, `data/public/`, for higher visibility and easier review.
+- Then distill 1 to 3 short rules from the public entry and write them to the day's memory with `memory_write`.
+
+Usage examples:
+
 ```bash
-# 默认写到技能自己的 data 目录
+# By default, write to the skill's own data directory
 sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh init
 
-# 记录技能级学习
-sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh learning "修复了下载超时" "使用分片与重试"
+# Log a skill-level learning
+sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh learning "Fixed the download timeout" "Use chunking and retries"
 
-# 如需明确落到项目级，再显式传 --project
-sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh --project /var/minis/workspace/my-project error "curl 请求失败" "HTTP 429"
+# If you need to log explicitly at the project level, pass --project
+sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh --project /var/minis/workspace/my-project error "curl request failed" "HTTP 429"
 
-# 如需直接写到技能内公共区，显式传 --public
-sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh --public feature "支持批量导出" "运营需要日报"
+# If you need to write directly to the public area within the skill, pass --public explicitly
+sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh --public feature "Support batch export" "Operations needs daily reports"
 
-# 搜索技能区 + 项目区 + 技能内公共区
-sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh search 超时
+# Search the skill area + project area + public area within the skill
+sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh search timeout
 
-# 将条目提升到技能内公共区
+# Promote an entry to the public area within the skill
 sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh promote LRN-20260317-ABC
 
-# 查看当前作用域
+# View the current scope
 sh /var/minis/skills/self-improving-agent/scripts/minis_auto_log.sh status
 ```
 
-## 记录格式（Logging Format）
+## Logging Format
 
-### Learning 记录
+### Learning Record
 
-追加到 `.learnings/LEARNINGS.md`：
+Append to `.learnings/LEARNINGS.md`:
 
 ```markdown
 ## [LRN-YYYYMMDD-XXX] category
 
-**记录时间**: ISO-8601 时间戳
-**优先级**: low | medium | high | critical
-**状态**: pending
-**领域**: frontend | backend | infra | tests | docs | config
+**Record time**: ISO-8601 timestamp
+**Priority**: low | medium | high | critical
+**Status**: pending
+**Domain**: frontend | backend | infra | tests | docs | config
 
-### 摘要
-一行描述所学内容
+### Summary
+One-line description of what was learned
 
-### 详情
-完整上下文：发生了什么、哪里错了、正确做法
+### Details
+Full context: what happened, what went wrong, and the correct approach
 
-### 建议动作
-具体可执行的改进或修复
+### Recommended Action
+Specific actionable improvement or fix
 
-### 元数据
-- 来源: conversation | error | user_feedback
-- 关联文件: path/to/file.ext
-- 标签: tag1, tag2
-- 相关条目: LRN-20250110-001（如有关联）
-- 模式键: simplify.dead_code | harden.input_validation（可选，复发模式追踪）
-- 复发次数: 1（可选）
-- 首次出现: 2025-01-15（可选）
-- 最近出现: 2025-01-15（可选）
+### Metadata
+- Source: conversation | error | user_feedback
+- Related file: path/to/file.ext
+- Tags: tag1, tag2
+- Related entry: LRN-20250110-001 (if applicable)
+- Pattern key: simplify.dead_code | harden.input_validation (optional, for recurring pattern tracking)
+- Recurrence count: 1 (optional)
+- First seen: 2025-01-15 (optional)
+- Last seen: 2025-01-15 (optional)
 
 ---
 ```
 
-### Error 记录
+### Error Record
 
-追加到 `.learnings/ERRORS.md`：
+Append to `.learnings/ERRORS.md`:
 
-```markdown
+````markdown
 ## [ERR-YYYYMMDD-XXX] skill_or_command_name
 
-**记录时间**: ISO-8601 时间戳
-**优先级**: high
-**状态**: pending
-**领域**: frontend | backend | infra | tests | docs | config
+**Record time**: ISO-8601 timestamp
+**Priority**: high
+**Status**: pending
+**Domain**: frontend | backend | infra | tests | docs | config
 
-### 摘要
-简要描述失败内容
+### Summary
+Brief description of the failure
 
 ### Error
 ```
-实际错误信息或输出
+Actual error message or output
 ```
 
 ### Context
-- 尝试的命令/操作
-- 输入或参数
-- 环境细节（如相关）
+- Command or operation attempted
+- Input or parameters
+- Environment details, if relevant
 
-### 建议修复
-如可识别，给出可能的解决方案
+### Recommended Fix
+If identifiable, provide possible solutions
 
-### 元数据
-- 可复现: yes | no | unknown
-- 关联文件: path/to/file.ext
-- 相关条目: ERR-20250110-001（如复发）
+### Metadata
+- Reproducible: yes | no | unknown
+- Related file: path/to/file.ext
+- Related entry: ERR-20250110-001 (if recurring)
 
 ---
-```
+````
 
-### Feature Request 记录
+### Feature Request Record
 
-追加到 `.learnings/FEATURE_REQUESTS.md`：
+Append to `.learnings/FEATURE_REQUESTS.md`:
 
 ```markdown
 ## [FEAT-YYYYMMDD-XXX] capability_name
 
-**记录时间**: ISO-8601 时间戳
-**优先级**: medium
-**状态**: pending
-**领域**: frontend | backend | infra | tests | docs | config
+**Record time**: ISO-8601 timestamp
+**Priority**: medium
+**Status**: pending
+**Domain**: frontend | backend | infra | tests | docs | config
 
-### 需求能力
-用户想实现的能力
+### Requested Capability
+The capability the user wants to implement
 
-### 用户背景
-为什么需要、在解决什么问题
+### User Context
+Why it is needed and what problem it solves
 
-### 复杂度评估
+### Complexity Assessment
 simple | medium | complex
 
-### 建议实现
-可能的实现方式与扩展点
+### Recommended Implementation
+Possible implementation approaches and extension points
 
-### 元数据
-- 频次: first_time | recurring
-- 关联功能: existing_feature_name
+### Metadata
+- Frequency: first_time | recurring
+- Related feature: existing_feature_name
 
 ---
 ```
 
-## ID 生成规则
+## ID Generation Rules
 
-格式：`TYPE-YYYYMMDD-XXX`
+Format: `TYPE-YYYYMMDD-XXX`
+
 - TYPE: `LRN` (learning), `ERR` (error), `FEAT` (feature)
-- YYYYMMDD: 当前日期
-- XXX: 顺序号或随机 3 位（如 `001`, `A7B`）
+- YYYYMMDD: current date
+- XXX: sequential number or random 3-character value, such as `001` or `A7B`
 
-示例：`LRN-20250115-001`、`ERR-20250115-A3F`、`FEAT-20250115-002`
+Examples: `LRN-20250115-001`, `ERR-20250115-A3F`, `FEAT-20250115-002`
 
-## 条目解决
+## Resolving Entries
 
-当问题修复后，更新条目：
+After an issue is fixed, update the entry:
 
-1. 将 `**状态**: pending` → `**状态**: resolved`
-2. 在元数据后添加解决块：
+1. Change `**Status**: pending` to `**Status**: resolved`
+2. Add a resolution block after the metadata:
 
 ```markdown
-### 解决记录
-- **解决时间**: 2025-01-16T09:00:00Z
-- **提交/PR**: abc123 或 #42
-- **说明**: 简要描述做了什么
+### Resolution Record
+- **Resolution time**: 2025-01-16T09:00:00Z
+- **Commit/PR**: abc123 or #42
+- **Notes**: Brief description of what was done
 ```
 
-其他状态：
-- `in_progress` - 正在处理
-- `wont_fix` - 决定不修（在解决记录中写原因）
-- `promoted` - 已提升到 Minis 记忆
+Other statuses:
 
-## 提升到 Minis 记忆
+- `in_progress` - Being worked on
+- `wont_fix` - Decided not to fix. Write the reason in the resolution record
+- `promoted` - Promoted to Minis memory
 
-当某条学习具有广泛适用性（不是一次性修复），应提升到 Minis 记忆系统。
+## Promoting to Minis Memory
 
-### 何时提升
+When a learning item is broadly applicable rather than a one-time fix, it should be promoted to the Minis memory system.
 
-- 学习跨多个文件/功能适用
-- 任何贡献者（人/AI）都应知道
-- 防止重复犯错
-- 记录项目约定
+### When to Promote
 
-### 提升目标（Minis）
+- The learning applies across multiple files or features
+- Any contributor, human or AI, should know it
+- It prevents repeated mistakes
+- It records project conventions
 
-- **日记忆**：`/var/minis/memory/YYYY-MM-DD.md`（通过 `memory_write` 写入）
-- **全局记忆**：`/var/minis/memory/GLOBAL.md`（只读，需要用户在设置中维护）
-- **项目笔记**：建议写入 `/var/minis/workspace/PROJECT_NOTES.md`
+### Promotion Targets (Minis)
 
-### 如何提升
+- **Daily memory**: `/var/minis/memory/YYYY-MM-DD.md` (written through `memory_write`)
+- **Global memory**: `/var/minis/memory/GLOBAL.md` (read-only; the user must maintain it in settings)
+- **Project notes**: Recommended target: `/var/minis/workspace/PROJECT_NOTES.md`
 
-1. **提炼**：把学习浓缩成简洁规则或事实
-2. **写入**：使用 `memory_write` 写入日记忆，必要时同步到项目笔记
-3. **回写**：更新原条目：
-   - `**状态**: pending` → `**状态**: promoted`
-   - 添加 `**已提升**: YYYY-MM-DD.md` 或 `PROJECT_NOTES.md`
+### How to Promote
 
-## 复发模式检测
+1. **Distill**: Condense the learning into concise rules or facts
+2. **Write**: Use `memory_write` to write to daily memory, and sync to project notes if needed
+3. **Write back**: Update the original entry:
+   - `**Status**: pending` to `**Status**: promoted`
+   - Add `**Promoted**: YYYY-MM-DD.md` or `PROJECT_NOTES.md`
 
-如果记录内容与已有条目相似：
+## Recurring Pattern Detection
 
-1. **先搜索**：`grep -r "keyword" /var/minis/workspace/.learnings/`
-2. **建立关联**：在元数据中添加 `**See Also**: ERR-20250110-001`
-3. **提升优先级**：如果问题反复出现
-4. **考虑系统性修复**：反复出现通常意味着：
-   - 文档缺失（→ 写入 PROJECT_NOTES.md 或日记忆）
-   - 自动化缺失（→ 加入脚本或工具链）
-   - 架构问题（→ 建立技术债任务）
+If the content being logged is similar to an existing entry:
+
+1. **Search first**: `grep -r "keyword" /var/minis/workspace/.learnings/`
+2. **Create an association**: Add `**See Also**: ERR-20250110-001` to the metadata
+3. **Raise the priority**: If the issue recurs
+4. **Consider a systematic fix**: Recurring issues usually indicate:
+   - Missing documentation (write to `PROJECT_NOTES.md` or daily memory)
+   - Missing automation (add scripts or toolchain support)
+   - Architectural issues (create a technical debt task)
 
 ## Simplify & Harden Feed
 
-用于 ingest `simplify-and-harden` 技能中的复发模式，并将其转化为持久化的提示规则。
+Used to ingest recurring patterns from the `simplify-and-harden` skill and convert them into persistent prompt rules.
 
 ### Ingestion Workflow
 
-1. 从任务摘要读取 `simplify_and_harden.learning_loop.candidates`。
-2. 对每个候选项使用 `pattern_key` 作为稳定去重键。
-3. 在 `.learnings/LEARNINGS.md` 搜索是否已存在：
+1. Read `simplify_and_harden.learning_loop.candidates` from the task summary.
+2. For each candidate, use `pattern_key` as the stable deduplication key.
+3. Search `.learnings/LEARNINGS.md` to see whether it already exists:
    - `grep -n "Pattern-Key: <pattern_key>" /var/minis/workspace/.learnings/LEARNINGS.md`
-4. 若已存在：
-   - 递增 `Recurrence-Count`
-   - 更新 `Last-Seen`
-   - 添加 `See Also` 关联
-5. 若不存在：
-   - 新建 `LRN-...` 条目
-   - 设置 `Source: simplify-and-harden`
-   - 设置 `Pattern-Key`、`Recurrence-Count: 1` 与 `First-Seen`/`Last-Seen`
+4. If it already exists:
+   - Increment `Recurrence-Count`
+   - Update `Last-Seen`
+   - Add a `See Also` association
+5. If it does not exist:
+   - Create a new `LRN-...` entry
+   - Set `Source: simplify-and-harden`
+   - Set `Pattern-Key`, `Recurrence-Count: 1`, and `First-Seen`/`Last-Seen`
 
-### 提升规则（系统提示反馈）
+### Promotion Rules (System Prompt Feedback)
 
-当满足以下条件时，把复发模式提升到 Minis 记忆：
+When the following conditions are met, promote the recurring pattern to Minis memory:
 
 - `Recurrence-Count >= 3`
-- 至少出现在 2 个不同任务
-- 在 30 天内发生
+- Appears in at least 2 different tasks
+- Occurs within 30 days
 
-提升后的规则应是**短而明确的预防规则**（做事前/做事时的动作），而不是冗长的事故复盘。
+The promoted rule should be a **short and clear preventive rule** that describes what to do before or during work, not a lengthy incident review.
 
-## 周期性回顾
+## Periodic Review
 
-在自然节点回顾 `.learnings/`：
+Review `.learnings/` at natural milestones:
 
-### 何时回顾
-- 开始新的重要任务前
-- 完成一个功能后
-- 进入曾有 learnings 的领域时
-- 活跃开发期间每周一次
+### When to Review
 
-### 快速状态检查
+- Before starting a new important task
+- After completing a feature
+- When entering a domain that has previous learnings
+- Once a week during active development
+
+### Quick Status Check
+
 ```bash
 # Count pending items
-grep -h "状态\*\*: pending" /var/minis/workspace/.learnings/*.md | wc -l
+grep -h "Status\*\*: pending" /var/minis/workspace/.learnings/*.md | wc -l
 
 # List pending high-priority items
-grep -B5 "优先级\*\*: high" /var/minis/workspace/.learnings/*.md | grep "^## \["
+grep -B5 "Priority\*\*: high" /var/minis/workspace/.learnings/*.md | grep "^## \["
 
 # Find learnings for a specific area
-grep -l "领域\*\*: backend" /var/minis/workspace/.learnings/*.md
+grep -l "Domain\*\*: backend" /var/minis/workspace/.learnings/*.md
 ```

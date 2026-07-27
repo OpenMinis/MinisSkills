@@ -1,83 +1,83 @@
 ---
 name: contact-vcard-extractor
-description: 从文本、聊天记录、网页、截图、名片照片、二维码/OCR结果中提取联系人信息，清洗姓名/电话/邮箱/公司/职位/地址/网站，生成 vCard/.vcf 文件，并引导用户导入 iOS 通讯录或分享给别人。触发词包括：提取联系人、保存到通讯录、生成 vCard/vcf、名片识别、从图片/截图/文本里加联系人、分享联系人、导出联系人。
+description: Extract contact information from text, chat logs, web pages, screenshots, business card photos, and QR codes/OCR results; clean names, phone numbers, email addresses, companies, job titles, addresses, and websites; generate vCard/.vcf files; and guide users to import them into iOS Contacts or share them with others. Trigger words include: extract contacts, save to contacts, generate vCard/.vcf, business card recognition, add contacts from images/screenshots/text, share contacts, and export contacts.
 ---
 
 # Contact vCard Extractor
 
-## 目标
-把用户提供的文本或图像里的联系人信息变成可预览、可导入、可分享的 `.vcf` vCard 文件。优先保证真实使用体验：先提取并让用户确认，再生成文件；不确定字段要标注，不要静默乱填。
+## Objective
+Convert contact information from user-provided text or images into previewable, importable, and shareable `.vcf` vCard files. Prioritize the real user experience: extract the data and have the user confirm it before generating the file. Mark any uncertain fields and do not silently fill in guesses.
 
-## 典型流程
-1. **接收输入**
-   - 文本：直接解析用户消息、粘贴文本、网页提取结果。
-   - 图像：名片照、截图、海报、聊天截图。先用 `apple-vision ocr` 识别文字；若疑似二维码，再用 `apple-vision barcode`。
-   - 文件：优先检查 `/var/minis/attachments/`、`/var/minis/workspace/`、`/var/minis/mounts/`。
-2. **提取字段**
-   - 姓名 `FN/N`
-   - 电话 `TEL`，多号码必须分成多条 `TEL`；号码字段只放号码本身，不要把“前台/手机/微信”等标签拼进号码。所有电话统一导出为 `TEL;TYPE=CELL`，用户需要时再自行改类型。标签可在摘要中显示，必要时放备注
-   - 邮箱 `EMAIL`
-   - 公司 `ORG`
-   - 职位 `TITLE`
-   - 地址 `ADR`
-   - 网站 `URL`
-   - 备注 `NOTE`：来源、微信号、未归类但长期有用的信息、识别不确定项。不要放临时待办/提醒/下次跟进事项
-3. **用户确认**
-   - 简洁列出字段，突出“可能识别错”的内容。
-   - 如果姓名或电话/邮箱缺失，询问是否补充；若用户急着要，可生成“未命名联系人”。
-4. **生成 vCard**
-   - 使用 bundled script：`/var/minis/skills/contact-vcard-extractor/scripts/contact_to_vcard.py`
-   - 输出到 `/var/minis/workspace/联系人名.vcf`，文件名需去除特殊字符；必要时用 `contact.vcf`。
-5. **呈现与导入/分享**
-   - 给出 Markdown 文件链接：`[导入联系人](minis://workspace/xxx.vcf)`。
-   - 可用 `minis-open /var/minis/workspace/xxx.vcf` 在 App 内预览/分享。
-   - 若用户明确要打开导入界面，可运行 `apple-open /var/minis/workspace/xxx.vcf` 或 `minis-open`；通常优先 `minis-open` 不离开聊天。
+## Typical Workflow
+1. **Receive Input**
+   - Text: Directly parse user messages, pasted text, or results extracted from web pages.
+   - Images: Business card photos, screenshots, posters, or chat screenshots. First use `apple-vision ocr` to recognize text. If it appears to contain a QR code, use `apple-vision barcode`.
+   - Files: First check `/var/minis/attachments/`, `/var/minis/workspace/`, and `/var/minis/mounts/`.
+2. **Extract Fields**
+   - Name `FN/N`
+   - Phone `TEL`: Multiple numbers must be split into separate `TEL` entries. The number field should contain only the number itself. Do not append labels such as "front desk," "mobile," or "WeChat" to the number. Export all phone numbers uniformly as `TEL;TYPE=CELL`; users can change the type themselves if needed. Labels can be shown in the summary and, if necessary, placed in notes.
+   - Email `EMAIL`
+   - Company `ORG`
+   - Job title `TITLE`
+   - Address `ADR`
+   - Website `URL`
+   - Notes `NOTE`: Source, WeChat ID, uncategorized but long-term useful information, and uncertain recognition items. Do not include temporary to-dos, reminders, or next follow-up items.
+3. **User Confirmation**
+   - List the fields concisely and highlight content that may have been recognized incorrectly.
+   - If the name or phone/email is missing, ask whether the user wants to add it. If the user is in a hurry, generate an "Unnamed Contact."
+4. **Generate vCard**
+   - Use the bundled script: `/var/minis/skills/contact-vcard-extractor/scripts/contact_to_vcard.py`
+   - Output to `/var/minis/workspace/Contact Name.vcf`. Remove special characters from the file name. If necessary, use `contact.vcf`.
+5. **Present and Import/Share**
+   - Provide a Markdown file link: `[Import Contact](minis://workspace/xxx.vcf)`.
+   - Use `minis-open /var/minis/workspace/xxx.vcf` to preview/share within the app.
+   - If the user explicitly wants to open the import screen, run `apple-open /var/minis/workspace/xxx.vcf` or `minis-open`. Usually, prefer `minis-open` to stay in the chat.
 
-## 图像/OCR命令模式
+## Image/OCR Command Pattern
 ```sh
 apple-vision ocr /var/minis/attachments/card.jpg --lang zh-Hans,en --level accurate --compact
 apple-vision barcode /var/minis/attachments/card.jpg --compact
 ```
-将 OCR 输出保存为文本文件后调用解析脚本。
+After saving the OCR output as a text file, run the parsing script.
 
-## 文本到 vCard 命令
+## Text-to-vCard Command
 ```sh
 python3 /var/minis/skills/contact-vcard-extractor/scripts/contact_to_vcard.py \
   --text-file /var/minis/workspace/contact_ocr.txt \
   --out /var/minis/workspace/contact.vcf \
   --json
 ```
-也可通过 stdin 传入文本。不要在 shell 命令中内联很长文本；长文本先用 `file_write` 写入文件。
+Text can also be passed via stdin. Do not inline very long text in shell commands; for long text, first use `file_write` to write it to a file.
 
-## 体验细节
-- **临时性信息不要进联系人备注**：例如“下周二发报价单”“明天回电话”“月底跟进”等待办，应从 vCard 备注中剔除，并在回复里单独提示“是否需要我创建提醒/待办”。若用户明确同意，再用 `apple-reminders create` 创建提醒。
-- **电话字段必须干净且统一 CELL**：`TEL` 只能写号码，如 `010-66668888`、`13344445555`。遇到“010-66668888（前台），手机 13344445555”要拆成两条电话；“前台/手机”只作为展示标签或备注，不附加到号码后面。导出时所有电话都用 `TEL;TYPE=CELL`，不要写 `VOICE/HOME/WORK` 等类型，除非用户明确指定。
-- **不要直接导入通讯录**，除非用户明确确认；先生成 vcf 并让用户点开确认。
-- **隐私提醒要轻量**：联系人属于个人信息；只在分享/批量处理时提醒用户确认授权与内容。
-- **多联系人**：如果文本/图片明显包含多人，分别生成多个 `.vcf`，或合并成一个包含多张 vCard 的 `contacts.vcf`。最终用表格列出每个人。
-- **二维码**：若二维码内容是 `MECARD:`、`BEGIN:VCARD`、`tel:`、`mailto:`、微信/网址，按内容解析；vCard 原文可直接保存为 `.vcf`，MECARD 需转换。
-- **中文姓名**：vCard `N` 字段可按首字为姓、余下为名；不确定时 `FN` 优先保证显示正确。
-- **国际号码**：保留 `+国家码`、分机、空格，不要强行改写。
-- **文件命名**：优先 `姓名.vcf`；姓名为空用 `contact-YYYYMMDD-HHMM.vcf`。
-- **最终回复格式**：
-  1. 一句话说明已生成。
-  2. 字段摘要。
-  3. 文件链接。
-  4. “点开后可添加到通讯录，也可以用分享按钮发给别人。”
+## User Experience Details
+- **Do not include temporary information in contact notes**: For example, to-dos such as "Send a quote next Tuesday," "Call back tomorrow," or "Follow up at the end of the month" should be removed from the vCard notes. In the reply, separately ask, "Would you like me to create a reminder or to-do item?" If the user explicitly agrees, use `apple-reminders create` to create the reminder.
+- **Phone fields must be clean and consistently CELL**: `TEL` may contain only numbers, such as `010-66668888` or `13344445555`. For "010-66668888 (front desk), mobile 13344445555," split it into two phone entries. Use "front desk/mobile" only as display labels or notes, and do not append them to the number. When exporting, use `TEL;TYPE=CELL` for all phone numbers. Do not write types such as `VOICE/HOME/WORK` unless the user explicitly specifies them.
+- **Do not import directly into Contacts** unless the user explicitly confirms. First generate the vcf and have the user open it to confirm.
+- **Keep privacy prompts lightweight**: Contacts are personal information. Remind users to confirm authorization and content only when sharing or processing in batches.
+- **Multiple contacts**: If the text or image clearly contains multiple people, generate separate `.vcf` files, or merge them into one `contacts.vcf` file containing multiple vCards. Finally, list each person in a table.
+- **QR codes**: If the QR code content is `MECARD:`, `BEGIN:VCARD`, `tel:`, `mailto:`, WeChat, or a URL, parse it according to the content. Raw vCard content can be saved directly as `.vcf`; MECARD must be converted.
+- **Chinese names**: The vCard `N` field can use the first character as the family name and the remaining characters as the given name. If uncertain, prioritize correct display in `FN`.
+- **International numbers**: Preserve `+Country Code`, extensions, and spaces. Do not forcefully rewrite them.
+- **File naming**: Prefer `Name.vcf`; if the name is empty, use `contact-YYYYMMDD-HHMM.vcf`.
+- **Final reply format**:
+  1. A one-sentence confirmation that it has been generated.
+  2. A summary of the fields.
+  3. A link to the file.
+  4. "Tap it to add it to Contacts, or use the share button to send it to someone else."
 
-## 示例回复
-已整理好这张名片啦：
+## Sample Reply
+I’ve organized this business card:
 
-| 字段 | 内容 |
+| Field | Content |
 |---|---|
-| 姓名 | 张三 |
-| 电话 | +86 138 0000 0000 |
-| 邮箱 | zhangsan@example.com |
-| 公司 | 示例科技 |
+| Name | Zhang San |
+| Phone | +86 138 0000 0000 |
+| Email | zhangsan@example.com |
+| Company | Example Tech |
 
-[导入/分享联系人](minis://workspace/%E5%BC%A0%E4%B8%89.vcf)
+[Import/Share Contact](minis://workspace/%E5%BC%A0%E4%B8%89.vcf)
 
-点开后可以添加到通讯录，也能直接分享给别人。
+After opening it, you can add it to Contacts or share it directly with someone else.
 
-## bundled script 说明
-`contact_to_vcard.py` 会做基础规则抽取与 vCard 转义。它不是唯一方式：复杂、低质量 OCR 或排版混乱时，应结合模型判断手动修正字段，再生成 vCard。
+## Bundled Script Notes
+`contact_to_vcard.py` performs basic rule-based extraction and vCard escaping. It is not the only method: for complex input, low-quality OCR, or messy layouts, use model judgment to manually correct the fields before generating the vCard.

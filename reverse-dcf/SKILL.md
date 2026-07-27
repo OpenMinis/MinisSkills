@@ -1,199 +1,214 @@
 ---
 name: reverse-dcf
-description: Reverse DCF（反推现金流折现模型）估值工具。用市场价格倒推市场隐含增长率预期，替代正向DCF"调参数凑结论"的套路。适用于FCFF为正的成熟公司（A股/港股/美股）。当用户说"反推DCF"、"Reverse DCF"、"隐含增长率"、"市场隐含预期"、"price in"、"估值反推"、"反推估值"、"用DCF算一下"或要求"算算市场在赌什么"时触发。不适合FCFF为负的公司（此时改用PS隐含收入反推）。
+description: Reverse DCF (reverse discounted cash flow) valuation tool. Uses the market price to back-solve the market's implied growth rate expectations, replacing the common forward DCF routine of "tweaking parameters to fit the conclusion." Suitable for mature companies with positive FCFF (A-shares, Hong Kong-listed stocks, and U.S.-listed stocks). Trigger when the user says "reverse DCF," "Reverse DCF," "implied growth rate," "market-implied expectations," "price in," "valuation back-solve," "reverse valuation," "run a DCF," or asks to "calculate what the market is betting on." Not suitable for companies with negative FCFF (in that case, use a PS-implied revenue back-solve instead).
 version: 1.0.0
 ---
-# Reverse DCF — 反推市场隐含预期
+# Reverse DCF: Deriving Market-Implied Expectations
 
-## 核心思路
+## Core Idea
 
-正向DCF：给假设 → 算目标价（参数随意调，变成"为结论服务"）
-**Reverse DCF：给市场价 → 反推隐含增长率（把"贵了/便宜了"翻译成可验证的命题）**
+Forward DCF: given assumptions, calculate a target price. The parameters can be adjusted arbitrarily and end up "serving the conclusion."
 
-本质区别：
-- 正向DCF输出「公允价值」——虚的，你永远可以对，但钱包不会变厚
-- Reverse DCF输出「市场预期」——具体的、可验证的、可以和现实对比的数字
+**Reverse DCF: given the market price, back-solve the implied growth rate and translate "expensive" or "cheap" into a verifiable proposition.**
 
-## 适用条件
+The essential difference:
 
-**必要条件：基年FCFF必须为正。**
-FCFF为负的公司（早期高成长、重资产扩张期）套用标准两阶段DCF会算出无意义结果。
-→ 替代方案：用**PS隐含收入反推**（见下方"特殊情况处理"）
+- Forward DCF outputs "fair value." It is abstract, and you can always be right, but your wallet will not get any thicker.
+- Reverse DCF outputs "market expectations": specific, verifiable numbers that can be compared with reality.
 
-**数据要求：**
-- 最新完整年报（利润表、资产负债表、现金流量表）
-- 当前股价/市值
-- 有息负债明细（短期借款、长期借款、租赁负债等）
-- 无风险利率（10年期国债收益率）
-- 行业β、ERP（推荐Damodaran数据）
+## Applicability
 
-## 实操步骤
+**Necessary condition: base-year FCFF must be positive.**
 
-### 第一步：确定企业价值（EV）
+Applying a standard two-stage DCF to companies with negative FCFF, such as early-stage high-growth companies or companies in an asset-heavy expansion phase, produces meaningless results.
 
-```
-EV = 市值 + 净负债
-净负债 = 有息负债 - 现金及现金等价物 - 交易性金融资产
-```
+Alternative: use **PS-implied revenue back-solving** (see "Handling Special Cases" below).
 
-注意：
-- SK海力士那种"净现金"状态（现金>有息负债），EV会比市值小
-- A股公司需要检查：交易性金融资产是否包含理财（算现金等价物）
-- 科创板公司常有大量募集资金趴在账上，EV可能远小于市值
+**Data requirements:**
 
-### 第二步：计算基年FCFF（核心，最容易出错）
+- Latest complete annual report (income statement, balance sheet, and cash flow statement)
+- Current stock price/market capitalization
+- Details of interest-bearing debt (short-term borrowings, long-term borrowings, lease liabilities, etc.)
+- Risk-free rate (10-year government bond yield)
+- Industry β and ERP (Damodaran data recommended)
 
-**推荐方法A：从CFO反推（实战最可靠）**
+## Practical Steps
+
+### Step 1: Determine Enterprise Value (EV)
 
 ```
-FCFF = CFO - Capex + 税后利息支出
+EV = Market Capitalization + Net Debt
+Net Debt = Interest-Bearing Debt - Cash and Cash Equivalents - Financial Assets Held for Trading
 ```
 
-- CFO = 经营活动现金流净额（审计过的真金白银）
-- Capex = 购建固定资产、无形资产支付的现金
-- 净现金公司：税后利息 ≈ 0
+Notes:
 
-**验证方法B：从NOPAT bottom-up**
+- For companies like SK Hynix that are in a "net cash" position (cash > interest-bearing debt), EV will be lower than market capitalization.
+- For A-share companies, check whether financial assets held for trading include wealth management products, which are treated as cash equivalents.
+- STAR Market companies often have large amounts of IPO or financing proceeds sitting on the balance sheet, so EV may be far lower than market capitalization.
+
+### Step 2: Calculate Base-Year FCFF (the core step and the easiest place to make mistakes)
+
+**Recommended Method A: Back-solve from CFO (most reliable in practice)**
 
 ```
-NOPAT = 营业利润 × (1 - 实际税率)
+FCFF = CFO - Capex + After-Tax Interest Expense
+```
+
+- CFO = net cash flow from operating activities (audited real cash).
+- Capex = cash paid to acquire and construct fixed assets and intangible assets.
+- Net-cash companies: after-tax interest ≈ 0.
+
+**Verification Method B: Bottom-up from NOPAT**
+
+```
+NOPAT = Operating Profit × (1 - Effective Tax Rate)
 FCFF = NOPAT + D&A - Capex - ΔWC
 ```
 
-- **实际税率 ≠ 法定税率**（如韩国法定24%，SK海力士实际仅14.9%）
-- D&A = 折旧摊销
-- ΔWC = 营运资本占用增加（存货+应收+预付 - 应付-合同负债的变化）
-- 两种方法交叉验证，取均值
+- **Effective tax rate ≠ statutory tax rate** (for example, South Korea's statutory rate is 24%, while SK Hynix's effective rate is only 14.9%).
+- D&A = depreciation and amortization.
+- ΔWC = increase in working capital (changes in inventory + accounts receivable + prepayments - accounts payable - contract liabilities).
+- Cross-check the two methods and take the average.
 
-**重要：基年选择决定一切**
-- 用周期顶部的FCFF → 隐含CAGR被低估
-- 用周期中位FCFF → 隐含CAGR偏高
-- 这是个判断，不是计算
+**Important: the base year determines everything**
 
-### 第三步：搭WACC
+- Using FCFF at the top of the cycle → implied CAGR is understated.
+- Using cycle-median FCFF → implied CAGR is on the high side.
+- This is a judgment, not a calculation.
+
+### Step 3: Build the WACC
 
 ```
 Re = Rf + β × ERP
 WACC = Re × We + Rd×(1-t) × Wd
 ```
 
-参数来源建议：
-| 参数 | 来源 |
-|:---|---|
-| 无风险利率 Rf | 公司所在国10年期国债收益率 |
-| 股权风险溢价 ERP | Damodaran 年度数据（各国不同） |
-| β | Damodaran行业unlevered β → 按D/E re-lever（比单只股票回归β稳健） |
-| 税前债务成本 Rd | 公司所在国IG企业债平均水平 |
-| 实际税率 | 公司实际有效税率（从报表算，不是法定税率） |
+Suggested parameter sources:
 
-### 第四步：两阶段DCF模型
+| Parameter | Source |
+|:---|---|
+| Risk-free rate Rf | 10-year government bond yield in the company's home country |
+| Equity risk premium ERP | Damodaran annual data (varies by country) |
+| β | Damodaran industry unlevered β → re-lever based on D/E (more robust than a single-stock regression β) |
+| Pre-tax cost of debt Rd | Average level of investment-grade corporate bonds in the company's home country |
+| Effective tax rate | Company's actual effective tax rate (calculated from financial statements, not the statutory rate) |
+
+### Step 4: Two-Stage DCF Model
 
 ```
 EV = Σ [FCFF₀ × (1+g₁)ᵗ / (1+WACC)ᵗ] + [FCFF₁₀ × (1+g₂) / (WACC-g₂)] / (1+WACC)¹⁰
 ```
 
-其中：
-- g₁ = 显性期（10年）FCFF年化增长率 ← **反推目标**
-- g₂ = 永续增长率（通常2.5-3%，≈名义GDP增速）
+Where:
+
+- g₁ = annualized FCFF growth rate during the explicit forecast period (10 years) ← **the target to back-solve**
+- g₂ = perpetual growth rate (usually 2.5-3%, approximately nominal GDP growth)
 - FCFF₁₀ = FCFF₀ × (1+g₁)¹⁰ × (1+g₂)
 
-**正向DCF：给定g₁和g₂，求EV**
-**Reverse DCF：给定EV和g₂，反求g₁**
+**Forward DCF: given g₁ and g₂, solve for EV.**
 
-### 第五步：构建敏感性表格
+**Reverse DCF: given EV and g₂, solve for g₁.**
+
+### Step 5: Build a Sensitivity Table
 
 ```
-              永续增长g₂
+              Perpetual growth g₂
             1.5%  2.0%  2.5%  3.0%  3.5%
      18%     xxx   xxx   xxx   xxx   xxx
 CAGR 20%     xxx   xxx   xxx   xxx   xxx
 g₁   22%     xxx   xxx   xxx   xxx   xxx
-     25%     xxx   xxx   xxx  [1189] xxx  ← 目标EV
+     25%     xxx   xxx   xxx  [1189] xxx  ← Target EV
      28%     xxx   xxx   xxx   xxx   xxx
 ```
 
-1. 每个格子 = 对应(CAGR, g₂)组合下的EV
-2. 找到最接近**实际EV**的格子
-3. 该格子对应的g₁就是**市场隐含的显性期CAGR预期**
+1. Each cell = the EV under the corresponding (CAGR, g₂) combination.
+2. Find the cell closest to the **actual EV**.
+3. The g₁ corresponding to that cell is the **market-implied explicit-period CAGR expectation**.
 
-**关键观察：**
-- 定价对显性期CAGR的敏感度 >> 对永续g的敏感度
-- 同一行（同CAGR）估值差异不大，同一列（同永续g）估值能差一倍
-- 所以质疑估值的重点是"10年CAGR能不能实现"，而不是"永续3%太激进"
+**Key observations:**
 
-### 第六步：把CAGR翻译成人话
+- Valuation sensitivity to explicit-period CAGR >> sensitivity to perpetual g.
+- Valuation differences are not large within the same row (same CAGR), while valuations can differ by a factor of two within the same column (same perpetual g).
+- Therefore, the key valuation question is whether the "10-year CAGR can be achieved," not whether "3% perpetual growth is too aggressive."
 
-算出隐含CAGR后，做三个翻译：
+### Step 6: Translate CAGR into Plain English
 
-**翻译一：10年后公司规模**
+After calculating the implied CAGR, make three translations:
+
+**Translation 1: Company size in 10 years**
+
 ```
 FCFF₁₀ = FCFF₀ × (1+g₁)¹⁰
-对应收入 ≈ FCFF₁₀ / (当前FCFF/收入转化率)
+Corresponding revenue ≈ FCFF₁₀ / (current FCFF/revenue conversion rate)
 ```
 
-**翻译二：行业层面需要发生什么**
-```
-当前TAM → 10年后所需收入 → 隐含市占率变化
-或：TAM翻几倍才能支撑
-```
-
-**翻译三：跟历史比较**
-```
-公司过去10年实际CAGR vs 隐含CAGR
-行业可比公司/全球科技巨头历史CAGR对比
-（台积电过去20年CAGR≈18%，已是行业奇迹）
-```
-
-### 第七步：诚实面对局限
-
-1. **终点值（TV）占EV比例偏高**——周期股尤其危险，TV占>50%是红色警告
-   - 替代方案：Exit Multiple法（第10年用行业中位EV/EBITDA退出）
-2. **FCFF基年选择决定一切**——周期顶部vs底部差几倍
-3. **D&A和Capex是估算值**——精度受限于公开披露颗粒度
-4. **Reverse DCF告诉你市场预期是什么，不告诉你市场是对是错**
-   - 25% CAGR可能合理也可能不合理，需要独立判断
-   - 不是结论，是讨论的起点
-
-## 特殊情况处理
-
-### FCFF为负的公司（如寒武纪）
-
-不能用标准两阶段DCF反推。改用**PS隐含收入反推**：
-
-1. 给一个合理的终端PE假设（如成熟期30x）
-2. 反推10年后所需净利润
-3. 再给一个合理的净利润率假设，反推10年后所需收入
-4. 计算隐含收入CAGR
+**Translation 2: What needs to happen at the industry level**
 
 ```
-隐含收入₁₀ = 市值 / 终端PE / 净利润率
-隐含CAGR = (隐含收入₁₀ / 当前收入)^(1/10) - 1
+Current TAM → required revenue in 10 years → implied market share change
+Or: how many times TAM must grow to support it
 ```
 
-### 周期股
+**Translation 3: Compare with history**
 
-建议用**周期中位FCFF**替代单一年份FCFF作为基年数据。
-也可用Exit Multiple法替代Gordon Growth Model做终值。
+```
+Company's actual CAGR over the past 10 years vs implied CAGR
+Historical CAGR comparison with industry peers/global tech giants
+(TSMC's CAGR over the past 20 years was approximately 18%, already an industry miracle)
+```
 
-## 数据源推荐
+### Step 7: Be Honest About Limitations
 
-| 数据 | 推荐获取方式 |
+1. **Terminal value (TV) accounts for a high proportion of EV**: this is especially dangerous for cyclical stocks. TV accounting for >50% is a red flag.
+   - Alternative: Exit Multiple method (use the industry median EV/EBITDA in year 10 for the exit).
+2. **The choice of base-year FCFF determines everything**: the top and bottom of the cycle can differ by several times.
+3. **D&A and Capex are estimates**: accuracy is limited by the granularity of public disclosures.
+4. **Reverse DCF tells you what the market expects, not whether the market is right or wrong.**
+   - A 25% CAGR may or may not be reasonable and requires independent judgment.
+   - It is not a conclusion. It is the starting point for discussion.
+
+## Handling Special Cases
+
+### Companies with Negative FCFF (such as Cambricon)
+
+A standard two-stage DCF cannot be used for the back-solve. Use **PS-implied revenue back-solving** instead:
+
+1. Assume a reasonable terminal PE, such as 30x in the mature phase.
+2. Back-solve the required net profit 10 years from now.
+3. Then assume a reasonable net margin and back-solve the required revenue 10 years from now.
+4. Calculate the implied revenue CAGR.
+
+```
+Implied Revenue₁₀ = Market Capitalization / Terminal PE / Net Profit Margin
+Implied CAGR = (Implied Revenue₁₀ / Current Revenue)^(1/10) - 1
+```
+
+### Cyclical Stocks
+
+Use **cycle-median FCFF** instead of a single year's FCFF as the base-year data.
+
+You can also use the Exit Multiple method instead of the Gordon Growth Model to calculate terminal value.
+
+## Recommended Data Sources
+
+| Data | Recommended acquisition method |
 |:---|---|
-| 股价/市值 | browser_use navigate 新浪财经或雪球个股页面，get_text 提取 |
-| 财报数据 | browser_use navigate `https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/Index?type=web&code=<股票代码>`（利润表/资产负债表/现金流量表三个tab信息完全） |
-| 有息负债明细 | 同上，资产负债表tab——短期借款、长期借款、租赁负债、应付债券各科目 |
-| CFO/Capex | 同上，现金流量表tab——经营活动现金流净额、购建固定资产支付的现金 |
-| 行业β/ERP | Damodaran Online (pages.stern.nyu.edu/~adamodar/) |
-| 10年期国债收益率 | TradingView 或各国央行官网，browser_use navigate 获取 |
-| 历史收入/CAGR | 东方财富PC_HSF10 利润表tab，拉5-10年收入数据手动算 |
+| Stock price/market capitalization | `browser_use navigate` to Sina Finance or Xueqiu individual stock pages, then use `get_text` to extract |
+| Financial statement data | Use `browser_use navigate` to open `https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/Index?type=web&code=<stock-code>`; the income statement, balance sheet, and cash flow statement tabs provide the complete data. |
+| Details of interest-bearing debt | Same as above, balance sheet tab: short-term borrowings, long-term borrowings, lease liabilities, and bonds payable |
+| CFO/Capex | Same as above, cash flow statement tab: net cash flow from operating activities and cash paid to acquire and construct fixed assets |
+| Industry β/ERP | Damodaran Online (pages.stern.nyu.edu/~adamodar/) |
+| 10-year government bond yield | TradingView or official central bank websites, retrieved with `browser_use navigate` |
+| Historical revenue/CAGR | East Money PC_HSF10 income statement tab, pull 5-10 years of revenue data and calculate manually |
 
-> 注：所有数据都应通过 browser_use 实时抓取，不要依赖训练数据。A股股票代码在 emweb 格式为 `SH600519`（沪）或 `SZ000651`（深），港股为 `HK00700`。
+> Note: All data should be retrieved in real time through `browser_use`; do not rely on training data. A-share stock codes in emweb format are `SH600519` (Shanghai) or `SZ000651` (Shenzhen), and Hong Kong stocks use `HK00700`.
 
-## 实战案例参考
+## Practical Case References
 
-系列文章（作者：monokuro，东京四大会计师事务所估值团队Manager）：
+Series of articles (author: monokuro, Manager on the valuation team at a Big Four accounting firm in Tokyo):
 
-1. **核心案例**：《[市场对SK海力士隐含的预期是什么？反推DCF告诉你一个吓人的数字](https://zhuanlan.zhihu.com/p/2036428331852228430)》——用Reverse DCF算出SK海力士当前股价隐含未来10年FCFF年化增长25%，10年后FCFF需达208万亿韩元（2025年收入的9倍），是过去10年实际增速（13%）的两倍。
-2. **方法修正**：《[上一篇AI芯片五巨头的反推DCF，有三处需要修正](https://zhuanlan.zhihu.com/p/2038261840434701481)》——指出Exit Multiple替代GGM、周期中位FCFF替换单年FCFF、数据源修正等实操陷阱，可作为Reverse DCF局限性章节的补充参考。
+1. **Core case**: "[What Expectations Is the Market Pricing In for SK Hynix? Reverse DCF Gives You a Startling Number](https://zhuanlan.zhihu.com/p/2036428331852228430)": uses Reverse DCF to calculate that SK Hynix's current stock price implies 25% annualized FCFF growth over the next 10 years. FCFF would need to reach 208 trillion won in 10 years, nine times 2025 revenue and twice the actual growth rate over the past 10 years (13%).
+2. **Method correction**: "[Three Corrections to the Previous Reverse DCF for the Five AI Chip Giants](https://zhuanlan.zhihu.com/p/2038261840434701481)": points out practical pitfalls such as using Exit Multiple instead of GGM, replacing single-year FCFF with cycle-median FCFF, and correcting data sources. It can be used as supplemental reference for the limitations section of Reverse DCF.
 
-方法论核心参考 Aswath Damodaran 的估值框架（《Investment Valuation》及每年更新的各国风险溢价数据）。
+The core methodological reference is Aswath Damodaran's valuation framework (*Investment Valuation* and the country risk premium data updated each year).

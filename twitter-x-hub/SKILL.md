@@ -1,143 +1,143 @@
 ---
 name: twitter-x-hub
 description: >
-  使用 Python + UV 读写 Twitter/X 数据的技能，零第三方依赖（纯标准库），通过直接传入
-  auth_token + ct0 Cookie 完成认证。在 Minis 环境中，Cookie 可通过 browser_use 工具
-  导航到 x.com 后用 get_cookies 动作自动获取，无需手动复制。支持抓取主页时间线、关注列表、
-  书签（含书签文件夹）、搜索、用户资料、用户推文、点赞、推文详情（单条/含回复）、List 时间线、
-  粉丝/关注列表，以及发推、删推、点赞、转推、收藏等写操作。当用户提到"抓取 Twitter 数据"、
-  "获取 X 推文"、"Twitter 时间线"、"X 书签"、"搜索推文"、"twitter-x-hub"、
-  "用 Cookie 请求 Twitter"、"Twitter GraphQL"，或任何需要以编程方式读写 Twitter/X
-  数据的场景，必须触发本技能。
+  Skill for reading and writing Twitter/X data with Python + UV, with zero third-party dependencies (pure standard library), by directly passing
+  the auth_token + ct0 cookies for authentication. In the Minis environment, cookies can be retrieved automatically with the browser_use tool
+  by navigating to x.com and then using the get_cookies action, with no manual copying required. Supports scraping the home timeline, following list,
+  bookmarks (including bookmark folders), search, user profiles, user tweets, likes, tweet details (single tweet or with replies), List timelines,
+  followers/following lists, and write operations such as posting, deleting, liking, retweeting, and bookmarking. This skill must be triggered when the user mentions "scraping Twitter data,"
+  "get X tweets," "Twitter timeline," "X bookmarks," "search tweets," "twitter-x-hub,"
+  "request Twitter with cookies," "Twitter GraphQL," or any scenario that requires programmatic reading or writing of Twitter/X
+  data.
 ---
 
 # twitter-x-hub
 
-> **改造来源**：[public-clis/twitter-cli](https://github.com/public-clis/twitter-cli)（原 jackwener/twitter-cli）
-> 本技能对原仓库做了以下简化：移除 `browser-cookie3`/`rich`/`click`/`PyYAML`/`curl_cffi`/
-> `xclienttransaction`/`beautifulsoup4` 依赖，改为纯标准库实现；认证方式改为直接传入 Cookie，
-> 不做浏览器自动提取；移除 Twitter Article 渲染和图片上传功能。
+> **Modified from**: [public-clis/twitter-cli](https://github.com/public-clis/twitter-cli) (formerly jackwener/twitter-cli)
+> This skill simplifies the original repository as follows: it removes the `browser-cookie3`/`rich`/`click`/`PyYAML`/`curl_cffi`/
+> `xclienttransaction`/`beautifulsoup4` dependencies and replaces them with a pure standard library implementation; authentication now uses directly supplied cookies
+> instead of automatic browser extraction; Twitter Article rendering and image upload functionality have been removed.
 
 ---
 
-## 文件结构
+## File Structure
 
 ```
 /var/minis/skills/twitter-x-hub/
 ├── SKILL.md
-├── pyproject.toml              # UV 项目配置（零第三方依赖）
+├── pyproject.toml              # UV project configuration (zero third-party dependencies)
 └── scripts/
     ├── __init__.py
-    ├── models.py               # 数据模型（Tweet, Author, Metrics, UserProfile, BookmarkFolder）
-    ├── parser.py               # GraphQL 响应解析（从 client.py 拆出，同步自上游 v0.8.6）
-    ├── client.py               # GraphQL 客户端（核心逻辑）
-    └── cli.py                  # 命令行入口（argparse）
+    ├── models.py               # Data models (Tweet, Author, Metrics, UserProfile, BookmarkFolder)
+    ├── parser.py               # GraphQL response parsing (split from client.py, synced from upstream v0.8.6)
+    ├── client.py               # GraphQL client (core logic)
+    └── cli.py                  # Command-line entry point (argparse)
 ```
 
 ---
 
-## 认证方式
+## Authentication
 
-Twitter/X 内部 GraphQL API 使用两个 Cookie 做认证：
+The Twitter/X internal GraphQL API uses two cookies for authentication:
 
-| Cookie | 说明 |
-|--------|------|
-| `auth_token` | 用户登录凭证（OAuth Session Token） |
-| `ct0` | CSRF Token，同时作为 `X-Csrf-Token` 请求头 |
+| Cookie | Description |
+|--------|-------------|
+| `auth_token` | User login credential (OAuth Session Token) |
+| `ct0` | CSRF Token, also used as the `X-Csrf-Token` request header |
 
-### 方法一：browser_use 工具自动获取（推荐，Minis 环境首选）
+### Method 1: Retrieve automatically with the `browser_use` tool (recommended, preferred in the Minis environment)
 
-在 Minis 中可直接用 `browser_use` 工具导航到 x.com，再用 `get_cookies` 动作读取 Cookie，
-无需手动复制。**获取后应立即存入环境变量**，避免明文出现在对话上下文中。
+In Minis, you can use the `browser_use` tool to navigate directly to x.com, then use the `get_cookies` action to read cookies,
+with no manual copying required. **After retrieval, store them in environment variables immediately** to avoid exposing plaintext values in the conversation context.
 
-操作步骤：
-1. `browser_use navigate` 打开 `https://x.com`，确认已登录
-2. `browser_use get_cookies` 获取所有 cookie
-   - 工具返回 offload env 文件路径（如 `/var/minis/offloads/env_cookies_xxx.sh`）
-   - **Cookie 原始值不会出现在对话中**
-3. 加载后即可使用：
+Steps:
+1. Use `browser_use navigate` to open `https://x.com` and confirm you are logged in.
+2. Use `browser_use get_cookies` to retrieve all cookies.
+   - The tool returns an offload env file path, such as `/var/minis/offloads/env_cookies_xxx.sh`.
+   - **Raw cookie values will not appear in the conversation.**
+3. Load the file, then use the cookies:
 ```bash
 . /var/minis/offloads/env_cookies_xxx.sh
 export TWITTER_AUTH_TOKEN="$COOKIE_AUTH_TOKEN"
 export TWITTER_CT0="$COOKIE_CT0"
 ```
 
-### 方法二：手动设置环境变量
+### Method 2: Set environment variables manually
 
-从浏览器 DevTools → Application → Cookies → `https://x.com` 复制 `auth_token` 和 `ct0`，
-存入 Minis 环境变量（Settings → Environments）：`TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
+Copy `auth_token` and `ct0` from browser DevTools -> Application -> Cookies -> `https://x.com`,
+then store them in Minis environment variables (Settings -> Environments): `TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
 
-### 传入方式（三种，优先级从高到低）
+### Passing credentials (three methods, in descending priority)
 
-1. 环境变量：`TWITTER_AUTH_TOKEN` + `TWITTER_CT0`（推荐）
-2. CLI 参数：`--auth-token <value> --ct0 <value>`
-3. 代码直接传入：`TwitterClient(auth_token=..., ct0=...)`
+1. Environment variables: `TWITTER_AUTH_TOKEN` + `TWITTER_CT0` (recommended)
+2. CLI parameters: `--auth-token <value> --ct0 <value>`
+3. Pass directly in code: `TwitterClient(auth_token=..., ct0=...)`
 
 ---
 
-## 快速使用
+## Quick Start
 
-### 环境准备
+### Environment Setup
 
 ```bash
-# 确认 UV 可用
+# Confirm UV is available
 which uv || pip install uv
 
-# 进入 skill 目录
+# Enter the skill directory
 cd /var/minis/skills/twitter-x-hub
 ```
 
-### CLI 用法
+### CLI Usage
 
 ```bash
-# 抓取首页 For-You 时间线（默认20条）
+# Scrape the home For-You timeline (20 items by default)
 uv run python -m scripts.cli feed
 
-# 抓取 Following 时间线，30条，JSON 输出
+# Scrape the Following timeline, 30 items, JSON output
 uv run python -m scripts.cli feed --type following --max 30 --json
 
-# 搜索推文（Top/Latest/Photos/Videos）
+# Search tweets (Top/Latest/Photos/Videos)
 uv run python -m scripts.cli search "Claude Code" --tab Latest --max 20
 
-# 书签
+# Bookmarks
 uv run python -m scripts.cli bookmarks --max 50
 
-# 书签文件夹列表（新增）
+# Bookmark folder list (new)
 uv run python -m scripts.cli bookmark-folders
 
-# 用户资料
+# User profile
 uv run python -m scripts.cli user elonmusk
 
-# 用户推文
+# User tweets
 uv run python -m scripts.cli user-posts elonmusk --max 20
 
-# 用户点赞
+# User likes
 uv run python -m scripts.cli user-likes elonmusk --max 20
 
-# 推文详情（含回复线程）
+# Tweet details (including reply thread)
 uv run python -m scripts.cli tweet 1234567890
 
-# 单条推文快速获取（新增，比 tweet 命令快）
+# Quickly retrieve a single tweet (new, faster than the tweet command)
 uv run python -m scripts.cli tweet-by-id 1234567890
 
-# List 时间线
+# List timeline
 uv run python -m scripts.cli list 1539453138322673664
 
-# 粉丝 / 关注列表（需先用 user 命令获取 user_id）
+# Followers / following lists (first use the user command to get user_id)
 uv run python -m scripts.cli followers <user_id> --max 50
 uv run python -m scripts.cli following <user_id> --max 50
 
-# 发推 / 回复
+# Post a tweet / reply
 uv run python -m scripts.cli post "Hello from twitter-x-hub!"
 uv run python -m scripts.cli post "reply text" --reply-to 1234567890
 
-# 点赞 / 转推 / 收藏
+# Like / retweet / bookmark
 uv run python -m scripts.cli like 1234567890
 uv run python -m scripts.cli retweet 1234567890
 uv run python -m scripts.cli bookmark 1234567890
 ```
 
-### 用环境变量省去每次传参
+### Use environment variables to avoid passing credentials each time
 
 ```bash
 export TWITTER_AUTH_TOKEN="xxxx"
@@ -146,7 +146,7 @@ export TWITTER_CT0="yyyy"
 uv run python -m scripts.cli feed --max 30 --json
 ```
 
-### 作为 Python 库调用
+### Call as a Python library
 
 ```python
 import os, json, dataclasses
@@ -157,113 +157,113 @@ client = TwitterClient(
     ct0=os.environ["TWITTER_CT0"],
 )
 
-# 抓取首页时间线
+# Scrape the home timeline
 tweets = client.fetch_home_timeline(count=20)
 for t in tweets:
     print(f"@{t.author.screen_name}: {t.text[:80]}")
     print(f"  ❤️ {t.metrics.likes}  🔁 {t.metrics.retweets}  👁 {t.metrics.views}  🔖 {t.metrics.bookmarks}")
 
-# 搜索（Latest tab）
+# Search (Latest tab)
 results = client.fetch_search("AI agent", count=10, product="Latest")
 
-# 单条推文（快速，无回复）
+# Single tweet (quick, no replies)
 tweet = client.fetch_tweet_by_id("1234567890")
 
-# 书签文件夹
+# Bookmark folders
 folders = client.fetch_bookmark_folders()
 
-# 用户资料
+# User profile
 user = client.fetch_user("elonmusk")
 print(user.id, user.followers_count)
 
-# JSON 序列化
+# JSON serialization
 data = [dataclasses.asdict(t) for t in tweets]
 print(json.dumps(data, ensure_ascii=False, indent=2))
 ```
 
 ---
 
-## 核心实现原理
+## Core Implementation Principles
 
-### 认证机制
-使用浏览器 Cookie（`auth_token` + `ct0`）+ 硬编码公共 Bearer Token，
-伪装成 Chrome 浏览器请求 Twitter 内部 GraphQL API。
+### Authentication Mechanism
+Uses browser cookies (`auth_token` + `ct0`) plus a hard-coded public Bearer Token
+to impersonate a Chrome browser request to Twitter's internal GraphQL API.
 
-### QueryId 三级解析（自动应对接口变动）
+### Three-level QueryId resolution (automatically handles API changes)
 ```
-1. 内存缓存（最快）
-2. 硬编码 FALLBACK_QUERY_IDS（常量兜底）
-   → 若 404，说明 queryId 已过期，进入下一级
-3. 从 github.com/fa0311/twitter-openapi 拉取最新 queryId
-   → 还没有则扫描 x.com JS Bundle 用正则提取
+1. In-memory cache (fastest)
+2. Hard-coded FALLBACK_QUERY_IDS (constant fallback)
+   → If 404, the queryId has expired; proceed to the next level
+3. Fetch the latest queryId from github.com/fa0311/twitter-openapi
+   → If it is still unavailable, scan the x.com JS Bundle and extract it with a regular expression
 ```
 
-### URL 优化（同步自上游 v0.8）
-- features 字典中值为 `False` 的 key 不发送，避免 URL 过长（414 错误）
+### URL Optimization (synced from upstream v0.8)
+- Keys with a value of `False` in the `features` dictionary are not sent, avoiding overly long URLs (414 errors).
 
-### 分页 & 限流
-- 每次响应携带 `cursor`，自动翻页直到达到 `count` 上限
-- 请求间隔默认 1.5 秒 + ±30% 随机抖动，HTTP 429 触发指数退避重试
-- 写操作延迟 1.5~4 秒随机
+### Pagination & Rate Limiting
+- Each response includes a `cursor`; pages are fetched automatically until the `count` limit is reached.
+- The default request interval is 1.5 seconds + ±30% random jitter. HTTP 429 triggers exponential backoff and retry.
+- Write operations use a random delay of 1.5 to 4 seconds.
 
-### 解析器拆分（同步自上游 v0.7+）
-- `parser.py` 从 `client.py` 拆出，包含 `parse_tweet_result`、`parse_timeline_response`、
-  `parse_user_result` 等独立函数，便于单元测试和复用
-
----
-
-## CLI 子命令速查
-
-| 子命令 | 说明 | 关键参数 |
-|--------|------|----------|
-| `feed` | 主页时间线 | `--type for-you\|following`, `--max`, `--json` |
-| `bookmarks` | 书签 | `--max`, `--json` |
-| `bookmark-folders` | 书签文件夹列表 ⭐新增 | `--json` |
-| `search` | 搜索 | `query`, `--tab Top\|Latest\|Photos\|Videos`, `--max`, `--json` |
-| `user` | 用户资料 | `screen_name`, `--json` |
-| `user-posts` | 用户推文 | `screen_name`, `--max`, `--json` |
-| `user-likes` | 用户点赞 | `screen_name`, `--max`, `--json` |
-| `tweet` | 推文详情+回复 | `tweet_id`, `--max`, `--json` |
-| `tweet-by-id` | 单条推文（快速）⭐新增 | `tweet_id`, `--json` |
-| `list` | List 时间线 | `list_id`, `--max`, `--json` |
-| `followers` | 粉丝列表 | `user_id`, `--max`, `--json` |
-| `following` | 关注列表 | `user_id`, `--max`, `--json` |
-| `post` | 发推 | `text`, `--reply-to` |
-| `delete` | 删推 | `tweet_id` |
-| `like` / `unlike` | 点赞/取消 | `tweet_id` |
-| `retweet` / `unretweet` | 转推/取消 | `tweet_id` |
-| `bookmark` / `unbookmark` | 收藏/取消 | `tweet_id` |
-
-所有子命令均支持 `--auth-token` / `--ct0` 参数，也可通过环境变量替代。
+### Parser Split (synced from upstream v0.7+)
+- `parser.py` was split out from `client.py` and includes independent functions such as `parse_tweet_result`, `parse_timeline_response`,
+  and `parse_user_result`, making unit testing and reuse easier.
 
 ---
 
-## 变更日志（同步自上游）
+## CLI Subcommand Quick Reference
 
-### v0.8.6 同步（2026-04-08）
-- **QueryId 全量更新**：从 x.com JS bundle（main.0e98bc8a.js）实时扫描，更新了
-  HomeTimeline、HomeLatestTimeline、UserTweets、SearchTimeline、Likes、TweetDetail、
-  TweetResultByRestId、ListLatestTweetsTimeline、Followers、Following、CreateTweet 等全部 ID
-- **新增 QueryId**：`TweetResultByRestId`、`BookmarkFoldersSlice`、`BookmarkFolderTimeline`
-- **新增命令**：`tweet-by-id`（单条推文快速获取）、`bookmark-folders`（书签文件夹）
-- **models.py**：`Metrics` 新增 `bookmarks` 字段；`Tweet` 新增 `article_title`、
-  `article_text`、`is_subscriber_only` 字段；新增 `BookmarkFolder` dataclass
-- **parser.py**：从 `client.py` 拆出为独立模块；修复新 API 结构（`core.name`/`core.screen_name`）；
-  `parse_tweet_result` 支持 `note_tweet` 全文（长推文"显示更多"）；
-  新增 `_unwrap_visibility` 处理 `TweetWithVisibilityResults`；
-  `parse_user_result` 修复 `joined` 日期从 `core.created_at` 读取
-- **URL 优化**：features 中 False 值不发送，避免 414 错误
-- **SearchTimeline 限制**：X 从 2025 年底开始要求 `x-client-transaction-id` header，
-  该 header 由 `xclienttransaction`（C 扩展）生成，在 iSH/Alpine 环境无法安装，
-  因此 `search` 命令在本环境暂不可用；替代方案：用 `browser_use` 导航到搜索页面提取 DOM
+| Subcommand | Description | Key Parameters |
+|------------|-------------|----------------|
+| `feed` | Home timeline | `--type for-you\|following`, `--max`, `--json` |
+| `bookmarks` | Bookmarks | `--max`, `--json` |
+| `bookmark-folders` | Bookmark folder list ⭐ New | `--json` |
+| `search` | Search | `query`, `--tab Top\|Latest\|Photos\|Videos`, `--max`, `--json` |
+| `user` | User profile | `screen_name`, `--json` |
+| `user-posts` | User tweets | `screen_name`, `--max`, `--json` |
+| `user-likes` | User likes | `screen_name`, `--max`, `--json` |
+| `tweet` | Tweet details + replies | `tweet_id`, `--max`, `--json` |
+| `tweet-by-id` | Single tweet (quick) ⭐ New | `tweet_id`, `--json` |
+| `list` | List timeline | `list_id`, `--max`, `--json` |
+| `followers` | Followers list | `user_id`, `--max`, `--json` |
+| `following` | Following list | `user_id`, `--max`, `--json` |
+| `post` | Post a tweet | `text`, `--reply-to` |
+| `delete` | Delete a tweet | `tweet_id` |
+| `like` / `unlike` | Like/unlike | `tweet_id` |
+| `retweet` / `unretweet` | Retweet/unretweet | `tweet_id` |
+| `bookmark` / `unbookmark` | Bookmark/unbookmark | `tweet_id` |
+
+All subcommands support the `--auth-token` / `--ct0` parameters, which can also be replaced with environment variables.
 
 ---
 
-## 注意事项
+## Change Log (synced from upstream)
 
-- Cookie 有效期通常数周至数月，过期后需重新从浏览器获取
-- 建议使用专用小号，避免主账号被风控
-- 写操作（发推、点赞等）风控风险高于读操作，请酌情使用
-- `max_count` 硬上限为 500，防止意外大量请求
-- 上游依赖 `curl_cffi` 做 TLS 指纹伪装，本 skill 使用 stdlib `urllib` 替代，
-  遇到风控时可尝试通过 `cookie_string` 参数传入完整 Cookie 字符串增强指纹
+### v0.8.6 Sync (2026-04-08)
+- **Full QueryId update**: Real-time scanning from the x.com JS bundle (main.0e98bc8a.js) updated
+  all IDs, including HomeTimeline, HomeLatestTimeline, UserTweets, SearchTimeline, Likes, TweetDetail,
+  TweetResultByRestId, ListLatestTweetsTimeline, Followers, Following, CreateTweet, and others.
+- **New QueryIds**: `TweetResultByRestId`, `BookmarkFoldersSlice`, `BookmarkFolderTimeline`
+- **New commands**: `tweet-by-id` (quick single-tweet retrieval), `bookmark-folders` (bookmark folders)
+- **models.py**: Added the `bookmarks` field to `Metrics`; added the `article_title`,
+  `article_text`, and `is_subscriber_only` fields to `Tweet`; added the `BookmarkFolder` dataclass.
+- **parser.py**: Split from `client.py` into an independent module; fixed the new API structure (`core.name`/`core.screen_name`);
+  `parse_tweet_result` supports full text from `note_tweet` (long tweets with "Show more");
+  added `_unwrap_visibility` to handle `TweetWithVisibilityResults`;
+  fixed `parse_user_result` so the `joined` date is read from `core.created_at`.
+- **URL optimization**: `False` values in `features` are not sent, avoiding 414 errors.
+- **SearchTimeline restriction**: Starting in late 2025, X requires the `x-client-transaction-id` header.
+  This header is generated by `xclienttransaction` (a C extension), which cannot be installed in the iSH/Alpine environment.
+  Therefore, the `search` command is temporarily unavailable in this environment. Alternative: use `browser_use` to navigate to the search page and extract the DOM.
+
+---
+
+## Notes
+
+- Cookies are typically valid for several weeks to several months. After they expire, they must be retrieved from the browser again.
+- Use a dedicated secondary account to reduce the risk of your main account being flagged by risk controls.
+- Write operations, such as posting tweets and liking tweets, carry a higher risk of triggering risk controls than read operations. Use them at your discretion.
+- `max_count` has a hard limit of 500 to prevent accidentally sending a large number of requests.
+- Upstream uses `curl_cffi` for TLS fingerprint spoofing. This skill uses stdlib `urllib` instead.
+  If you encounter risk controls, you can try passing the complete cookie string through the `cookie_string` parameter to strengthen the fingerprint.

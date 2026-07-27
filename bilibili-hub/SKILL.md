@@ -1,30 +1,30 @@
 ---
 name: bilibili-hub
 description: >
-  使用 Python + UV 读写哔哩哔哩（B 站）数据的技能，依赖 bilibili-api-python + aiohttp，
-  通过 browser_use get_cookies 自动获取 Cookie 完成认证，无需手动复制。
-  支持视频详情/字幕/AI总结/评论、用户主页、搜索、热门/排行榜、关注动态 Feed、
-  收藏夹、稍后再看、观看历史、互动操作（点赞/投币/三连）、动态发布与删除等。
-  当用户提到"B站"、"哔哩哔哩"、"bilibili"、"B站视频"、"B站热门"、"bilibili-hub"、
-  "获取B站数据"、"B站字幕"、"B站评论"、"B站收藏"、"B站动态"，
-  或任何需要以编程方式读写 B 站内容的场景，必须触发本技能。
+  A skill for reading and writing Bilibili data with Python + UV, using bilibili-api-python + aiohttp.
+  It automatically obtains cookies through `browser_use get_cookies` for authentication, so no manual copying is required.
+  Supports video details, subtitles, AI summaries, comments, user profiles, search, popular videos/rankings, following dynamics feed,
+  favorites, Watch Later, viewing history, interactions (likes, coins, triple action), publishing and deleting dynamics, and more.
+  When a user mentions "Bilibili," "bilibili," "Bilibili videos," "Bilibili popular," "bilibili-hub,"
+  "get Bilibili data," "Bilibili subtitles," "Bilibili comments," "Bilibili favorites," "Bilibili dynamics,"
+  or any scenario that requires programmatically reading or writing Bilibili content, this skill must be triggered.
 ---
 
 # bilibili-hub
 
-> **改造来源**：[jackwener/bilibili-cli](https://github.com/jackwener/bilibili-cli)（Apache-2.0）
+> **Modified from**: [jackwener/bilibili-cli](https://github.com/jackwener/bilibili-cli) (Apache-2.0)
 >
-> 本技能在原仓库基础上做了以下简化与改造：
-> - 移除 `browser-cookie3` / `click` / `rich` / `PyYAML` / `qrcode` 依赖
-> - Cookie 认证改为直接传入 `dict` 或从环境变量读取，不做浏览器自动提取
-> - 移除 CLI 层（commands/）、QR 登录、formatter 等
-> - 保留全部 API 方法，统一封装为同步接口（`asyncio.run`）
-> - 核心依赖 `bilibili-api-python`（逆向工程 B 站 API 的第三方 SDK）
-> - 在 Minis 环境中，Cookie 通过 `browser_use get_cookies` 自动获取
+> This skill simplifies and modifies the original repository as follows:
+> - Removed the `browser-cookie3` / `click` / `rich` / `PyYAML` / `qrcode` dependencies
+> - Changed cookie authentication to accept a `dict` directly or read from environment variables, without automatic browser extraction
+> - Removed the CLI layer (`commands/`), QR login, formatters, and related components
+> - Kept all API methods and wrapped them uniformly as synchronous interfaces (`asyncio.run`)
+> - Core dependency: `bilibili-api-python`, a third-party SDK that reverse engineers the Bilibili API
+> - In the Minis environment, cookies are obtained automatically through `browser_use get_cookies`
 
 ---
 
-## 文件结构
+## File Structure
 
 ```
 /var/minis/skills/bilibili-hub/
@@ -32,29 +32,29 @@ description: >
 ├── pyproject.toml          # bilibili-api-python + aiohttp
 └── scripts/
     ├── __init__.py
-    ├── exceptions.py       # 6 种结构化异常
-    ├── payloads.py         # 数据结构规范化（normalize_* 函数）
-    └── client.py           # BiliClient 核心类（全部 API 方法）
+    ├── exceptions.py       # 6 structured exception types
+    ├── payloads.py         # Data structure normalization (normalize_* functions)
+    └── client.py           # BiliClient core class (all API methods)
 ```
 
 ---
 
-## 认证方式
+## Authentication Methods
 
-B 站 Web API 使用三个关键 Cookie：
+The Bilibili Web API uses three key cookies:
 
-| Cookie | 说明 |
+| Cookie | Description |
 |--------|------|
-| `SESSDATA` | 用户 Session（必填，读操作） |
-| `bili_jct` | CSRF Token（写操作必填：点赞/投币/发动态等） |
-| `DedeUserID` | 用户 ID（建议填写） |
-| `buvid3` | 设备 ID（建议填写，降低风控概率） |
+| `SESSDATA` | User session (required for read operations) |
+| `bili_jct` | CSRF token (required for write operations: likes, coins, posting dynamics, etc.) |
+| `DedeUserID` | User ID (recommended) |
+| `buvid3` | Device ID (recommended; reduces the likelihood of triggering risk control) |
 
-### 方法一：browser_use 自动获取（Minis 环境首选）
+### Method 1: Automatically retrieve via `browser_use` (preferred in Minis environments)
 
-1. `browser_use navigate` 打开 `https://www.bilibili.com`，确认已登录
-2. `browser_use get_cookies` 获取 Cookie（原始值不出现在对话中）
-3. 加载 offload env 文件：
+1. Use `browser_use navigate` to open `https://www.bilibili.com` and confirm that you are logged in.
+2. Use `browser_use get_cookies` to retrieve cookies (raw values do not appear in the conversation).
+3. Load the offload env file:
 
 ```bash
 . /var/minis/offloads/env_cookies_www_bilibili_com_xxx.sh
@@ -64,43 +64,43 @@ export BILI_USERID="$COOKIE_DEDEUSERID"
 export BILI_BUVID3="$COOKIE_BUVID3"
 ```
 
-> **注意**：`get_cookies` 仅对当前页面域名生效，需先 navigate 到 `https://www.bilibili.com` 再调用。
+> **Note**: `get_cookies` only applies to the current page's domain. Navigate to `https://www.bilibili.com` before calling it.
 
-### 方法二：手动从浏览器 DevTools 获取
+### Method 2: Manually retrieve from browser DevTools
 
-1. 登录 B 站，打开 DevTools → Application → Cookies → `https://www.bilibili.com`
-2. 找到 `SESSDATA`、`bili_jct`、`DedeUserID` 的值
-3. 存入 Minis 环境变量：`BILI_SESSDATA` / `BILI_JCT` / `BILI_USERID`
+1. Log in to Bilibili, then open DevTools -> Application -> Cookies -> `https://www.bilibili.com`.
+2. Find the values of `SESSDATA`, `bili_jct`, and `DedeUserID`.
+3. Store them in the Minis environment variables: `BILI_SESSDATA` / `BILI_JCT` / `BILI_USERID`.
 
-### Cookie 传入方式（三种）
+### Ways to pass cookies (three methods)
 
 ```python
-# 方式一：从环境变量（推荐）
+# Method 1: From environment variables (recommended)
 client = BiliClient.from_env()
 
-# 方式二：直接传入 dict
+# Method 2: Pass a dict directly
 client = BiliClient({
     "SESSDATA":   os.environ["BILI_SESSDATA"],
     "bili_jct":   os.environ["BILI_JCT"],
     "DedeUserID": os.environ["BILI_USERID"],
 })
 
-# 方式三：仅读操作（无需写权限）
+# Method 3: Read-only operations (no write permissions required)
 client = BiliClient({"SESSDATA": os.environ["BILI_SESSDATA"]})
 ```
 
 ---
 
-## 快速开始
+## Quick Start
 
-### 环境准备
+### Environment setup
 
 ```bash
 cd /var/minis/skills/bilibili-hub
 uv sync
 ```
 
-### 作为 Python 库调用
+### Calling as a Python library
 
 ```python
 import os, json, sys
@@ -109,21 +109,21 @@ from scripts.client import BiliClient
 
 client = BiliClient.from_env()
 
-# 当前用户信息
+# Current user information
 me = client.whoami()
-print("用户：", me.get("name"), "UID:", me.get("mid"))
+print("User:", me.get("name"), "UID:", me.get("mid"))
 
-# 搜索视频
-videos = client.search_videos("Python 教程", count=5)
+# Search videos
+videos = client.search_videos("Python Tutorial", count=5)
 for v in videos:
     print(f"  {v['bvid']} {v['title']} ({v['duration']})")
 
-# 获取视频详情（含字幕）
+# Get video details (including subtitles)
 detail = client.get_video("BV1xx411c7mD", subtitle=True)
 print(detail["video"]["title"])
 print(detail["subtitle"]["text"][:200])
 
-# 热门视频
+# Popular videos
 hot = client.get_hot(count=10)
 for v in hot:
     print(f"  {v['bvid']} {v['title']} 👁{v['stats']['view']}")
@@ -131,108 +131,108 @@ for v in hot:
 
 ---
 
-## API 方法速查
+## API Method Quick Reference
 
-### 账号
+### Account
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `whoami()` | 获取当前登录用户信息 |
+| `whoami()` | Get information about the currently logged-in user |
 
-### 视频
+### Video
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `get_video(bvid, *, subtitle, subtitle_timeline, ai_summary, comments, related)` | 获取视频详情（可选字幕/AI总结/评论/相关） |
+| `get_video(bvid, *, subtitle, subtitle_timeline, ai_summary, comments, related)` | Get video details (optional subtitles/AI summary/comments/related videos) |
 
-`bvid` 支持 BV 号或完整 URL，自动提取。
+`bvid` supports a BV number or full URL and is extracted automatically.
 
-### 用户
+### Users
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `get_user(uid)` | 获取用户主页信息 + 关注/粉丝数 |
-| `get_user_videos(uid, count=20)` | 获取用户发布的视频 |
+| `get_user(uid)` | Get user profile information + following/follower counts |
+| `get_user_videos(uid, count=20)` | Get videos posted by a user |
 
-### 搜索
+### Search
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `search_videos(keyword, page=1, count=20)` | 搜索视频 |
-| `search_users(keyword, page=1)` | 搜索用户 |
+| `search_videos(keyword, page=1, count=20)` | Search videos |
+| `search_users(keyword, page=1)` | Search users |
 
-### 发现
+### Discover
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `get_hot(page=1, count=20)` | 全站热门视频 |
-| `get_rank(day=3, count=50)` | 全站排行榜（day: 1/3/7） |
-| `get_feed(offset=0)` | 关注动态 Feed（需登录） |
-| `get_my_dynamics(offset=0)` | 我发布的动态（需登录） |
-| `post_dynamic(text)` | 发布文字动态（需登录+bili_jct） |
-| `delete_dynamic(dynamic_id)` | 删除动态（需登录+bili_jct） |
+| `get_hot(page=1, count=20)` | Site-wide popular videos |
+| `get_rank(day=3, count=50)` | Site-wide rankings (`day`: 1/3/7) |
+| `get_feed(offset=0)` | Following dynamics feed (login required) |
+| `get_my_dynamics(offset=0)` | Dynamics I published (login required) |
+| `post_dynamic(text)` | Post a text dynamic (login + `bili_jct` required) |
+| `delete_dynamic(dynamic_id)` | Delete a dynamic (login + `bili_jct` required) |
 
-### 收藏 / 历史
+### Favorites / History
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `get_favorites()` | 获取收藏夹列表（需登录） |
-| `get_favorites(folder_id)` | 获取收藏夹内视频 |
-| `get_following(page=1)` | 获取关注列表（需登录） |
-| `get_watch_later()` | 稍后再看列表（需登录） |
-| `get_history()` | 观看历史（需登录） |
+| `get_favorites()` | Get the favorites folder list (login required) |
+| `get_favorites(folder_id)` | Get videos in a favorites folder |
+| `get_following(page=1)` | Get the following list (login required) |
+| `get_watch_later()` | Get the Watch Later list (login required) |
+| `get_history()` | Get viewing history (login required) |
 
-### 下载
+### Download
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `download_video(bvid, output_dir, filename=None)` | 下载完整视频（mp4），自动处理 DASH 合并 |
-| `download_audio(bvid, output_dir, filename=None)` | 仅下载音频流（m4a），适合 ASR 转写 |
+| `download_video(bvid, output_dir, filename=None)` | Download the full video (`mp4`), automatically handling DASH merging |
+| `download_audio(bvid, output_dir, filename=None)` | Download only the audio stream (`m4a`), suitable for ASR transcription |
 
-**下载流程**：
-- DASH 流（主流）：分别下载视频流 + 音频流 → ffmpeg copy 合并 → 失败则保留无声视频
-- FLV/MP4 流（少见）：直接下载，无需合并
-- 未登录可下最高 480P；登录后可下 1080P（大会员可下更高画质）
+**Download process**:
+- DASH streams (common): download the video stream and audio stream separately -> merge with `ffmpeg copy` -> if merging fails, keep the silent video
+- FLV/MP4 streams (rare): download directly, no merging required
+- Without logging in, downloads are limited to 480P; after logging in, 1080P is available (premium members can download higher quality)
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `like(bvid)` / `like(bvid, undo=True)` | 点赞 / 取消点赞（需bili_jct） |
-| `coin(bvid, num=1)` | 投币 1 或 2 枚（需bili_jct） |
-| `triple(bvid)` | 一键三连（需bili_jct） |
-| `unfollow(uid)` | 取消关注用户（需bili_jct） |
+| `like(bvid)` / `like(bvid, undo=True)` | Like / unlike (requires `bili_jct`) |
+| `coin(bvid, num=1)` | Give 1 or 2 coins (requires `bili_jct`) |
+| `triple(bvid)` | Perform the one-click triple action (requires `bili_jct`) |
+| `unfollow(uid)` | Unfollow a user (requires `bili_jct`) |
 
 ---
 
-## 错误处理
+## Error Handling
 
 ```python
 from scripts.exceptions import (
-    AuthenticationError,  # Cookie 缺失或过期
-    RateLimitError,       # 触发风控（412）
-    NotFoundError,        # 视频/用户不存在
-    NetworkError,         # 网络/超时错误
-    InvalidBvidError,     # BV 号格式错误
-    BiliError,            # 其他 API 错误（基类）
+    AuthenticationError,  # Cookie missing or expired
+    RateLimitError,       # Triggered risk control (412)
+    NotFoundError,        # Video/user does not exist
+    NetworkError,         # Network/timeout error
+    InvalidBvidError,     # Invalid BV number format
+    BiliError,            # Other API error (base class)
 )
 
 try:
     detail = client.get_video("BV1xx411c7mD")
 except AuthenticationError:
-    print("Cookie 已过期，请重新获取")
+    print("Cookie has expired. Please retrieve it again.")
 except RateLimitError:
-    print("触发风控，稍后重试")
+    print("Risk control triggered. Try again later.")
 except NotFoundError:
-    print("视频不存在")
+    print("Video does not exist.")
 except BiliError as e:
-    print(f"API 错误：{e}")
+    print(f"API error: {e}")
 ```
 
 ---
 
-## 注意事项
+## Important Notes
 
-- `SESSDATA` 是读操作的最低要求；写操作（点赞/投币/发动态）还需要 `bili_jct`
-- Cookie 有效期通常数天至数周，过期后需重新通过 `browser_use get_cookies` 获取
-- B 站对高频请求有风控（HTTP 412），建议操作间隔 ≥1 秒
-- `bilibili-api-python` 是社区维护的逆向工程项目，接口可能随 B 站更新失效
-- 写操作（投币/三连等）不可逆，请谨慎调用
+- `SESSDATA` is the minimum requirement for read operations. Write operations (likes, coins, posting dynamics) also require `bili_jct`.
+- Cookies are usually valid for several days to several weeks. After they expire, retrieve them again through `browser_use get_cookies`.
+- Bilibili applies risk control to high-frequency requests (HTTP 412). An operation interval of at least 1 second is recommended.
+- `bilibili-api-python` is a community-maintained reverse-engineering project, and its interfaces may break when Bilibili updates.
+- Write operations (coins, triple action, etc.) cannot be reversed. Use them with caution.

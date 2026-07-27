@@ -1,9 +1,9 @@
 ---
 name: web-search
 description: >
-  通用网页搜索技能，通过浏览器自动化使用多个搜索引擎，并根据搜索意图选择优先级链路。
-  支持：Perplexity、秘塔AI、Google、Bing、Brave、DuckDuckGo、百度、Sogou、Tavily。
-  当用户提到"网页搜索"、"搜索一下"、"帮我搜"、"网上查一下"、"搜索引擎"，或需要从互联网获取实时信息时触发。
+  General web search skill that uses browser automation with multiple search engines and selects the priority chain based on search intent.
+  Supports: Perplexity, Metaso AI, Google, Bing, Brave, DuckDuckGo, Baidu, Sogou, Tavily.
+  Trigger when the user mentions "web search," "search for it," "search this for me," "look it up online," "search engine," or needs real-time information from the internet.
 compatibility: browser_use tool required; optional login for Perplexity; no API key required for browser-based engines
 ---
 
@@ -17,7 +17,7 @@ Activate this skill when the user wants:
 - real-time web search
 - search engine results instead of model memory
 - Chinese web search or structured AI answers
-- engine-specific search (Google / Bing / Brave / Perplexity / 秘塔AI)
+- engine-specific search (Google / Bing / Brave / Perplexity / Metaso AI)
 - fallback behavior across multiple search engines
 
 ## Search engines
@@ -25,13 +25,13 @@ Activate this skill when the user wants:
 | Engine | URL pattern | Strength | Notes |
 |---|---|---|---|
 | Perplexity | `https://www.perplexity.ai/search?q={query}` | Highest answer quality | Needs login once |
-| 秘塔AI | `https://metaso.cn/` | Strong Chinese results | Home page interaction may be needed |
+| Metaso AI | `https://metaso.cn/` | Strong Chinese results | Home page interaction may be needed |
 | Google | `https://www.google.com/search?q={query}` | Best general web coverage | Stable fallback |
 | Bing | `https://www.bing.com/search?q={query}` | Good Chinese + AI summary | Stable fallback |
 | Brave | `https://search.brave.com/search?q={query}` | Privacy-friendly | Good backup |
 | DuckDuckGo | `https://html.duckduckgo.com/html/?q={query}` | Lightweight privacy search | May show anomaly pages |
-| 百度 | `https://www.baidu.com/s?wd={query}` | Strong Chinese index | Use for Chinese web results |
-| 搜狗 | `https://www.sogou.com/web?query={query}` | Chinese / WeChat-heavy results | Secondary Chinese backup |
+| Baidu | `https://www.baidu.com/s?wd={query}` | Strong Chinese index | Use for Chinese web results |
+| Sogou | `https://www.sogou.com/web?query={query}` | Chinese / WeChat-heavy results | Secondary Chinese backup |
 | Tavily | API-based | Agent-oriented | Requires API key |
 
 ## Intent-based priority chains
@@ -39,10 +39,10 @@ Activate this skill when the user wants:
 Choose the search chain by user intent.
 
 ### Deep research / comparison / trend analysis
-`Perplexity -> 秘塔AI -> Bing -> Google -> Brave`
+`Perplexity -> Metaso AI -> Bing -> Google -> Brave`
 
 ### Chinese search / Chinese summary / local context
-`秘塔AI -> Perplexity -> 百度 -> Bing -> Google`
+`Metaso AI -> Perplexity -> Baidu -> Bing -> Google`
 
 ### General web search / official site / original page lookup
 `Google -> Bing -> Brave -> DuckDuckGo`
@@ -80,13 +80,13 @@ Treat a search as successful when at least two of these are true:
 
 ## Scripts
 
-- `scripts/browser_search.py` — generate engine priority plans and fallback chains
-- `evals/evals.json` — prompt coverage for the main routing scenarios
+- `scripts/browser_search.py` - generate engine priority plans and fallback chains
+- `evals/evals.json` - prompt coverage for the main routing scenarios
 
 ## Notes
 
 - Prefer Perplexity for best answer quality when login is valid.
-- Prefer 秘塔AI for Chinese structured answers.
+- Prefer Metaso AI for Chinese structured answers.
 - Prefer Google/Bing for finding original pages and official websites.
 - Use Brave/DuckDuckGo as privacy-oriented backups.
 - Do not rely on a single engine; fallback is part of the skill design.

@@ -1,29 +1,29 @@
 ---
 name: us-stock
-description: 美股实时行情查询。三大指数（道指/标普/纳指） + Magnificent 7（NVDA/AAPL/MSFT/GOOGL/AMZN/META/TSLA）+ VIX恐慌指数 + 0DTE Gamma状态分析。当用户说"美股"、"查美股"、"美国股市"、"七姐妹"、"Magnificent 7"、"VIX"、"恐慌指数"、"标普"、"纳指"、"道指"时触发。
+description: Real-time U.S. stock market quotes. The three major indices (Dow/S&P 500/Nasdaq) + the Magnificent 7 (NVDA/AAPL/MSFT/GOOGL/AMZN/META/TSLA) + the VIX fear index + 0DTE Gamma status analysis. Triggered when users say "U.S. stocks," "check U.S. stocks," "U.S. stock market," "Magnificent 7," "VIX," "fear index," "S&P," "Nasdaq," or "Dow."
 version: 1.0.0
 ---
 
-# 美股行情查询
+# U.S. Stock Market Quote Lookup
 
-## 数据源
-Google Finance（browser_use navigate + get_text）——无需API，无需登录，返回结构化数据。
+## Data Source
+Google Finance (`browser_use navigate` + `get_text`): no API or login required; returns structured data.
 
-## 查询流程
+## Query Process
 
-### Step 0：设置桌面端视窗
+### Step 0: Set the Desktop Viewport
 ```
 browser_use set_viewport viewport_width: 1280 viewport_height: 800
 ```
-Google Finance 区分桌面/移动版主要靠 viewport 宽度，设置足够宽的视窗即可拿到完整数据。此方法跨 Android/iOS 兼容，不受 UA 枚举值差异影响。
+Google Finance distinguishes between desktop and mobile versions mainly by viewport width. Setting a wide enough viewport is sufficient to retrieve the full data. This method is compatible across Android and iOS and is not affected by differences in UA enumeration values.
 
-### Step 1：三大指数（并行，最多同时开3个tab）
-先用默认 tab 0 打开标普：
+### Step 1: The Three Major Indices (in parallel, with up to 3 tabs open at once)
+First, open the S&P 500 in the default tab 0:
 ```
 browser_use navigate https://www.google.com/finance/quote/.INX:INDEXSP?hl=en
 browser_use get_text
 ```
-然后新建两个标签页分别打开道指和纳指：
+Then create two new tabs and open the Dow and Nasdaq:
 ```
 browser_use new_tab
 browser_use navigate https://www.google.com/finance/quote/.DJI:INDEXDJX?hl=en
@@ -33,79 +33,84 @@ browser_use new_tab
 browser_use navigate https://www.google.com/finance/quote/.IXIC:INDEXNASDAQ?hl=en
 browser_use get_text
 ```
-每个tab用 `get_text` 提取。提取关键字段：当前价、涨跌点数、涨跌幅%、开盘/最高/最低、昨收。
+Use `get_text` to extract data from each tab. Extract the key fields: current price, point change, percentage change, open/high/low, and previous close.
 
-### Step 2：VIX 恐慌指数（在已有某个tab上跳转，不用新开tab）
+### Step 2: VIX Fear Index (navigate in an existing tab; do not open a new tab)
 ```
 browser_use navigate https://www.google.com/finance/quote/VIX:INDEXCBOE?hl=en
 browser_use get_text
 ```
-关键字段：当前价、涨跌幅、昨收、52周高/低。
-**VIX警戒阈值**：<15 麻痹 / 15-20 正常 / 20-25 警惕 / 25+ 恐慌。
-核心判断：VIX绝对值 + 当天涨跌方向（Broadcom这种个股事件引起的VIX温和上涨 vs 系统性恐慌引起的VIX飙升）
+Key fields: current price, percentage change, previous close, 52-week high/low.
 
-### Step 3：Magnificent 7（利用已有的3个tab轮转读取，不新开tab）
-**没有VIX专用的第4个tab了**——先在默认/最新tab跳转到NVDA，用get_text提取后，再在该tab上跳到下一只。
+**VIX alert thresholds**: <15 complacency / 15-20 normal / 20-25 caution / 25+ panic.
 
-读取顺序：NVDA → AAPL → MSFT → GOOGL → AMZN → META → TSLA
-每读完一只就 `navigate` 到下一只的URL，每次用 `get_text` 提取。
-如需查AVGO或其他热门，放在TSLA之后。每只提取：价格、涨跌%、涨跌点数、昨收、日内高/低、市值。
+Core assessment: VIX absolute level + the day's direction of change. Distinguish a mild VIX rise caused by an individual-stock event such as Broadcom from a VIX spike caused by systemic panic.
 
-### Step 4：0DTE Gamma状态（可选，用户要求或大盘波动异常时查）
-**先关掉一个已经读完的tab腾出位置**（比如关掉VIX或最早读的指数tab），然后新开tab：
+### Step 3: Magnificent 7 (rotate through the existing 3 tabs; do not open new tabs)
+**There is no dedicated 4th tab for VIX**. First navigate the default/latest tab to NVDA, extract with `get_text`, then navigate that same tab to the next stock.
+
+Reading order: NVDA → AAPL → MSFT → GOOGL → AMZN → META → TSLA
+
+After each stock is read, `navigate` to the next stock's URL and use `get_text` each time.
+
+If AVGO or other popular stocks need to be checked, put them after TSLA. For each stock, extract: price, percentage change, point change, previous close, intraday high/low, and market capitalization.
+
+### Step 4: 0DTE Gamma Status (optional; check when the user requests it or when broad market volatility is abnormal)
+**First close one tab you have already finished reading to free up space** (for example, close the VIX tab or the earliest index tab), then open a new tab:
 ```
 browser_use close_tab
 browser_use new_tab
 browser_use navigate https://www.google.com/search?q=SPX+gamma+exposure+today+dealer+position&hl=en
 browser_use get_text
 ```
-提取AI Overview中的Gamma状态摘要，重点看：
-- **Gamma Flip level**：标普在哪个点位从正Gamma变负Gamma
-- **当前SPX位置与Flip的差距**（比如现价7,583，Flip在7,550，差距33点=0.4%）
-- **Dealer positioning**: positive gamma（稳定）还是 negative gamma（放大波动）
+Extract the Gamma status summary from the AI Overview, focusing on:
+- **Gamma Flip level**: the S&P level where Gamma shifts from positive to negative
+- **Gap between the current SPX level and the Flip** (for example, current price 7,583, Flip at 7,550, gap 33 points = 0.4%)
+- **Dealer positioning**: positive gamma (stable) or negative gamma (amplifies volatility)
 
-**GEX风险判断标准：**
-| 状态 | 描述 | 风险 |
+**GEX risk assessment criteria:**
+
+| Status | Description | Risk |
 |:---|:---|:---:|
-| Positive Gamma | 做市商跟趋势走，买跌卖涨 | 市场稳定，波动被抑制 |
-| Near flip（0-1%） | 黄金切割线，临界的 | 一个意外就能触发Gamma挤压 |
-| Negative Gamma | 做市商追涨杀跌 | 波动自我放大，回调容易变崩盘 |
+| Positive Gamma | Market makers move with the trend, buying dips and selling rallies | Market is stable and volatility is suppressed |
+| Near Flip (0-1%) | Golden dividing line, critical zone | One unexpected event can trigger a Gamma squeeze |
+| Negative Gamma | Market makers chase rallies and sell sell-offs | Volatility self-amplifies, and pullbacks can easily turn into crashes |
 
-### Step 5：合成输出
-输出结构（简洁表格+文字解读）：
+### Step 5: Synthesize the Output
+Output structure (concise tables + text interpretation):
 
-## 📊 美股实时行情
+## 📊 Real-Time U.S. Stock Market Quotes
 
-**时间**: YYYY-MM-DD HH:MM ET
+**Time**: YYYY-MM-DD HH:MM ET
 
-### 三大指数
-| 指数 | 价格 | 涨跌 | 昨收 | 日内 |
+### Three Major Indices
+| Index | Price | Change | Previous Close | Intraday |
 |:---|:---:|:---:|:---:|:---:|
-| 道指 | xxx | +x.xx% | xxx | H:xxx L:xxx |
-| 标普 | xxx | +x.xx% | xxx | H:xxx L:xxx |
-| 纳指 | xxx | +x.xx% | xxx | H:xxx L:xxx |
+| Dow | xxx | +x.xx% | xxx | H:xxx L:xxx |
+| S&P | xxx | +x.xx% | xxx | H:xxx L:xxx |
+| Nasdaq | xxx | +x.xx% | xxx | H:xxx L:xxx |
 
-### 恐慌指数
-VIX: xx.xx (涨跌 x.xx%) — 判断状态（麻痹/正常/警惕/恐慌）
+### Fear Index
+VIX: xx.xx (change x.xx%) - status assessment (complacency/normal/caution/panic)
 
 ### Magnificent 7
-| 股票 | 价格 | 涨跌 | 备注 |
+| Stock | Price | Change | Notes |
 |:---|---:|:---:|:---|
-| NVDA | xxx | +x.xx% | 关键驱动因素 |
+| NVDA | xxx | +x.xx% | Key driver |
 | ... | ... | ... | ... |
 
-### Gamma状态（如有查询）
-SPX现价xxx，Gamma Flip在xxx（差距x.xx%），当前为Positive/Near Flip/Negative Gamma。
+### Gamma Status (if queried)
+Current SPX price xxx, Gamma Flip at xxx (gap x.xx%), currently Positive/Near Flip/Negative Gamma.
 
-### 解读
-2-4句话说明：今天市场主线（轮动/crash/震荡）、核心驱动、值得注意的风险信号。
+### Interpretation
+In 2-4 sentences, explain today's main market theme (rotation/crash/range-bound trading), key drivers, and noteworthy risk signals.
 
-### Step 6：写入日志
-`memory_write` 将今日美股行情（三大指数+VIX+七姐妹+解读）摘要记录
+### Step 6: Write to Log
+Use `memory_write` to record a summary of today's U.S. stock market quotes (the three major indices + VIX + Magnificent 7 + interpretation).
 
-## 注意事项
-- 美股交易时间：美东9:30-16:00（夏令时=北京时间21:30-次日4:00；冬令时=22:30-5:00）
-- 盘前/盘后数据标记时间，注意与A股交易时间的对比
-- Google Finance显示的是美东时间UTC-4（夏令时）或UTC-5（冬令时）
-- 基金/ETF的净值滞后一天，查询时标注"上一交易日净值"
-- VIX期货贴水（Backwardation）是系统性风险的最强预警信号，出现时推送该信号到记忆并提醒用户
+## Important Notes
+- U.S. stock market trading hours: 9:30-16:00 ET (daylight saving time = Beijing time 21:30-04:00 the next day; standard time = 22:30-05:00)
+- Mark the timestamps for pre-market/post-market data, and note the comparison with A-share trading hours
+- Google Finance displays Eastern Time, UTC-4 (daylight saving time) or UTC-5 (standard time)
+- Fund/ETF NAVs lag by one day. When querying them, label them as "previous trading day's NAV"
+- VIX futures backwardation is the strongest early warning signal of systemic risk. When it appears, push this signal to memory and alert the user.

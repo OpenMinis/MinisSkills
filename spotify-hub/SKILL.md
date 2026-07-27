@@ -1,34 +1,34 @@
 ---
 name: spotify-hub
 version: 1.0.0
-description: 使用 Python + spotipy 控制 Spotify 播放的技能。支持播放/暂停/切歌/音量/随机、搜索歌曲并播放、按关键词混合生成歌单（如抖音热歌、某风格、某歌手）、查看当前播放状态和设备列表。当用户提到"Spotify"、"播放音乐"、"切歌"、"暂停"、"搜索歌曲"、"换歌单"、"spotify-hub"，或任何需要控制 Spotify 播放的场景，必须触发本技能。
+description: A skill that uses Python and spotipy to control Spotify playback. It supports play/pause, skipping tracks, volume, shuffle, searching for and playing songs, generating mixed playlists from keywords (for example, TikTok hits, a specific genre, or a specific artist), and viewing the current playback status and device list. This skill must be triggered whenever the user mentions "Spotify," "play music," "skip a track," "pause," "search for a song," "switch playlists," "spotify-hub," or any scenario that requires controlling Spotify playback.
 ---
 
 # Spotify Hub
 
-通过 spotipy 库调用 Spotify Web API，控制播放并搜索音乐。
+Use the spotipy library to call the Spotify Web API, control playback, and search for music.
 
-## 依赖
+## Dependencies
 
-两个脚本均使用 **uv inline script** 声明依赖（`spotipy>=2.26.0`），用 `uv run` 执行时自动安装，无需手动 pip install，开箱即用。
+Both scripts declare dependencies (`spotipy>=2.26.0`) using **uv inline script**. When executed with `uv run`, they are installed automatically, so no manual `pip install` is required.
 
-## 环境要求
+## Environment Requirements
 
-必须设置以下环境变量（未设置则引导用户创建）：
-- `SPOTIPY_CLIENT_ID` — [设置](minis://settings/environments?create_key=SPOTIPY_CLIENT_ID&create_value=)
-- `SPOTIPY_CLIENT_SECRET` — [设置](minis://settings/environments?create_key=SPOTIPY_CLIENT_SECRET&create_value=)
-- `SPOTIPY_REDIRECT_URI` — [设置](minis://settings/environments?create_key=SPOTIPY_REDIRECT_URI&create_value=http://127.0.0.1:8888/callback)
+The following environment variables must be set. If they are not set, guide the user to create them:
+- `SPOTIPY_CLIENT_ID` — [Settings](minis://settings/environments?create_key=SPOTIPY_CLIENT_ID&create_value=)
+- `SPOTIPY_CLIENT_SECRET` — [Settings](minis://settings/environments?create_key=SPOTIPY_CLIENT_SECRET&create_value=)
+- `SPOTIPY_REDIRECT_URI` — [Settings](minis://settings/environments?create_key=SPOTIPY_REDIRECT_URI&create_value=http://127.0.0.1:8888/callback)
 
-凭证申请：https://developer.spotify.com/dashboard → Create App → Redirect URI 填 `http://127.0.0.1:8888/callback`
+Apply for credentials at https://developer.spotify.com/dashboard → Create App → set Redirect URI to `http://127.0.0.1:8888/callback`
 
-## 授权流程（首次或 Token 失效时）
+## Authorization Flow (First Time or When the Token Expires)
 
-Token 保存在 `~/.config/spotify/cache`，含 refresh_token，正常情况下永久有效，无需重复授权。
+The token is stored in `~/.config/spotify/cache` and includes a refresh_token. Under normal circumstances, it remains valid indefinitely and does not require repeated authorization.
 
-**需要授权时**，在后台启动授权服务器，获取 URL 后直接给用户点击：
+**When authorization is required**, start the authorization server in the background, get the URL, and give it directly to the user to click:
 
 ```python
-# 后台启动授权服务器
+# Start the authorization server in the background
 import subprocess, time
 subprocess.Popen(["uv", "run", "--script", "--cache-dir", "/root/.cache/uv",
                               "/var/minis/skills/spotify-hub/scripts/spotify_auth.py"],
@@ -38,61 +38,61 @@ url = open("/tmp/spotify_auth_url.txt").read().strip()
 print(url)
 ```
 
-然后在回复中给用户提供可点击的授权链接：
-`[👉 点击授权 Spotify](<url>)`
+Then provide the user with a clickable authorization link in the reply:
+`[👉 Click to authorize Spotify](<url>)`
 
-授权完成后浏览器显示"✅ Spotify 授权成功！"，用户告知后即可继续操作。
+After authorization is complete, the browser displays "✅ Spotify authorization successful!". Once the user informs you, you can continue.
 
-## 核心脚本
+## Core Script
 
-所有操作通过 `/var/minis/skills/spotify-hub/scripts/spotify.py` 执行：
+All operations are executed through `/var/minis/skills/spotify-hub/scripts/spotify.py`:
 
 ```bash
 uv run --script --cache-dir /root/.cache/uv /var/minis/skills/spotify-hub/scripts/spotify.py <cmd> [args]
 ```
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `status` | 当前播放状态 + 设备列表 |
-| `play` / `pause` | 播放 / 暂停 |
-| `next` / `prev` | 下一首 / 上一首 |
-| `volume <0-100>` | 设置音量 |
-| `shuffle on/off` | 随机播放开关 |
-| `repeat off/track/context` | 循环模式 |
-| `seek <秒或mm:ss>` | 跳转进度 |
-| `search <关键词>` | 搜索并播放 |
-| `play-track <id/uri>` | 播放指定歌曲 |
-| `play-playlist <id/uri>` | 播放指定歌单 |
-| `save` / `unsave` | 收藏 / 取消收藏当前歌曲 |
-| `liked [数量]` | 查看已收藏歌曲 |
-| `recent [数量]` | 最近播放记录 |
-| `top [tracks/artists] [数量]` | 最常听歌曲 / 艺术家 |
-| `playlists` | 查看我的歌单列表 |
-| `create-playlist <名称>` | 新建歌单 |
-| `add-to-playlist <id>` | 当前歌曲加入歌单 |
-| `follow <艺术家名>` | 关注艺术家 |
-| `following` | 查看关注的艺术家 |
+| `status` | Current playback status + device list |
+| `play` / `pause` | Play / pause |
+| `next` / `prev` | Next track / previous track |
+| `volume <0-100>` | Set volume |
+| `shuffle on/off` | Toggle shuffle |
+| `repeat off/track/context` | Repeat mode |
+| `seek <seconds or mm:ss>` | Seek playback position |
+| `search <keyword>` | Search and play |
+| `play-track <id/uri>` | Play a specified track |
+| `play-playlist <id/uri>` | Play a specified playlist |
+| `save` / `unsave` | Save / unsave the current track |
+| `liked [count]` | View saved tracks |
+| `recent [count]` | Recently played history |
+| `top [tracks/artists] [count]` | Most-listened tracks / artists |
+| `playlists` | View my playlist list |
+| `create-playlist <name>` | Create a playlist |
+| `add-to-playlist <id>` | Add the current track to a playlist |
+| `follow <artist name>` | Follow an artist |
+| `following` | View followed artists |
 
-## 热门歌单场景（如"抖音热歌"、"某风格"）
+## Popular Playlist Scenarios (for example, "TikTok Hits" or "a Specific Genre")
 
-第三方公开歌单会返回 403，**不要尝试读取歌单**，改用多关键词搜索混合播放：
+Third-party public playlists will return 403. **Do not attempt to read playlists**. Instead, use multi-keyword search to mix and play tracks:
 
 ```python
 from scripts.spotify import get_sp, search_multi_and_play
 
 sp = get_sp()
-keywords = ["抖音热门", "douyin trending", "tiktok viral 2024", "抖音神曲"]
+keywords = ["TikTok trending", "douyin trending", "tiktok viral 2024", "TikTok hit songs"]
 search_multi_and_play(sp, keywords, count_each=10, market="HK")
 ```
 
-或直接用 shell_execute 调用 spotify.py search：
+Or call `spotify.py search` directly with `shell_execute`:
 ```bash
-uv run --script --cache-dir /root/.cache/uv /var/minis/skills/spotify-hub/scripts/spotify.py search "抖音热门"
+uv run --script --cache-dir /root/.cache/uv /var/minis/skills/spotify-hub/scripts/spotify.py search "TikTok trending"
 ```
 
-## 注意事项
+## Notes
 
-- 播放控制需要设备处于活跃状态（手机/电脑已打开 Spotify 并播放过）
-- `market="HK"` 可搜到更多中文歌曲
-- spotipy 已预装（`pip show spotipy` 可验证）
-- Development Mode 下第三方公开歌单 403 是正常限制，用搜索代替
+- Playback control requires an active device (Spotify is open on a phone or computer and has played before)
+- `market="HK"` can find more Chinese songs
+- spotipy is preinstalled (`pip show spotipy` can verify this)
+- In Development Mode, 403 for third-party public playlists is a normal restriction. Use search instead.

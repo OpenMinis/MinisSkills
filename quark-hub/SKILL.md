@@ -1,127 +1,128 @@
 ---
 name: quark-hub
 version: 1.4.0
-description: 夸克网盘文件管理工具。支持登录、列目录、转存分享链接、下载文件、创建目录。登录改用 minis-browser-use 替代原项目的 Playwright。当用户提到「夸克网盘」「夸克下载」「夸克转存」「quark」「pan.quark.cn」时触发本技能。
+description: Quark Cloud Drive file management tool. Supports login, directory listing, saving shared links to your drive, downloading files, and creating directories. Login now uses minis-browser-use instead of the original project's Playwright. Trigger this skill when the user mentions "Quark Cloud Drive", "Quark download", "Quark save", "quark", or "pan.quark.cn".
 ---
 
 # quark-hub
 
-基于 [ihmily/QuarkPanTool](https://github.com/ihmily/QuarkPanTool) (Apache-2.0) 改造的 Minis 版夸克网盘工具。
+A Minis version of the Quark Cloud Drive tool, adapted from [ihmily/QuarkPanTool](https://github.com/ihmily/QuarkPanTool) (Apache-2.0).
 
-## 文件路径
+## File Paths
 
-| 文件 | 路径 | 说明 |
+| File | Path | Description |
 |------|------|------|
-| 主脚本 | `/var/minis/skills/quark-hub/quark_hub.py` | 所有命令入口 |
-| 分享查看脚本 | `/var/minis/skills/quark-hub/scripts/quark_share_ls.py` | 独立脚本，无需登录 |
-| **Cookie 刷新脚本** | **`/var/minis/skills/quark-hub/scripts/refresh_cookie.sh`** | **一键刷新 Cookie** |
-| **Cookie 缓存** | **`~/.quark_hub_cookie`** | 登录态持久化，跨会话复用，权限 600 |
+| Main script | `/var/minis/skills/quark-hub/quark_hub.py` | Entry point for all commands |
+| Share listing script | `/var/minis/skills/quark-hub/scripts/quark_share_ls.py` | Standalone script; no login required |
+| **Cookie refresh script** | **`/var/minis/skills/quark-hub/scripts/refresh_cookie.sh`** | **Refresh the Cookie with one command** |
+| **Cookie cache** | **`~/.quark_hub_cookie`** | Persists login state for reuse across sessions; permissions 600 |
 
-## 依赖
+## Dependencies
 
-**零 pip 安装**，仅需 Alpine 原生包（iSH 已预装）：
+**No pip installation required**. Only native Alpine packages are needed (preinstalled on iSH):
 
-| 包 | 来源 | 用途 |
+| Package | Source | Purpose |
 |---|---|---|
-| `aiohttp` | Alpine 原生 (`py3-aiohttp`) | 所有 async HTTP 请求 |
-| 标准库 | Python 内置 | asyncio / json / re / urllib / threading 等 |
+| `aiohttp` | Native Alpine (`py3-aiohttp`) | All async HTTP requests |
+| Standard library | Built into Python | asyncio / json / re / urllib / threading, etc. |
 
-若 `aiohttp` 不可用：
+If `aiohttp` is unavailable:
+
 ```bash
 apk add py3-aiohttp
 ```
 
-## 命令速查
+## Command Quick Reference
 
-| 命令 | 登录 | 说明 |
+| Command | Login | Description |
 |------|------|------|
-| `ls-share <url>` | 🔓 无需 | 列出分享链接根目录文件 |
-| `tree-share <url>` | 🔓 无需 | 递归展开分享链接完整文件树 |
-| `info` | 🔒 需要 | 查看账号信息和容量 |
-| `ls [fid]` | 🔒 需要 | 列出自己网盘目录（含 fid） |
-| `save <url> [fid]` | 🔒 需要 | 转存分享文件到网盘（自动检查是否已存在） |
-| `dl <url> [dir]` | 🔒 需要 | 下载自己网盘的文件到本地（后台线程+进度） |
-| `mkdir <name> [fid]` | 🔒 需要 | 创建网盘目录 |
+| `ls-share <url>` | 🔓 Not required | List files in the root directory of a shared link |
+| `tree-share <url>` | 🔓 Not required | Recursively expand the complete file tree of a shared link |
+| `info` | 🔒 Required | View account information and storage capacity |
+| `ls [fid]` | 🔒 Required | List your own cloud drive directory, including fid values |
+| `save <url> [fid]` | 🔒 Required | Save shared files to your cloud drive, automatically checking whether they already exist |
+| `dl <url> [dir]` | 🔒 Required | Download files from your own cloud drive to local storage, with a background thread and progress |
+| `mkdir <name> [fid]` | 🔒 Required | Create a cloud drive directory |
 
-## ⚡ 转存 + 下载最佳流程（Agent 必读）
+## ⚡ Best Workflow for Saving and Downloading (Agents Must Read)
 
-**下载他人分享文件时，按以下顺序执行，避免重复转存：**
+**When downloading files shared by others, follow this order to avoid duplicate saves:**
 
 ```
-1. tree-share <url>           # 看清楚分享里有什么
-2. ls [to_fid]                # 检查目标网盘目录是否已有同名内容
-3a. 已有 → 直接取 fid 下载    # 跳过转存，用现有 fid 调 api_get_download_urls
-3b. 没有 → save <url>         # 转存（内部也会自动检查，已有则跳过）
-4. ls [to_fid]                # 取得转存后文件的 fid
-5. dl（传 extra_fids）         # 后台线程下载，自动打印进度和1min均速
+1. tree-share <url>           # See exactly what is in the share
+2. ls [to_fid]                # Check whether the target cloud drive directory already has content with the same name
+3a. Exists → download by fid directly    # Skip saving; use the existing fid to call api_get_download_urls
+3b. Does not exist → save <url>          # Save to your drive (also checks internally and skips if it already exists)
+4. ls [to_fid]                # Get the fid of the file after it has been saved
+5. dl (pass extra_fids)       # Download in a background thread; automatically prints progress and 1-minute average speed
 ```
 
-**关键：`save` 命令现在会自动检查目标目录是否已有同名文件，有则跳过转存。**
-但 agent 仍应在调用 `save` 前先 `ls` 确认，避免不必要的网络请求。
+**Key: the `save` command now automatically checks whether a file with the same name already exists in the target directory and skips saving if it does.**
+However, the agent should still run `ls` before calling `save` to confirm and avoid unnecessary network requests.
 
-## 下载注意事项
+## Download Notes
 
-- `dl` / `download_files_bg` 只能下载**自己网盘**内的文件（夸克接口限制）
-- 他人分享 → 先 `save` 转存 → 再 `ls` 取 fid → 再 `dl`
-- 下载使用**后台线程**，每 10 秒打印进度（已下/总大小/百分比/1min均速）
-- 下载 URL 指向阿里云 OSS，headers 不能带 `Content-Type`（已在代码中处理）
-- 字幕等文件可通过 `rename_map` 参数在下载时同步重命名（如与视频同名）
+- `dl` / `download_files_bg` can download only files in **your own cloud drive** due to Quark API restrictions.
+- Files shared by others → first `save` to your drive → then `ls` to get the fid → then `dl`.
+- Downloads run in a **background thread** and print progress every 10 seconds (downloaded / total size / percentage / 1-minute average speed).
+- Download URLs point to Alibaba Cloud OSS, and headers must not include `Content-Type` (handled in the code).
+- Files such as subtitles can be renamed during download with the `rename_map` parameter, for example to match the video filename.
 
-## 代码级 API（供脚本 import 使用）
+## Code-Level API (for importing in scripts)
 
 ```python
 from quark_hub import (
-    ensure_cookie,           # 获取/校验 Cookie，失效时 sys.exit(10)
-    api_get_download_urls,   # 传 fid 列表 → 返回含 download_url 的 dict 列表
-    download_files_bg,       # 后台线程下载，传 items=[{file_name, download_url, save_name?}]
-    api_list_all,            # 列出网盘目录
+    ensure_cookie,           # Get/validate the Cookie; sys.exit(10) if invalid
+    api_get_download_urls,   # Pass a fid list → return a list of dicts containing download_url
+    download_files_bg,       # Download in a background thread; pass items=[{file_name, download_url, save_name?}]
+    api_list_all,            # List a cloud drive directory
 )
 ```
 
-## 登录流程（agent 执行）
+## Login Flow (performed by the agent)
 
-**脚本本身不驱动浏览器。** 当脚本以 **exit code 10** 退出时，表示需要登录。
-agent 按以下步骤完成登录：
+**The script itself does not drive the browser.** When the script exits with **exit code 10**, login is required.
+The agent completes login as follows:
 
-### 步骤 1：给用户一个可点击的登录链接
+### Step 1: Give the user a clickable login link
 
 ```markdown
-请先登录夸克网盘：[点击登录夸克网盘](https://pan.quark.cn)
-登录完成后告诉我～
+Please log in to Quark Cloud Drive first: [Click to log in to Quark Cloud Drive](https://pan.quark.cn)
+Let me know once you have finished logging in.
 ```
 
-### 步骤 2：用户确认登录后，提取 Cookie 并保存
+### Step 2: After the user confirms login, extract and save the Cookie
 
 ```bash
 sh /var/minis/skills/quark-hub/scripts/refresh_cookie.sh
 ```
 
-### 步骤 3：验证登录成功
+### Step 3: Verify that login succeeded
 
 ```bash
 python3 /var/minis/skills/quark-hub/quark_hub.py info
 ```
 
-## 使用示例
+## Usage Examples
 
 ```bash
 S=/var/minis/skills/quark-hub/quark_hub.py
 
-# 🔓 无需登录
+# 🔓 No login required
 python3 $S ls-share   "https://pan.quark.cn/s/xxxxxxxx"
 python3 $S tree-share "https://pan.quark.cn/s/xxxxxxxx"
 
-# 🔒 需要登录
+# 🔒 Login required
 python3 $S info
 python3 $S ls
 python3 $S ls <fid>
-python3 $S save "https://pan.quark.cn/s/xxxxxxxx"         # 自动检查已有 → 跳过或转存
-python3 $S save "https://pan.quark.cn/s/xxxxxxxx?pwd=1234" <目标fid>
+python3 $S save "https://pan.quark.cn/s/xxxxxxxx"         # Automatically checks existing content → skip or save
+python3 $S save "https://pan.quark.cn/s/xxxxxxxx?pwd=1234" <target_fid>
 python3 $S dl   "https://pan.quark.cn/s/xxxxxxxx" /var/minis/workspace/
-python3 $S mkdir 我的电影
+python3 $S mkdir My Movies
 ```
 
-## 注意事项
+## Notes
 
-- Cookie 有效期约 7–30 天，失效后重新登录即可
-- 严禁用于非法用途，本工具仅调用夸克官方 API
+- Cookies are valid for about 7-30 days. Log in again after they expire.
+- Use for illegal purposes is strictly prohibited. This tool only calls the official Quark API.

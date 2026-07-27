@@ -1,54 +1,54 @@
 ---
 name: korea-stock
 description: >
-  查询韩国股市行情，包括 KOSPI / KOSDAQ 指数及成分股行情。
-  使用 Naver 财经（finance.naver.com）手机版页面，无需登录。
-  当用户说"韩股"、"韩国股市"、"KOSPI"、"KOSDAQ"、"三星电子"、"SK 海力士"时触发。
+  Check South Korean stock market quotes, including the KOSPI and KOSDAQ indices and their constituent stocks.
+  Use the mobile version of Naver Finance (finance.naver.com); no login is required.
+  Triggered when users say "Korean stocks," "South Korean stock market," "KOSPI," "KOSDAQ," "Samsung Electronics," or "SK Hynix."
 version: 1.0.0
 ---
 
-# 韩国股市行情查询
+# South Korean Stock Market Quote Lookup
 
-## 数据源
+## Data Source
 
-Naver 财经手机版 — `finance.naver.com`
-- 直接 browser_use 配合 get_readable 即可获取完整数据
-- 无需任何账号，中国 IP 可直接访问
+Naver Finance mobile site, `finance.naver.com`
+- Use `browser_use` with `get_readable` to retrieve the complete data
+- No account is required; Chinese IP addresses can access it directly
 
-## 查询 KOSPI 指数
+## Query the KOSPI Index
 
 navigate: https://finance.naver.com/sise/sise_index.naver?code=KOSPI
 wait_for_dom_stable
-get_readable: 提取页面全文
+get_readable: Extract the full page text
 
-读取数据包括：
-- KOSPI 指数当前点位、涨跌点数、涨跌幅
-- 成交量（千股）、成交额（百万韩元）
-- 当日最高/最低、52 周最高/最低
-- 涨跌家数
-- 个人/外资/机构净买卖额
-- 热门成分股实时价格
+The data includes:
+- Current KOSPI index level, point change, and percentage change
+- Trading volume (thousands of shares) and trading value (millions of KRW)
+- Intraday high/low and 52-week high/low
+- Number of advancing and declining stocks
+- Net buying/selling amounts by individual, foreign, and institutional investors
+- Real-time prices of popular constituent stocks
 
-## 查询 KOSDAQ 指数
+## Query the KOSDAQ Index
 
 navigate: https://finance.naver.com/sise/sise_index.naver?code=KOSDAQ
-get_text: 提取数据
+get_text: Extract data
 
-## 查询个股行情
+## Query Individual Stock Quotes
 
-| 股票 | Naver 代码 |
+| Stock | Naver Code |
 |------|-----------|
-| 三星电子 | 005930 |
-| SK 海力士 | 000660 |
+| Samsung Electronics | 005930 |
+| SK Hynix | 000660 |
 
-## 汇报格式
+## Report Format
 
 KOSPI: 8,476.15 (+3.55%)
-  最高: 8,476.15 | 最低: 8,273.74
+  High: 8,476.15 | Low: 8,273.74
 
-## 注意事项
+## Notes
 
-- Naver 使用韩文，关键数据均为数值不受语言影响
-- 韩国股市交易时间：北京时间 08:00-14:30
-- 数据延迟约 15-20 分钟
-- 中国 IP 可直接访问，无需 VPN
+- Naver uses Korean; key data is numeric and is not affected by the language
+- South Korean stock market trading hours: 08:00-14:30 Beijing Time
+- Data is delayed by approximately 15-20 minutes
+- Chinese IP addresses can access the site directly without a VPN

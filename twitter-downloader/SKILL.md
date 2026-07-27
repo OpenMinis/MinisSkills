@@ -23,9 +23,9 @@ Download and summarize Twitter/X posts, save media into Minis, and return chat-r
    - created time if available
    - sensitive flag
    - original media URLs
-4. Downloads images, video thumbnails, GIF/video files by default.
+4. Downloads images, video thumbnails, and GIF/video files by default.
 5. Returns Markdown containing:
-   - `## 推文摘要`
+   - `## Tweet Summary`
    - summary/raw JSON links
    - inline media syntax for images/thumbnails/videos/GIFs: `![filename](minis://...)`
 
@@ -88,7 +88,7 @@ Generated files:
 The helper outputs Markdown similar to:
 
 ```md
-## 推文摘要
+## Tweet Summary
 
 - Author: ...
 - Text: ...
@@ -98,12 +98,12 @@ The helper outputs Markdown similar to:
 -   photo https://...
 - Downloaded images: 1, videos: 1
 
-## 文件链接
+## File Links
 
 - [summary.txt](minis://workspace/...)
 - [raw.json](minis://workspace/...)
 
-## 媒体
+## Media
 
 ![photo.jpg](minis://workspace/.../photo.jpg)
 

@@ -1,20 +1,20 @@
 # fucai3d-latest
 
-用于查询最新福彩3D开奖结果、补录遗漏历史、修正错误记录，并基于历史生成娱乐性推荐号码。
+Used to query the latest China Welfare Lottery 3D draw results, fill in missing historical data, correct erroneous records, and generate entertainment-based recommended numbers based on historical results.
 
-## 包含内容
-- `SKILL.md`：技能说明与工作流
-- `README.md`：分享说明
+## Contents
+- `SKILL.md`: skill description and workflow
+- `README.md`: sharing instructions
 
-## 主要规则
-- 优先从百度搜索“福彩3d”读取顶部官方开奖卡片
-- 若用户要求更新/补漏/纠错，必须检查开奖号码上方的期号/日期切换区域
-- 若正文出现历史开奖列表文本，可用于补录与纠错
-- 只更新福彩3D独立历史，不与其他彩种混用
-- 推荐仅作娱乐参考，不构成预测建议
+## Main Rules
+- Prefer reading the top official draw card from a Baidu search for "Fucai 3D"
+- If the user requests an update, missing-data entry, or error correction, you must check the draw number/date switching area above the winning numbers
+- If the main text contains a historical draw results list, it may be used for missing-data entry and error correction
+- Update only the independent China Welfare Lottery 3D history; do not mix it with other lottery types
+- Recommendations are for entertainment reference only and do not constitute prediction advice
 
-## 使用场景
-- 查询上一次/最新一期福彩3D结果
-- 更新遗漏的最近几期
-- 修正本地历史错误号码
-- 基于历史结果生成娱乐推荐
+## Use Cases
+- Query the previous or latest China Welfare Lottery 3D result
+- Update the missing results from the most recent draws
+- Correct erroneous numbers in local historical records
+- Generate entertainment-based recommendations based on historical results

@@ -1,63 +1,64 @@
 ---
 name: shortcut-share-file
 version: 2.1.0
-description: 通过 iOS 快捷指令「极速分享」分享 iCloud Drive 文件。当用户提到"分享文件"、"传文件"、"发文件"、"分享给xxx"、"用快捷指令分享"、"发备份里的文件"等与分享文件相关的操作时触发。支持传递 iCloud Drive 备份目录下的任意文件路径给快捷指令。
+description: Share iCloud Drive files using the iOS Shortcut "Instant Share." Trigger this skill when the user mentions file-sharing actions such as "share a file," "transfer a file," "send a file," "share with xxx," "share using a Shortcut," or "send a file from the backup." Supports passing any file path under the iCloud Drive backup directory to the Shortcut.
 ---
 
-# 分享文件 — 快捷指令「极速分享」
+# Share Files, "Instant Share" Shortcut
 
-快捷指令链接：https://www.icloud.com/shortcuts/c0cd9fbdc42149c3b98e4f9fcb103011
+Shortcut link: https://www.icloud.com/shortcuts/c0cd9fbdc42149c3b98e4f9fcb103011
 
-## 核心原则
+## Core Principles
 
-- **零处理零检查**：不解压、不列出内容、不查看文件类型、不确认文件存在。直接走分享流程。
-- **文件路径**：源文件在 iCloud 映射到 `/var/minis/mounts/iCloud/极速分享/`，参数传 `极速分享/<filename>`（相对路径，不要绝对路径）。
+- **No processing and no checks**: Do not unzip, list contents, inspect file types, or confirm that the file exists. Go directly to the sharing workflow.
+- **File path**: The source file is mapped in iCloud to `/var/minis/mounts/iCloud/Instant Share/`. Pass the parameter as `Instant Share/<filename>` (a relative path, not an absolute path).
 
-## 工作流程
+## Workflow
 
-### A. 测速（优先用记忆缓存）
+### A. Speed Test (Use the cached memory first)
 
 ```
-memory_get(keywords="iperf3 测速 上传速度")
+memory_get(keywords="iperf3 Speed Test: Upload Speed")
 ```
 
-- 有记录且 24 小时内 → 直接用 `upload_MBs` 值
-- 无记录或过期 → 执行：
+- If a record exists and is less than 24 hours old, use the `upload_MBs` value directly.
+- If no record exists or the record has expired, run:
 
 ```
 iperf3 -c ping.online.net -t 3 --json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);bps=d['end']['sum_sent']['bits_per_second'];print(f'{bps/8000000:.2f}')"
 ```
 
-输出为 MB/s（兆字节/秒），立即写入记忆：
+The output is in MB/s (megabytes per second). Write it to memory immediately:
 
 ```
-memory_write(content="## 测速缓存\n- upload_MBs: <值> (<日期>)\n- 有效期为 24 小时")
+memory_write(content="## Speed Cache\n- upload_MBs: <Value> (<Date>)\n- Valid for 24 hours")
 ```
 
-### B. 拷贝文件（如需）并计算时间
+### B. Copy the File (If Needed) and Calculate the Time
 
-如果文件不在 `/var/minis/mounts/iCloud/极速分享/` 下：
+If the file is not under `/var/minis/mounts/iCloud/Instant Share/`:
 
 ```
-cp <源文件路径> /var/minis/mounts/iCloud/极速分享/<filename>
+cp <Source file path> /var/minis/mounts/iCloud/Instant Share/<filename>
 ```
 
-计算参数后缀：
-- **来自 iCloud 其他目录** → `--0Second`
-- **来自 attachments 等外部来源** → `--<ceil(file_size_MB / upload_MBs * 1.2)>Second`（加 20% 余量应对网络波动）
+Calculate the parameter suffix:
 
-### C. 调用快捷指令
+- **From another iCloud directory** → `--0Second`
+- **From an external source such as attachments** → `--<ceil(file_size_MB / upload_MBs * 1.2)>Second` (add a 20% buffer to handle network fluctuations)
+
+### C. Invoke the Shortcut
 
 ```
 apple-open "shortcuts://run-shortcut?name=%E6%9E%81%E9%80%9F%E5%88%86%E4%BA%AB&input=text&text=%E6%9E%81%E9%80%9F%E5%88%86%E4%BA%AB/<filename>--<time>Second"
 ```
 
-## 反馈用户
+## User Feedback
 
-「快捷指令已启动，完成后链接会自动复制到剪贴板，您可以直接粘贴发送。」
+"The Shortcut has started. When it finishes, the link will be copied to the clipboard automatically. You can paste and send it directly."
 
 ---
 
-## 捆绑资源
+## Bundled Resources
 
-- [帮助文档](minis://skills/shortcut-share-file/references/%E5%B8%AE%E5%8A%A9%E6%96%87%E6%A1%A3.md) — 安装步骤、功能概览、使用指南，用户有疑问时提供
+- [Help Documentation](minis://skills/shortcut-share-file/references/Help%20Documentation.md) - Installation steps, feature overview, and usage guide. Provide this when the user has questions.

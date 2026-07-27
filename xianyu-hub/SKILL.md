@@ -1,184 +1,184 @@
 ---
 name: xianyu-hub
 description: >
-  闲鱼（咸鱼/goofish）二手商品搜索与查询技能。支持搜索商品、查询价格行情、
-  筛选城市/价格区间/排序、查看商品详情、管理收藏、查询订单和已发布商品。
-  支持输出网页链接和 fleamarket:// APP 直达链接。
-  内置「关键字增强」：当搜索结果为空或极少时，自动补充同类别替代关键字重试，
-  大幅提升搜索命中率。
-  当用户提到「闲鱼」「咸鱼」「二手」「goofish」「搜一下xx多少钱」「找一下xx的商品」
-  「搜不到」，或任何需要查询闲鱼商品价格/搜索二手商品的场景，必须触发本技能。
+  Xianyu (Goofish) secondhand item search and lookup skill. Supports searching for items, checking price trends,
+  filtering by city, price range, and sort order, viewing item details, managing favorites, and checking orders and listed items.
+  Supports outputting web links and fleamarket:// direct links to the app.
+  Built-in "Keyword Enhancement": When search results are empty or very limited, the skill automatically adds alternative keywords from the same category and retries the search,
+  significantly improving the search hit rate.
+  This skill must be triggered whenever a user mentions "Xianyu," "Xianyu," "secondhand," "goofish," "search how much xx costs," "find xx items,"
+  "can't find it," or in any scenario where they need to check Xianyu item prices or search for secondhand items.
 ---
 
-# 闲鱼搜索技能 (xianyu-hub)
+# Xianyu Search Skill (xianyu-hub)
 
-## 核心原理
+## Core Principle
 
-在已登录闲鱼的浏览器 tab 内通过 `minis-browser-use execute_js` 调用闲鱼内部 API，
-需要用户先在内置浏览器中完成闲鱼登录。
+In a browser tab where the user is already logged in to Xianyu, call Xianyu's internal API through `minis-browser-use execute_js`.
+The user must first log in to Xianyu in the built-in browser.
 
-## 启动流程（每次使用前执行）
+## Startup Process (run before each use)
 
-所有脚本都会**自动调用 `ensure_tab.sh`** 完成以下步骤，**无需手动传 `--tab-id`**。
+All scripts **automatically call `ensure_tab.sh`** to complete the following steps, so there is **no need to manually pass `--tab-id`**.
 
-### ensure_tab.sh 自动处理逻辑
+### ensure_tab.sh Automatic Processing Logic
 
-1. **扫描所有 tab** — 解析 `list_tabs` 文本，找含 `goofish.com` 的 tab
-2. **检查登录态** — 执行 JS 判断当前页是否已登录
-3. **已登录** → 直接输出 tab_id，脚本继续执行
-4. **未登录** → 自动执行：
-   - `navigate` 跳转到闲鱼首页
-   - `minis-open` 弹出内置浏览器供用户登录
-   - **每 5 秒轮询登录状态，最多等 120 秒**，登录成功自动继续
+1. **Scan all tabs** - Parse the `list_tabs` text and look for a tab containing `goofish.com`
+2. **Check login state** - Execute JS to determine whether the current page is logged in
+3. **Logged in** -> Directly output `tab_id`, and the script continues
+4. **Not logged in** -> Automatically execute:
+   - `navigate` to the Xianyu home page
+   - `minis-open` to open the built-in browser for the user to log in
+   - **Poll the login state every 5 seconds, for up to 120 seconds**; after login succeeds, automatically continue
 
-> 若需手动指定 tab，可传 `--tab-id <id>`，脚本仍会验证登录态。
+> To manually specify a tab, pass `--tab-id <id>`; the script will still verify the login state.
 
-## 脚本一览
+## Script Overview
 
-所有脚本位于 `/var/minis/skills/xianyu-hub/scripts/`，用 `sh` 执行。
+All scripts are located in `/var/minis/skills/xianyu-hub/scripts/` and are run with `sh`.
 
-### 1. 搜索商品 — search.sh
+### 1. Search Items - search.sh
 
 ```sh
-sh scripts/search.sh -k <关键词> [选项]
+sh scripts/search.sh -k <keyword> [options]
 
-# 选项：
-#   -k <词>        关键词（必填）
-#   -n <数>        每页数量（默认20，最大30）
-#   -p <页>        页码（默认1）
-#   -s <排序>      default | price_asc | price_desc | time | reduce
-#   --min-price <元>  最低价
-#   --max-price <元>  最高价
-#   --city <城市>     城市过滤
-#   --personal-only   仅个人闲置
-#   -j              输出 JSON
+# Options:
+#   -k <term>        Keyword (required)
+#   -n <number>      Number per page (default 20, maximum 30)
+#   -p <page>        Page number (default 1)
+#   -s <sort>        default | price_asc | price_desc | time | reduce
+#   --min-price <yuan>  Minimum price
+#   --max-price <yuan>  Maximum price
+#   --city <city>       City filter
+#   --personal-only     Personal idle items only
+#   -j              Output JSON
 
-# 示例
+# Examples
 sh scripts/search.sh -k "MacBook Air" -s price_asc --min-price 2000 -n 10
-sh scripts/search.sh -k "iPhone15" --city 上海 -s time
+sh scripts/search.sh -k "iPhone15" --city Shanghai -s time
 ```
 
-### 2. 商品详情 — detail.sh
+### 2. Item Details - detail.sh
 
 ```sh
-sh scripts/detail.sh <商品ID>
+sh scripts/detail.sh <itemID>
 
-# 返回：标题、价格、描述、浏览/想要/收藏数、卖家信息（好评率、回复率、售出数）
+# Returns: title, price, description, views/wants/favorites count, seller information (positive feedback rate, response rate, number sold)
 ```
 
-### 3. 收藏管理 — favorites.sh
+### 3. Favorites Management - favorites.sh
 
 ```sh
-sh scripts/favorites.sh list [-n 数量] [-p 页码]   # 查看收藏列表
-sh scripts/favorites.sh add <商品ID>               # 收藏商品
-sh scripts/favorites.sh remove <商品ID>            # 取消收藏
+sh scripts/favorites.sh list [-n quantity] [-p page]   # View favorites list
+sh scripts/favorites.sh add <itemID>                   # Add item to favorites
+sh scripts/favorites.sh remove <itemID>                # Remove item from favorites
 ```
 
-### 4. 订单查询 — orders.sh
+### 4. Order Lookup - orders.sh
 
 ```sh
-sh scripts/orders.sh [-n 数量] [-p 页码] [-t 类型]
+sh scripts/orders.sh [-n quantity] [-p page] [-t type]
 
-# 类型: all | wait_pay | wait_send | wait_receive | refund
+# Type: all | wait_pay | wait_send | wait_receive | refund
 ```
 
-### 5. 我发布的 — my_items.sh
+### 5. My Listed Items - my_items.sh
 
 ```sh
-sh scripts/my_items.sh [-n 数量] [-p 页码]
+sh scripts/my_items.sh [-n quantity] [-p page]
 ```
 
 ---
 
-## 🔎 关键字增强模块
+## 🔎 Keyword Enhancement Module
 
-> 当直接搜索结果为空或极少（< 3 条）时，**自动启用关键字增强**，不要直接放弃。
+> When direct search results are empty or very few (< 3 results), **automatically enable keyword enhancement**; do not give up right away.
 
-### 核心机制
+### Core Mechanism
 
-部分商品在平台上用词各有不同，卖家习惯使用行业通用简称、别称或缩写。
-本模块通过 [SearchSharp.com](https://search-sharp.com) 的开放 API，
-自动获取该商品的全平台常用别称列表（由用户社区众包维护、按热度排序），
-逐一重试搜索，提升命中率。
+Some items on the platform are described with different terms, and sellers often use common industry abbreviations, alternative names, or shortened forms.
+This module uses the open API from [SearchSharp.com](https://search-sharp.com)
+to automatically retrieve a list of commonly used aliases for the item across all platforms (crowdsourced by the user community and sorted by popularity),
+then retries the search with each one to improve the hit rate.
 
-### 6. 智能关键字搜索 — smart_search.sh ⭐推荐
+### 6. Smart Keyword Search - smart_search.sh ⭐ Recommended
 
-**结果不足时首选，自动完成：直搜 → 补充别称 → 重试**
+**Preferred when results are insufficient. Automatically completes: direct search -> add aliases -> retry**
 
 ```sh
-sh scripts/smart_search.sh -k <关键词> [其他 search.sh 参数]
+sh scripts/smart_search.sh -k <keyword> [other search.sh parameters]
 
-# 示例
+# Examples
 sh scripts/smart_search.sh -k "GTA"
-sh scripts/smart_search.sh -k "Netflix会员" --max-price 50
+sh scripts/smart_search.sh -k "Netflix membership" --max-price 50
 sh scripts/smart_search.sh -k "gpt plus"
 ```
 
-**执行流程：**
-1. 用原始关键字搜一遍闲鱼
-2. 若结果 < 3 条，调用 SearchSharp API 查询该词的常用别称
-3. 按社区热度排序，逐一用别称重试搜索（最多 3 个）
-4. 输出全部结果
+**Execution flow:**
+1. Search Xianyu once with the original keyword
+2. If there are fewer than 3 results, call the SearchSharp API to look up common aliases for the term
+3. Sort by community popularity and retry the search with each alias one by one (up to 3)
+4. Output all results
 
-### 7. 别称查询 — alt_keywords.sh
+### 7. Alias Lookup - alt_keywords.sh
 
-**仅查询关键字别称，不搜闲鱼，用于了解某商品的常见叫法**
+**Only queries keyword aliases and does not search Xianyu. Used to understand common names for a specific item**
 
 ```sh
-# 查询某词的常用别称
-sh scripts/alt_keywords.sh -q <关键词>
+# Look up common aliases for a term
+sh scripts/alt_keywords.sh -q <keyword>
 
-# 列出热门商品别称汇总（约 20 条）
+# List popular item alias summaries (about 20 entries)
 sh scripts/alt_keywords.sh --list
 
-# 查某商品全部别称（用 ID，从 --list 结果里找）
-sh scripts/alt_keywords.sh --id <商品ID>
+# Look up all aliases for an item (using an ID found in the --list results)
+sh scripts/alt_keywords.sh --id <itemID>
 
-# JSON 输出
+# JSON output
 sh scripts/alt_keywords.sh -q "gpt" -j
 ```
 
-### 使用规则
+### Usage Rules
 
-| 情况 | 操作 |
+| Situation | Action |
 |------|------|
-| 搜索结果 ≥ 3 条 | 直接展示，无需增强 |
-| 搜索结果 < 3 条 | 自动运行 `smart_search.sh` 补充别称重试 |
+| 3 or more search results | Display directly; no enhancement required |
+| Fewer than 3 search results | Automatically run `smart_search.sh` to add aliases and retry |
 
 ### SearchSharp API
 
-| 接口 | 说明 |
+| Endpoint | Description |
 |------|------|
-| `GET /api/products` | 热门商品列表 |
-| `GET /api/products?q=<词>` | 按关键字查商品及别称 |
-| `GET /api/products/<id>` | 单商品完整别称列表 |
+| `GET /api/products` | Popular item list |
+| `GET /api/products?q=<term>` | Look up items and aliases by keyword |
+| `GET /api/products/<id>` | Complete alias list for a single item |
 
-- 无需认证，直接 curl 调用
-- `keywords` 数组按社区净票数排序，热度越高越靠前
+- No authentication required; call directly with `curl`
+- The `keywords` array is sorted by net community votes; the higher the popularity, the higher the ranking
 
 ---
 
-## 打开商品
+## Open Item
 
 ```sh
-apple-open "fleamarket://item?id=<商品ID>"    # 跳转闲鱼 APP
+apple-open "fleamarket://item?id=<itemID>"    # Open in the Xianyu app
 ```
 
-对话中用 Markdown 链接：`[在闲鱼APP中打开](fleamarket://item?id=xxx)`
+Use this Markdown link in conversations: `[Open in the Xianyu app](fleamarket://item?id=xxx)`
 
-## URL 规则
+## URL Rules
 
-| 用途 | 格式 |
+| Purpose | Format |
 |---|---|
-| 网页 | `https://www.goofish.com/item?id=<id>` |
+| Web page | `https://www.goofish.com/item?id=<id>` |
 | APP | `fleamarket://item?id=<id>` |
-| 订单 | `fleamarket://order_detail?id=<orderId>` |
+| Order | `fleamarket://order_detail?id=<orderId>` |
 
-## 注意事项
+## Notes
 
-- `price_asc` 排序服务端可能返回低价垃圾数据，建议配合 `--min-price` 过滤
-- 城市/价格区间为客户端过滤
-- `--personal-only` 按评价数判断（>10条视为店铺），不绝对准确
-- 敏感词被平台屏蔽时返回空结果，属正常现象
-- `ensure_tab.sh` 依赖 `list_tabs` 返回文本格式（`Tab N: 标题 — URL`），格式变更需同步更新解析逻辑
-- 未登录时 `ensure_tab.sh` 会自动轮询等待，**无需用户手动确认登录**，等待期间脚本会阻塞（最多 120 秒）
+- The `price_asc` sort may return low-quality low-price data from the server; use it together with `--min-price` filtering
+- City and price range filters are applied on the client side
+- `--personal-only` is determined by review count (>10 reviews is treated as a store), so it is not perfectly accurate
+- It is normal for searches to return empty results when sensitive terms are blocked by the platform
+- `ensure_tab.sh` depends on the text format returned by `list_tabs` (`Tab N: Title — URL`); if the format changes, the parsing logic must be updated accordingly
+- When not logged in, `ensure_tab.sh` automatically polls and waits; **no manual login confirmation is required**. The script blocks during the wait (up to 120 seconds)

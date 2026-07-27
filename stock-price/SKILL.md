@@ -1,73 +1,73 @@
 ---
 name: stock-price
 description: >
-  查询 A 股、港股、ETF、指数的实时行情（最新价、涨跌幅、成交量等）。
-  使用腾讯行情 API（qt.gtimg.cn），无需登录、无需 API Key。
-  当用户说"查股价"、"实时行情"、"ETF 价格"、"股票行情"、"大盘多少点"时触发。
+  Check real-time quotes for A-shares, Hong Kong stocks, ETFs, and indices (latest price, percentage change, trading volume, etc.).
+  Uses the Tencent Quotes API (qt.gtimg.cn); no login or API key required.
+  Triggers when a user says "check stock prices," "real-time quotes," "ETF prices," "stock quotes," or "what is the market index?"
 version: 1.0.0
 ---
 
-# 实时股票/ETF/指数行情查询
+# Real-Time Stock, ETF, and Index Quotes
 
-## 数据源（按优先级）
+## Data Sources (by Priority)
 
-| 优先级 | 数据源 | 特点 |
+| Priority | Data Source | Features |
 |--------|--------|------|
-| 首选 | 腾讯行情 API（qt.gtimg.cn） | 最快，一行 curl 拿全部数据，无需登录 |
-| 备选 | 新浪财经（gu.sina.cn） | 首页显示大盘指数、热门行业前 6 |
-| 备选 | 东方财富（data.eastmoney.com/bkzj/hy.html） | 板块资金流向，需桌面版 UA |
+| Preferred | Tencent Quotes API (qt.gtimg.cn) | Fastest; get all data with a single `curl` command, no login required |
+| Alternative | Sina Finance (gu.sina.cn) | Homepage displays market indices and the top 6 popular industries |
+| Alternative | East Money (data.eastmoney.com/bkzj/hy.html) | Sector capital flows; desktop user agent required |
 
-## 腾讯行情 API（首选）
+## Tencent Quotes API (Preferred)
 
-### 请求格式
+### Request Format
 
-curl -s "qt.gtimg.cn/q=<代码列表，逗号分隔>"
+curl -s "qt.gtimg.cn/q=<list of codes, comma-separated>"
 
-### 股票代码格式
+### Stock Code Format
 
-| 市场 | 格式 | 示例 |
+| Market | Format | Example |
 |------|------|------|
-| 上海 A 股 | sh + 6 位代码 | sh600519（贵州茅台） |
-| 深圳 A 股 | sz + 6 位代码 | sz000001（平安银行） |
-| 港股 | hk + 5 位代码 | hk00700（腾讯控股） |
-| 上证指数 | sh000001 | 上证综指 |
-| 创业板指 | sz399006 | 创业板指 |
+| Shanghai A-shares | sh + 6-digit code | sh600519 (Kweichow Moutai) |
+| Shenzhen A-shares | sz + 6-digit code | sz000001 (Ping An Bank) |
+| Hong Kong stocks | hk + 5-digit code | hk00700 (Tencent Holdings) |
+| SSE Composite Index | sh000001 | SSE Composite Index |
+| ChiNext Index | sz399006 | ChiNext Index |
 
-### 返回格式
+### Return Format
 
-返回文本用 ~ 分隔：
-v_<代码>="1~<名称>~<代码>~<最新价>~<昨收>~<开盘>~..."
+Returned text is separated by `~`:
+v_<code>="1~<name>~<code>~<latest price>~<previous close>~<open>~..."
 
-关键字段索引（~ 分隔，从 0 开始）：
-- 1: 名称
-- 3: 最新价
-- 32: 涨跌幅（%）
-- 6: 成交量（手）
-- 7: 成交额（元）
+Key field indexes (separated by `~`, starting from 0):
+- 1: Name
+- 3: Latest price
+- 32: Percentage change (%)
+- 6: Trading volume (lots)
+- 7: Trading value (yuan)
 
-### 示例
+### Example
 
 curl -s "qt.gtimg.cn/q=sh000001,sz399006,sh588170,hk00700"
 
-Python 解析示例：
+Python parsing example:
 fields = line.split('="')[1].rstrip('";').split('~')
 name = fields[1]
 price = fields[3]
 change_pct = fields[32]
 
-## 新浪财经（备选）
+## Sina Finance (Alternative)
 
 navigate: https://gu.sina.cn
-get_readable: 提取大盘指数、热门行业、涨跌家数
+get_readable: Extract market indices, popular industries, and the number of stocks up and down
 
-## 汇报格式
+## Reporting Format
 
-上证指数: 4068.57 (-0.73%)
-创业板指: 2140.32 (+0.85%)
+SSE Composite Index: 4068.57 (-0.73%)
+ChiNext Index: 2140.32 (+0.85%)
 
-## 注意事项
+## Notes
 
-- 交易时段实时更新，盘后显示收盘价
-- 港股免费版有 15 分钟延迟
-- 单次查询建议不超过 20 个代码
-- 返回编码为 GBK
+- Updates in real time during trading hours; after hours, the closing price is displayed
+- The free version for Hong Kong stocks has a 15-minute delay
+- A single query should include no more than 20 codes
+- The returned encoding is GBK

@@ -1,89 +1,89 @@
 ---
 name: weibo-hub
 description: >
-  使用 Python + UV 读写微博（Weibo）数据的技能，仅依赖 httpx，通过 browser_use get_cookies
-  自动获取 Cookie 完成认证，无需手动复制。支持热搜榜、热门 Feed、关注 Feed、关键词搜索、
-  微博详情/评论/转发、用户资料/微博/关注/粉丝列表等。
-  当用户提到"微博"、"weibo"、"weibo-hub"、"微博热搜"、"抓取微博"、"搜索微博"、
-  "微博评论"、"微博用户"，或任何需要以编程方式读写微博数据的场景，必须触发本技能。
+  A skill for reading and writing Weibo data with Python + UV. It depends only on httpx and uses `browser_use get_cookies`
+  to automatically retrieve cookies and complete authentication, with no manual copying required. It supports trending searches, popular feeds, following feeds, keyword search,
+  Weibo post details/comments/reposts, user profiles/posts/following/follower lists, and more.
+  This skill must be triggered whenever the user mentions "Weibo", "weibo", "weibo-hub", "Weibo trending searches", "scraping Weibo", "searching Weibo",
+  "Weibo comments", "Weibo users", or any scenario that requires programmatic reading or writing of Weibo data.
 ---
 
 # weibo-hub
 
-> **改造来源**：[jackwener/weibo-cli](https://github.com/jackwener/weibo-cli)（Apache-2.0）
+> **Adapted from**: [jackwener/weibo-cli](https://github.com/jackwener/weibo-cli) (Apache-2.0)
 >
-> 本技能在原仓库基础上做了以下精简：
-> - **移除** `click` / `rich` / `browser-cookie3` / `qrcode` / `pyyaml` 依赖
-> - **仅保留** `httpx` 一个第三方依赖
-> - **移除** CLI 层，所有功能封装为同步 Python API
-> - **认证改为** `browser_use get_cookies` 提取 → 调用 `setup_credential()` 保存
-> - 数据目录改为 `/var/minis/workspace/weibo-hub/`
+> This skill streamlines the original repository as follows:
+> - **Removed** the `click` / `rich` / `browser-cookie3` / `qrcode` / `pyyaml` dependencies
+> - **Kept only** `httpx` as a third-party dependency
+> - **Removed** the CLI layer; all functionality is encapsulated as a synchronous Python API
+> - **Changed authentication to** extracting cookies with `browser_use get_cookies`, then calling `setup_credential()` to save them
+> - Changed the data directory to `/var/minis/workspace/weibo-hub/`
 
 ---
 
-## 文件结构
+## File Structure
 
 ```
 /var/minis/skills/weibo-hub/
 ├── SKILL.md
-├── pyproject.toml          # 仅 httpx
+├── pyproject.toml          # httpx only
 └── scripts/
     ├── __init__.py
-    ├── constants.py        # API 端点、Headers、路径常量
-    ├── exceptions.py       # WeiboError 异常体系
-    ├── auth.py             # Credential 持久化（无 browser-cookie3）
-    └── client.py           # WeiboClient 核心类（全部 API）
+    ├── constants.py        # API endpoints, headers, and path constants
+    ├── exceptions.py       # WeiboError exception hierarchy
+    ├── auth.py             # Credential persistence (no browser-cookie3)
+    └── client.py           # WeiboClient core class (all APIs)
 ```
 
 ---
 
-## 认证流程（每次使用前检查）
+## Authentication Flow (Check Before Each Use)
 
-weibo-hub 使用 **浏览器 Cookie 认证**，通过 `browser_use get_cookies` 从 weibo.com 提取，
-无需 `browser-cookie3`，无需 QR 扫码。
+weibo-hub uses **browser cookie authentication**, extracted from weibo.com with `browser_use get_cookies`.
+It does not require `browser-cookie3` or QR code scanning.
 
-### Step 1：用 browser_use 提取 Cookie
+### Step 1: Use `browser_use` to Extract Cookies
 
 ```python
-# 在 agent 中调用：
+# Call in the agent:
 browser_use(action="navigate", url="https://weibo.com")
-# 确保已登录后：
+# After confirming you are logged in:
 browser_use(action="get_cookies", url="https://weibo.com")
-# 将返回的 offload env 文件路径记录下来
+# Record the returned offload env file path
 ```
 
-### Step 2：从 env 文件读取并保存凭证
+### Step 2: Read and Save Credentials from the env File
 
 ```python
 import sys, os, subprocess, json
 
-# 加载 Cookie 环境变量（路径来自 get_cookies 返回的 offload 文件）
-env_file = "/var/minis/offloads/env_cookies_xxx.sh"   # 替换为实际路径
+# Load Cookie environment variables (the path comes from the offload file returned by get_cookies)
+env_file = "/var/minis/offloads/env_cookies_xxx.sh"   # Replace with the actual path
 result = subprocess.run(
     f". {env_file} && python3 -c \"import os,json; print(json.dumps(dict(os.environ)))\"",
     shell=True, capture_output=True, text=True
 )
 env = json.loads(result.stdout)
 
-# 解析出 Cookie 字典（COOKIE_ 前缀变量）
+# Parse the Cookie dictionary (variables with the COOKIE_ prefix)
 cookies = {
     k[len("COOKIE_"):]: v
     for k, v in env.items()
     if k.startswith("COOKIE_")
 }
 
-# 保存凭证
+# Save credentials
 sys.path.insert(0, "/var/minis/skills/weibo-hub")
 from scripts.client import WeiboClient
 WeiboClient.setup_credential(cookies)
 ```
 
-> **关键 Cookie**：`SUB`、`SUBP`（必须），其余越多越好。
-> 凭证保存到 `/var/minis/workspace/weibo-hub/credential.json`，有效期 7 天，到期自动提示。
+> **Required Cookies**: `SUB`, `SUBP` (required). The more additional cookies, the better.
+> Credentials are saved to `/var/minis/workspace/weibo-hub/credential.json`, valid for 7 days, and an expiration prompt is shown automatically when they expire.
 
 ---
 
-## 环境准备
+## Environment Setup
 
 ```bash
 cd /var/minis/skills/weibo-hub
@@ -92,7 +92,7 @@ uv sync
 
 ---
 
-## 快速使用
+## Quick Start
 
 ```python
 import sys
@@ -101,31 +101,31 @@ from scripts.client import WeiboClient
 
 with WeiboClient() as client:
 
-    # ── 热搜 / 趋势（无需登录）──────────────────────────────
-    topics = client.hot_search()          # 热搜榜（~52 条）
+    # ── Trending searches / trends (no login required)──────────────────────────────
+    topics = client.hot_search()          # Trending search list (~52 entries)
     for t in topics[:10]:
         print(f"#{t.get('realtime_hot_show_label','')} {t.get('word','')}")
 
-    band = client.hot_band()              # 完整热搜榜
-    trends = client.trending()            # 实时搜索推荐词
+    band = client.hot_band()              # Full trending search list
+    trends = client.trending()            # Real-time search suggestions
 
-    # ── Feed（热门无需登录，关注需登录）─────────────────────
-    hot = client.hot_feed(count=10)       # 热门时间线
-    home = client.home_feed(count=20)     # 关注者时间线
+    # ── Feeds (popular requires no login; following requires login)─────────────────────
+    hot = client.hot_feed(count=10)       # Popular timeline
+    home = client.home_feed(count=20)     # Following timeline
 
-    # ── 搜索（移动端 API）────────────────────────────────────
-    results = client.search("人工智能", page=1)
+    # ── Search (mobile API)────────────────────────────────────
+    results = client.search("Artificial Intelligence", page=1)
     for w in results[:5]:
         print(w.get("text", "")[:80])
 
-    # ── 微博详情 / 评论 / 转发（需要登录）──────────────────
+    # ── Weibo post details / comments / reposts (login required)──────────────────
     wb = client.detail("Qw06Kd98p")
-    cmt = client.comments("微博ID", count=20)
-    rep = client.reposts("微博ID", count=10)
+    cmt = client.comments("WeiboID", count=20)
+    rep = client.reposts("WeiboID", count=10)
 
-    # ── 用户（需要登录）─────────────────────────────────────
-    me = client.me()                      # 当前登录用户
-    user = client.profile("1699432410")   # 指定用户资料
+    # ── Users (login required)─────────────────────────────────────
+    me = client.me()                      # Currently logged-in user
+    user = client.profile("1699432410")   # Specified user profile
     weibos = client.user_weibos("1699432410", page=1)
     following = client.following("1699432410", page=1)
     followers = client.followers("1699432410", page=1)
@@ -133,55 +133,55 @@ with WeiboClient() as client:
 
 ---
 
-## API 速查
+## API Quick Reference
 
-### 无需登录（公开接口）
+### No Login Required (Public APIs)
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `hot_search()` | 热搜榜 sidebar（~52 条） |
-| `hot_band()` | 完整热搜榜 |
-| `trending()` | 实时搜索推荐词 |
-| `hot_feed(count, max_id)` | 热门时间线 |
-| `search(keyword, page)` | 关键词搜索微博 |
+| `hot_search()` | Trending search sidebar (~52 entries) |
+| `hot_band()` | Full trending search list |
+| `trending()` | Real-time search suggestions |
+| `hot_feed(count, max_id)` | Popular timeline |
+| `search(keyword, page)` | Keyword search for Weibo posts |
 
-### 需要登录（Cookie 认证）
+### Login Required (Cookie Authentication)
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `me()` | 当前登录用户信息 |
-| `home_feed(count, max_id)` | 关注者时间线 |
-| `detail(mblogid)` | 单条微博详情 |
-| `comments(weibo_id, count, max_id)` | 微博评论列表 |
-| `reposts(weibo_id, page, count)` | 微博转发列表 |
-| `profile(uid)` | 用户资料 |
-| `user_weibos(uid, page, count)` | 用户微博列表 |
-| `following(uid, page)` | 用户关注列表 |
-| `followers(uid, page)` | 用户粉丝列表 |
+| `me()` | Current logged-in user information |
+| `home_feed(count, max_id)` | Following timeline |
+| `detail(mblogid)` | Details for a single Weibo post |
+| `comments(weibo_id, count, max_id)` | Weibo comment list |
+| `reposts(weibo_id, page, count)` | Weibo repost list |
+| `profile(uid)` | User profile |
+| `user_weibos(uid, page, count)` | User's Weibo post list |
+| `following(uid, page)` | User following list |
+| `followers(uid, page)` | User follower list |
 
-### 认证
+### Authentication
 
-| 方法 | 说明 |
+| Method | Description |
 |------|------|
-| `WeiboClient.setup_credential(cookies)` | 保存 Cookie 凭证（静态方法） |
+| `WeiboClient.setup_credential(cookies)` | Save Cookie credentials (static method) |
 
 ---
 
-## 反风控说明
+## Anti-Abuse Notes
 
-与上游 weibo-cli 保持一致：
-- **Gaussian 抖动**：每次请求间隔 = `request_delay + gauss(0.3, 0.15)`，约 1s
-- **5% 长停顿**：随机触发 2–5s 额外延迟，模拟阅读行为
-- **指数退避**：HTTP 429/5xx 最多重试 3 次，等待时间 2^n 秒
-- **Chrome 145 UA**：桌面端 User-Agent，与浏览器指纹一致
+Consistent with the upstream weibo-cli:
+- **Gaussian jitter**: Interval between requests = `request_delay + gauss(0.3, 0.15)`, about 1 s
+- **5% long pause**: Randomly triggers an additional 2-5 s delay to simulate reading behavior
+- **Exponential backoff**: HTTP 429/5xx retries up to 3 times, with a wait time of 2^n seconds
+- **Chrome 145 UA**: Desktop User-Agent, consistent with the browser fingerprint
 
 ---
 
-## 注意事项
+## Notes
 
-- 首次使用必须先调用 `WeiboClient.setup_credential(cookies)` 保存凭证
-- 凭证文件：`/var/minis/workspace/weibo-hub/credential.json`，权限 0600
-- 必要 Cookie：`SUB` + `SUBP`，缺失时 `setup_credential()` 会抛出 `ValueError`
-- Cookie 7 天后自动提示过期，需重新提取
-- 热搜/热门 Feed/搜索无需登录，profile/detail/home_feed 等需要有效 Cookie
-- `search()` 使用移动端 API（`m.weibo.cn`），结果格式略有不同
+- Before first use, you must call `WeiboClient.setup_credential(cookies)` to save credentials
+- Credential file: `/var/minis/workspace/weibo-hub/credential.json`, permissions 0600
+- Required Cookies: `SUB` + `SUBP`; if missing, `setup_credential()` throws `ValueError`
+- Cookies automatically prompt as expired after 7 days and must be extracted again
+- Trending searches, popular feeds, and search do not require login; `profile`, `detail`, `home_feed`, and similar methods require valid cookies
+- `search()` uses the mobile API (`m.weibo.cn`), and the result format is slightly different
