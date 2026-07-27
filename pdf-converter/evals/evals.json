@@ -1,0 +1,41 @@
+{
+  "skill_name": "pdf-converter",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Convert the file notes.md in my workspace to a PDF called notes.pdf",
+      "expected_output": "A valid PDF file at notes.pdf with rendered Markdown content including proper CJK text and emoji",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The output PDF file exists and has non-zero size",
+          "type": "file_exists"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Turn this HTML into a PDF: <h1>Hello</h1><p>World</p>",
+      "expected_output": "A PDF file with an h1 heading and a paragraph",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The output file is a valid PDF",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Merge chart.png and diagram.jpg into a single PDF called report.pdf",
+      "expected_output": "A PDF file containing both images as pages",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The output PDF file exists",
+          "type": "file_exists"
+        }
+      ]
+    }
+  ]
+}
