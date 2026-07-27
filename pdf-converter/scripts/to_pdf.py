@@ -18,9 +18,28 @@ sys.path.insert(0, os.path.dirname(__file__))
 from emoji_img import replace_emojis_with_svg as _replace_emoji
 
 # ── 字体源 ──
-CJK_TTC = '/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc'   # fontNumber 0 = Regular
-DEJAVU_REG = '/usr/share/fonts/dejavu/DejaVuSans.ttf'     # Latin Regular
-DEJAVU_BLD = '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf'  # Latin Bold
+# 多候选路径：适应不同系统（Alpine/Debian/macOS Homebrew 等）
+def _find_font(*candidates):
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+CJK_TTC = _find_font(
+    '/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc',
+    '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+    '/usr/local/share/fonts/wqy-zenhei.ttc',
+)
+DEJAVU_REG = _find_font(
+    '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans.ttf',
+    '/usr/local/share/fonts/DejaVuSans.ttf',
+)
+DEJAVU_BLD = _find_font(
+    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
+    '/usr/local/share/fonts/DejaVuSans-Bold.ttf',
+)
 # Emoji 不用字体（CBDT位图字体在weasyprint中尺寸巨大），
 # 改用 emoji_img.py 把 emoji 替换为内联 SVG 图片（CSS可控大小）
 
@@ -204,9 +223,11 @@ def render_pdf(html_body, out_pdf, title, font_css):
     tmp_font_dir = tempfile.mkdtemp(prefix='fc_fonts_')
     import shutil as sh
     for f in ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']:
-        src = f'/usr/share/fonts/dejavu/{f}'
-        if os.path.exists(src):
+        src = os.path.join(os.path.dirname(DEJAVU_REG), f) if DEJAVU_REG else None
+        if src and os.path.exists(src):
             sh.copy(src, tmp_font_dir)
+    if not DEJAVU_REG:
+        print("⚠️  DejaVu Sans font not found, using system fonts for Latin rendering", file=sys.stderr)
 
     # 创建自定义 fontconfig 配置：只扫描临时字体目录
     fc_conf = os.path.join(tmp_font_dir, 'fonts.conf')

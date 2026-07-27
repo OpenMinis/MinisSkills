@@ -1,114 +1,68 @@
 ---
 name: pdf-converter
-description: >
-  Convert Markdown, HTML, plain text, images, and pandoc-supported formats to PDF
-  with CJK font rendering, half-width numbers, and emoji support. Use this skill
-  whenever the user asks to convert a file to PDF, generate a PDF from markdown or
-  HTML, export a PDF, or run "转PDF" / "生成PDF" / "导出PDF".
+version: 2.2.0
+description: 将各种格式文件转换为 PDF。支持 Markdown(.md)、HTML(.htm/.html)、纯文本(.txt)、图片(.png/.jpg/.jpeg/.gif/.bmp/.webp)以及 pandoc 支持的格式(.rst/.org/.latex等)。当用户提到「转PDF」「生成PDF」「导出PDF」「convert to PDF」时触发。
 ---
 
 # pdf-converter
 
-Convert various file formats to PDF with proper CJK rendering and emoji support.
-
-## When to Use This Skill
-
-Use this skill when the user needs to:
-
-- Convert Markdown (`.md`) to PDF while preserving formatting, emoji, and Chinese text
-- Convert HTML (`.htm`, `.html`) to PDF
-- Convert plain text (`.txt`) to PDF
-- Convert images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.webp`) to PDF — including multi-image merge
-- Convert any pandoc-supported format (`.rst`, `.org`, `.latex`, etc.) to PDF
-
-## Workflow
-
-### Step 1: Prepare the input file
-
-Make sure the input file exists and is readable. If the user provides content directly, save it to a temporary file first.
-
-### Step 2: Run the conversion script
-
-Execute the conversion script with the required arguments:
+## 使用方法
 
 ```bash
-python3 scripts/to_pdf.py input.md -o output.pdf
+# Markdown → PDF（保留格式、emoji、中文，数字半角，琥珀色主题排版）
+python3 /var/minis/skills/pdf-converter/scripts/to_pdf.py 文档.md -o 输出.pdf
+
+# 文本 → PDF
+python3 /var/minis/skills/pdf-converter/scripts/to_pdf.py 文档.txt -o 输出.pdf
+
+# HTML → PDF
+python3 /var/minis/skills/pdf-converter/scripts/to_pdf.py 网页.html -o 输出.pdf
+
+# 多图片合并为PDF
+python3 /var/minis/skills/pdf-converter/scripts/to_pdf.py 图1.jpg 图2.png -o 合并.pdf
 ```
 
-The script handles all format detection automatically based on the file extension.
-
-### Step 3: Verify the output
-
-Check that the PDF was created and has a non-zero file size:
-
+⚠️ **性能提示**：转换约需 **40-60 秒**（CJK 字体子集化 ~20s + weasyprint ~15s），建议后台运行：
 ```bash
-ls -la output.pdf
+nohup python3 /var/minis/skills/pdf-converter/scripts/to_pdf.py input.md -o output.pdf > /tmp/pdf.log 2>&1 &
 ```
 
-### Step 4: Handle long-running conversions
+## 排版样式（琥珀色主题）
 
-Conversion takes approximately **40-60 seconds** because CJK font subsetting (~20s) and weasyprint rendering (~15s) are CPU-intensive. Run long conversions in the background:
+- **表格**：琥珀色表头(#D97706 白字) + 斑马纹行(灰/白交替) + 细网格边框
+- **代码块**：浅灰底(#f2f3f5) + 等宽字体(DejaVu Sans Mono) + 顶部灰条
+- **引用块**：左侧琥珀色竖条(border-left #D97706) + 淡橙底(#fef7ed)
+- **标题**：h1 底部琥珀色下划线，h1-h4 层级分明
+- **页脚**：居中页码
 
-```bash
-nohup python3 scripts/to_pdf.py input.md -o output.pdf > /tmp/pdf.log 2>&1 &
-```
+## 技术架构
 
-## Output Formatting
+- **pandoc**：Markdown/其他格式 → HTML5 片段
+- **fontTools**：子集化字体（WenQuanYi 中文 + DejaVu Latin）
+- **Twemoji CDN**：emoji → SVG 实时下载缓存，CSS 可控大小
+- **weasyprint**（子进程 + 自定义 fontconfig）：HTML5 → PDF
 
-The PDF uses an amber theme with these conventions:
+## 字体策略（核心）
 
-- **Tables**: amber header (#D97706 with white text) + zebra-striped rows (gray/white) + thin grid borders
-- **Code blocks**: light gray background (#f2f3f5) + monospace font (DejaVu Sans Mono) + top gray bar
-- **Blockquotes**: left amber border (#D97706) + light orange background (#fef7ed)
-- **Headings**: h1 gets an amber underline; h1-h4 have clear visual hierarchy
-- **Page footers**: centered page numbers
+| 字符类型 | 字体 | 处理 |
+|---------|------|------|
+| ASCII（数字/字母） | DejaVu Sans | 子集化 @font-face，半角字形 |
+| 中文 | WenQuanYi Zen Hei | 子集化 @font-face，不含 ASCII |
+| Emoji | Twemoji SVG | CDN 实时下载 → base64 内联图片 |
 
-## How It Works
+**全角数字问题解决**：通过自定义 fontconfig 配置隔离系统 CJK 字体，
+确保 weasyprint 只用 @font-face 子集字体 + DejaVu Sans 回退（半角数字）。
 
-The conversion pipeline has three stages:
-
-1. **pandoc** converts the input format to an HTML5 fragment
-2. **fontTools** subsets CJK fonts (WenQuanYi Zen Hei) and Latin fonts (DejaVu Sans) for efficient embedding
-3. **weasyprint** renders the HTML5 + @font-face CSS to PDF using a custom fontconfig that separates Asian and Latin font stacks
-
-### Font Strategy
-
-| Character type | Font | Processing |
-|---|---|---|
-| ASCII (digits/letters) | DejaVu Sans | Subsetted @font-face; half-width glyphs |
-| CJK characters | WenQuanYi Zen Hei | Subsetted @font-face; excludes ASCII so digits fall back to DejaVu Sans |
-| Emoji | Twemoji SVG | Downloaded from CDN in real-time; base64 inline in the HTML |
-
-**Full-width digit fix**: A custom fontconfig configuration isolates system CJK fonts so weasyprint uses only the @font-face subset fonts + DejaVu Sans fallback, ensuring all numbers render as half-width.
-
-## File Structure
+## 文件结构
 
 ```
 pdf-converter/
-├── SKILL.md
-├── assets/
-│   └── Twemoji-subset.ttf     # Font subset for emoji rendering
+├── SKILL.md          # 本文件
 ├── scripts/
-│   ├── to_pdf.py              # Main conversion script
-│   ├── _render.py             # weasyprint rendering subprocess
-│   ├── gen_fonts.py           # Pre-generate font subsets
-│   ├── emoji_img.py           # Emoji SVG download + base64 inline
-│   └── subset_emoji.py        # Emoji subsetting (fallback)
-└── emoji_cache/              # Cached Twemoji SVGs (created at runtime)
+│   ├── to_pdf.py     # 主转换脚本
+│   ├── _render.py    # weasyprint 渲染子进程
+│   ├── gen_fonts.py  # 预生成字体子集
+│   ├── emoji_img.py  # emoji SVG 下载 + base64 内联
+│   └── subset_emoji.py  # emoji 子集化（备用）
+└── emoji_cache/  # 已缓存的 Twemoji SVG
 ```
-
-## Dependencies
-
-All of the following must be installed on the system:
-
-- **pandoc** (Markdown/format → HTML5)
-- **fontTools** (font subsetting)
-- **weasyprint** (HTML5 → PDF)
-- **WenQuanYi Zen Hei** font and **DejaVu Sans** font
-  (the script auto-detects fonts from common paths, see `to_pdf.py` for details)
-
-## Error Handling
-
-- Missing input file → print an error and exit with code 1
-- weasyprint rendering error → print the error message and exit with code 2
-- Missing output directory → attempt to create it automatically
