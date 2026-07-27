@@ -104,8 +104,8 @@ All of the following must be installed on the system:
 - **pandoc** (Markdown/format → HTML5)
 - **fontTools** (font subsetting)
 - **weasyprint** (HTML5 → PDF)
-- **WenQuanYi Zen Hei** font (`/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc`)
-- **DejaVu Sans** font (`/usr/share/fonts/dejavu/DejaVuSans.ttf`)
+- **WenQuanYi Zen Hei** font and **DejaVu Sans** font
+  (the script auto-detects fonts from common paths, see `to_pdf.py` for details)
 
 ## Error Handling
 
