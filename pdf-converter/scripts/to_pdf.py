@@ -237,7 +237,7 @@ def render_pdf(html_body, out_pdf, title, font_css):
                env=env)
         # 用子进程运行 weasyprint，确保 FONTCONFIG_FILE 生效
         sp.run([sys.executable,
-                '/var/minis/skills/pdf-converter/scripts/_render.py',
+                os.path.join(os.path.dirname(__file__), '_render.py'),
                 hp, out_pdf, fc_conf],
                env=env, capture_output=True, text=True, timeout=120)
     finally:
@@ -287,6 +287,8 @@ def html_to_pdf(inp, out):
     try:
         font_css = subset_cjk(text, work)
         if '</head>' in text:
+            if 'charset=' not in text.lower():
+                text = text.replace('</head>', '<meta charset="utf-8">\n</head>', 1)
             styled = text.replace('</head>', f'<style>{build_css(font_css)}</style>\n</head>', 1)
             hp = os.path.join(work, 'doc.html')
             with open(hp, 'w', encoding='utf-8') as f:

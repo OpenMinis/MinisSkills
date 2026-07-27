@@ -27,12 +27,36 @@
     },
     {
       "id": 3,
+      "prompt": "Convert this HTML with Chinese characters but no charset meta tag to PDF: <html><head></head><body><h1>Hello 你好</h1><p>World 世界 2026</p></body></html> Save as charset_test.pdf",
+      "expected_output": "A PDF file where Chinese characters render correctly (not garbled), with '你好' and '世界' displayed properly",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The output PDF file exists and has non-zero size",
+          "type": "file_exists"
+        }
+      ]
+    },
+    {
+      "id": 4,
       "prompt": "Merge chart.png and diagram.jpg into a single PDF called report.pdf",
       "expected_output": "A PDF file containing both images as pages",
       "files": [],
       "assertions": [
         {
           "text": "The output PDF file exists",
+          "type": "file_exists"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Convert the file data.txt in my workspace to a PDF called data.pdf",
+      "expected_output": "A valid PDF file at data.pdf with plain text content rendered properly",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The output PDF file exists and has non-zero size",
           "type": "file_exists"
         }
       ]
