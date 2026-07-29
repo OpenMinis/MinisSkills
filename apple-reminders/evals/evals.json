@@ -1,0 +1,149 @@
+{
+  "skill_name": "apple-reminders",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "whats on my plate today? anything i missed",
+      "expected_output": "A briefing built from a single `apple-reminders list --incomplete` read, grouped into Overdue / Due today / Upcoming / Unscheduled with empty groups skipped, each item naming its reminder list and using exact dates with weekdays. If the read reported `_warning` / `total_available`, the answer either re-reads with a higher `--limit` or states that the view was truncated.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Ran `apple-reminders list` with `--incomplete` rather than an unfiltered read, so undated inbox items are included",
+          "type": "contains"
+        },
+        {
+          "text": "Reminders are grouped by operational meaning (overdue / today / upcoming / unscheduled) rather than dumped as a flat list, and each item names its list",
+          "type": "contains"
+        },
+        {
+          "text": "If the response contained `_warning` or `total_available`, the answer re-read with a larger `--limit` or explicitly said the briefing was truncated; it did not claim completeness from a truncated read",
+          "type": "contains"
+        },
+        {
+          "text": "No raw JSON is shown to the user",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "add pick up prescription to my errands list, friday 6pm",
+      "expected_output": "A `list` read first to resolve the exact list title, then `create --title \"Pick up prescription\" --list \"<exact title>\" --due <YYYY-MM-DDTHH:MM>` with the concrete Friday date computed in local time, then a follow-up read to confirm the due date landed. The reply states the resolved date and the list the reminder actually went to.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "A read was performed before the write to resolve the exact list title instead of passing the user's wording straight into `--list`",
+          "type": "contains"
+        },
+        {
+          "text": "`--due` was passed as an absolute local datetime such as 2026-08-07T18:00, not as 'friday', '+1d', or any relative or natural-language form",
+          "type": "contains"
+        },
+        {
+          "text": "The `list` field returned by `create` was checked against the intended list, because an unmatched `--list` silently falls back to the default list",
+          "type": "contains"
+        },
+        {
+          "text": "A follow-up read confirmed the due date, since `create` does not echo `due` back",
+          "type": "contains"
+        },
+        {
+          "text": "The reply states the concrete date chosen (with weekday) so a misreading of 'friday' would be visible",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "move the gym shoes thing to my work list",
+      "expected_output": "The read shows both a `Work` and a `Workout` list. The answer does not pass `--list work`, because the substring match makes the winner unpredictable. It either passes the exact intended title after determining it from the reminder's content, or names both candidates and asks which one.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Recognized that `--list` matches by case-insensitive substring, so a partial name like 'work' can resolve to the wrong list",
+          "type": "contains"
+        },
+        {
+          "text": "Either passed an exact resolved list title or surfaced both candidate lists to the user instead of guessing",
+          "type": "contains"
+        },
+        {
+          "text": "The write targeted the reminder by its `id` from a read, not by title",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "push the tax filing task to next monday morning",
+      "expected_output": "The reminder id is resolved from a read, the current due date is captured first, then `update --id <id> --due <YYYY-MM-DDTHH:MM>` patches only the due date. The `due` value returned by `update` is compared against the intended value, and the reply reports the change as old -> new.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Only `--due` was passed to `update`; title, list, priority, and notes were not re-sent",
+          "type": "contains"
+        },
+        {
+          "text": "'next monday morning' was resolved to a concrete absolute local datetime before building the command",
+          "type": "contains"
+        },
+        {
+          "text": "The `due` value in the `update` response was used as the read-back check, since a failed date parse is silently dropped and still returns ok:true",
+          "type": "contains"
+        },
+        {
+          "text": "The reply reports the change as old date -> new date with weekdays",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "attach this screenshot to my visa reminder and tag it #urgent",
+      "expected_output": "A plain statement that the on-device `apple-reminders` command exposes no attachment support and no tags, with the closest honest alternative offered (referencing the file path in `--notes`, or a priority instead of a tag) and the note that a real attachment or tag has to be added by hand in the Reminders app. No fabricated success.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "States plainly that attachments and tags are not available through this command",
+          "type": "contains"
+        },
+        {
+          "text": "Does not report success for attaching a file or adding a tag, and does not silently write a tag into `--notes` as a substitute without saying so",
+          "type": "contains"
+        },
+        {
+          "text": "Offers a concrete alternative and identifies the Reminders app as the way to get a real attachment or tag",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "clear out everything in my shopping list thats already done",
+      "expected_output": "The ambiguity between completing and deleting is resolved before writing. The qualifying set is enumerated from a bounded `list --completed --list \"<exact title>\"` read first. If deletion is intended, `title`, `list`, `due`, `priority`, and `notes` are captured beforehand and reported so each item could be recreated; the batch stops and reports partial progress if any single write returns ok:false.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The qualifying reminders were enumerated from a bounded read before the first write, not deleted by applying a filter blindly",
+          "type": "contains"
+        },
+        {
+          "text": "The difference between `complete` (reversible via --undo) and `delete` (irreversible on this path) was addressed rather than assumed",
+          "type": "contains"
+        },
+        {
+          "text": "If deleting, the pre-delete state of each reminder was captured and reported so it could be recreated by hand; recoverability from Recently Deleted was not promised",
+          "type": "contains"
+        },
+        {
+          "text": "The final report lists the exact affected items with their list names, not just a count",
+          "type": "contains"
+        },
+        {
+          "text": "A failed write in the middle of the batch would stop the run and be reported, rather than the batch continuing and being reported as complete",
+          "type": "contains"
+        }
+      ]
+    }
+  ]
+}
