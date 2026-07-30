@@ -278,9 +278,17 @@ backwards, **absolute local datetimes are the only practical form for `--due`**:
 compute `YYYY-MM-DDTHH:MM` yourself.
 
 Stored due dates keep year, month, day, hour, and minute. A date-only value
-therefore becomes 00:00 local — there is no all-day form. No `EKAlarm` is attached
-by any verb, so treat "a notification will fire at that time" as the Reminders
-app's behaviour, not something this command arranges.
+therefore becomes 00:00 local — this command cannot create an all-day reminder. No
+`EKAlarm` is attached by any verb, so treat "a notification will fire at that time"
+as the Reminders app's behaviour, not something this command arranges.
+
+**All-day reminders made elsewhere are indistinguishable in `list` output.** A
+reminder created in the Reminders app with a date but no time is all-day in EventKit
+— its `dueDateComponents` carry no hour or minute — and `list` converts those
+components with `dateFromComponents:`, so it surfaces as `T00:00:00` local, exactly
+like a reminder deliberately due at midnight. So a due time of exactly 00:00 is more
+likely an all-day item than a midnight deadline: present it as a date rather than as
+"due at 12:00 AM", and do not "correct" it by writing a time onto it.
 
 ## Priority scale
 

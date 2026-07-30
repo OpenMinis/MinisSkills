@@ -114,6 +114,18 @@
         {
           "text": "Offers a concrete alternative and identifies the Reminders app as the way to get a real attachment or tag",
           "type": "contains"
+        },
+        {
+          "text": "attach_image",
+          "type": "not_contains"
+        },
+        {
+          "text": "osascript",
+          "type": "not_contains"
+        },
+        {
+          "text": "sqlite",
+          "type": "not_contains"
         }
       ]
     },
@@ -141,6 +153,30 @@
         },
         {
           "text": "A failed write in the middle of the batch would stop the run and be reported, rather than the batch continuing and being reported as complete",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "비자 서류 준비 미리알림 제일 급한 거로 올려줘",
+      "expected_output": "The skill triggers on a non-English request, resolves the reminder id from a read, and sets `--priority 1` because the EventKit scale is inverted — 1 is the highest priority, not 9 or 10. The reply is written in the user's language and reports the change without exposing the reminder's notes or its raw id.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The skill triggered on a Korean-language request that never uses the word 'reminder' in English",
+          "type": "contains"
+        },
+        {
+          "text": "`--priority 1` was used for highest priority; the inverted EventKit scale was respected and no value above 9 was passed",
+          "type": "contains"
+        },
+        {
+          "text": "The reminder was targeted by its `id` resolved from a read, and only `--priority` was patched",
+          "type": "contains"
+        },
+        {
+          "text": "The reply is in the user's language and does not print the reminder's notes, raw JSON, or the raw id",
           "type": "contains"
         }
       ]

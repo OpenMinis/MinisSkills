@@ -46,8 +46,14 @@ apple-reminders delete   --id <id>
 Add `--compact` to minimize JSON, `-q` to print only the `data` field. Prefer
 `--compact` for large reads to save context.
 
+Run `apple-reminders --help` when you are unsure whether an option still exists —
+the help text is authoritative for the build you are running, and this reference may
+lag it.
+
 The command is iOS-only. If it is not on `PATH`, say that reminder access is not
-available on this device rather than reaching for a workaround.
+available on this device. Do not reach for a workaround: there is no supported path
+to Reminders data outside this command, so do not try to install an adapter, script
+around it, or read Reminders storage directly.
 
 ## Three checks before any write
 
@@ -112,7 +118,9 @@ from a bounded scope.
    title, disambiguate by list, due date, or notes, and name which one you chose.
 5. **Verify after writing.** `update` and `complete` return post-write state — read
    it, don't assume. `create` returns only `id`, `title`, and `list`, so verify due
-   date, priority, and notes with a follow-up read when they matter.
+   date, priority, and notes with a follow-up read when they matter. Never treat a
+   zero exit status or a bare `ok: true` as proof the change landed the way you
+   intended: all three silent failures above exit 0 and report success.
 6. **Report the exact affected set** — titles, lists, and dates — not a count.
 7. **Do not retry a failed write blindly.** Check `error.code` first:
    `authorization_denied` needs the user to grant Reminders access in Settings, and
@@ -171,21 +179,33 @@ the user their reminder is gone.
 ## Output conventions
 
 Name the list for every reminder when location matters, and use exact dates with
-weekdays (`Fri 2026-08-07`) rather than "in 3 days". A `null` due date means
-unscheduled, not undated-and-fine.
+weekdays (`Fri 2026-08-07`) rather than "in 3 days". A missing or `null` due date
+means unscheduled, not undated-and-fine.
 
-For briefings, build the groups yourself from one `--incomplete` read and order
-them by operational meaning, skipping groups that are empty:
+A due time of exactly 00:00 is most likely an all-day reminder created in the
+Reminders app, not a midnight deadline — all-day items surface as `T00:00:00` here
+and cannot be told apart from timed midnight ones. Present those as a date, and
+never "fix" one by writing a time onto it.
 
-- **Overdue** — due before now, oldest first
-- **Due today**
-- **Upcoming** — next 7 days unless the user asked for a different horizon
-- **Unscheduled** — `due: null`
+**Do not surface a reminder's notes** unless the user asked for them or they are
+needed to tell two otherwise identical candidates apart. Notes routinely hold
+private detail — medical, financial, personal — that the user did not ask to have
+read back, and a briefing is not a reason to print it. Keep raw JSON, ids, and
+local file paths out of the user-facing answer too; use them, don't display them.
+
+For briefings, build the groups yourself from one `--incomplete` read, using the
+device's local timezone and skipping groups that are empty:
+
+- **Overdue** — due before today's local midnight, oldest first
+- **Due today** — due on today's local date, including times already past
+- **Upcoming** — "this week" means after today through the coming Sunday; "the next
+  seven days" means a rolling seven-day window. State which basis you used
+- **Unscheduled** — no due date. Show at most 20, grouped by list, and report how
+  many more were omitted, because an unscheduled inbox can be enormous
 - **Cleanup candidates** — long-overdue or clearly stale items, only when asked
 
-Keep it short and actionable. Never print raw JSON to the user unless they are
-debugging. If your read was truncated or scoped, say so in one line rather than
-implying the briefing is complete.
+Keep it short and actionable. If your read was truncated or deliberately scoped, say
+so in one line rather than implying the briefing is complete.
 
 ## What this command cannot do
 
@@ -210,7 +230,9 @@ not do — the honest limitation is more useful than a fake feature.
 
 When a request needs one of these, offer the closest honest alternative — a note in
 `--notes`, a priority instead of a flag, a separate list the user creates — and let
-the user decide.
+the user decide. Do not invent a subcommand or flag to cover the gap. If the user
+wants the capability itself, point them at filing a feature request on the Minis
+repository rather than leaving them thinking it exists.
 
 ## Examples
 
