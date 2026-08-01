@@ -1,0 +1,46 @@
+{
+  "skill_name": "web-search",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我搜索一下 2026 年 AI 搜索引擎对比，优先给高质量综合答案。",
+      "expected_output": "激活 web-search，优先选择 deep 链路：Perplexity -> 秘塔AI -> Bing -> Google -> Brave，并说明遇阻自动切换。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "Perplexity"},
+        {"type": "contains", "text": "秘塔AI"},
+        {"type": "contains", "text": "自动"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "帮我搜一下中文 AI 搜索产品，最好中文语境更准。",
+      "expected_output": "激活 web-search，优先选择 zh_deep 链路：秘塔AI -> Perplexity -> 百度 -> Bing -> Google。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "秘塔AI"},
+        {"type": "contains", "text": "百度"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "帮我找一下 OpenClaw 的官网和 GitHub 仓库。",
+      "expected_output": "激活 web-search，优先选择 web 链路：Google -> Bing -> Brave -> DuckDuckGo。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "Google"},
+        {"type": "contains", "text": "Bing"}
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "我想隐私优先地搜一下开源 AI agent 工具。",
+      "expected_output": "激活 web-search，优先选择 privacy 链路：Brave -> DuckDuckGo -> Bing。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "Brave"},
+        {"type": "contains", "text": "DuckDuckGo"}
+      ]
+    }
+  ]
+}

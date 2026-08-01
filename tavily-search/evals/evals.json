@@ -1,0 +1,37 @@
+{
+  "skill_name": "tavily-search",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我查一下最近一周关于 AI 领域最重要的三条新闻",
+      "expected_output": "包含三条 AI 领域的新闻标题、简要描述和对应的来源链接",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output contains at least 3 news items",
+          "type": "contains"
+        },
+        {
+          "text": "Contains URLs starting with http",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "查找 Python 官方文档中关于 asyncio.run 的说明页面",
+      "expected_output": "提供指向 docs.python.org 的链接，并简述其功能",
+      "files": [],
+      "assertions": [
+        {
+          "text": "docs.python.org",
+          "type": "contains"
+        },
+        {
+          "text": "asyncio.run",
+          "type": "contains"
+        }
+      ]
+    }
+  ]
+}

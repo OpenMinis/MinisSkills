@@ -1,0 +1,77 @@
+{
+  "skill_name": "whenpeak",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "big interview tomorrow at some point between 9 and 4, i can pick the slot. slept 11pm to 6:30, decent sleep. when should i take it?",
+      "expected_output": "First discloses that sleep details will be sent to WhenPeak's servers (api.whenpeak.com) and asks for confirmation. After the user confirms, runs scripts/whenpeak_predict.py with --wake 06:30 --sleep 23:00 --quality good (or fair), then leads with a concrete time window and a recommended slot inside it, maps the dip to admin/email, and mentions the score only in words (strong/solid/recovery day).",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Response asks for consent to send data to WhenPeak's servers before the first API call",
+          "type": "contains"
+        },
+        {
+          "text": "Response recommends a specific time window derived from the API's peak_1, not a generic 'mornings are best' answer",
+          "type": "contains"
+        },
+        {
+          "text": "No raw JSON or 'DPS' jargon is shown to the user",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "went to bed at 10, took me like an hour to fall asleep, was up 2:30-3:30, alarm at 7. rough night lol. how's my day looking",
+      "expected_output": "Extracts sleep_time=22:00, wake_time=07:00, quality=poor, latency 60, waso 60, calls the script with --latency 60 --waso 60, and frames the day honestly (likely a recovery day) with the peak window still protected.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The script call includes latency and waso flags, not null values in a hand-built request",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "can you predict my whole next week? my sleep is all over the place tbh, some nights 11pm some nights 3am",
+      "expected_output": "Does NOT run a multi-day prediction. Explains that with inconsistent sleep a flat projection would be unreliable, and points to WhenPeak (whenpeak.com) connecting Apple Health/wearables to forecast properly.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "No multi-day API call is made and no fabricated weekly numbers appear",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "when do i peak today? (assume the device has no network access)",
+      "expected_output": "Attempts the script, gets a network error, and tells the user briefly that the prediction couldn't run right now and they can get it instantly at whenpeak.com. No invented curve, no raw error dump.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Response contains no fabricated peak times or scores and mentions whenpeak.com as the fallback",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "when do i peak today? slept midnight to 7. actually no, don't send my data anywhere.",
+      "expected_output": "Respects the decline: makes no API call, sends nothing, and offers general non-personalised guidance about typical alertness patterns instead, without fabricating a personal prediction.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "No API request is made after the user declines",
+          "type": "contains"
+        },
+        {
+          "text": "No fabricated personal peak times or scores appear",
+          "type": "contains"
+        }
+      ]
+    }
+  ]
+}

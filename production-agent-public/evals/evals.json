@@ -1,0 +1,44 @@
+{
+  "skill_name": "production-agent-public",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我把这个爬虫脚本做成生产级的，要能长期稳定运行",
+      "expected_output": "以ReAct格式响应，含Thought/Action/Observation，输出含错误处理、日志、重试的完整代码+生产落地清单",
+      "files": [],
+      "assertions": [
+        {"text": "Thought", "type": "contains"},
+        {"text": "Action", "type": "contains"},
+        {"text": "生产落地清单", "type": "contains"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "做成生产级，用Docker部署",
+      "expected_output": "输出Dockerfile + docker run完整命令 + 数据卷挂载说明",
+      "files": [],
+      "assertions": [
+        {"text": "Dockerfile", "type": "contains"},
+        {"text": "docker run", "type": "contains"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "每完成3步要自我反思",
+      "expected_output": "每3个ReAct步骤后插入【自我反思】，检查生产隐患",
+      "files": [],
+      "assertions": [
+        {"text": "自我反思", "type": "contains"}
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "帮我推荐一部电影",
+      "expected_output": "不触发此技能，正常推荐电影",
+      "files": [],
+      "assertions": [
+        {"text": "Production Agent", "type": "not_contains"}
+      ]
+    }
+  ]
+}

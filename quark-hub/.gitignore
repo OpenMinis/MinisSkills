@@ -1,0 +1,16 @@
+# 登录态 Cookie（每个用户私有，不得提交）
+# 实际存储路径：~/.quark_hub_cookie（在 skill 目录之外，此处仅作提醒）
+*.cookie
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 残留配置目录（旧版本遗留）
+config/
+
+# 编辑器临时文件
+*.swp
+*.swo
+.DS_Store

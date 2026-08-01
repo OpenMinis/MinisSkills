@@ -1,0 +1,54 @@
+version = 1
+revision = 3
+requires-python = ">=3.10"
+
+[[package]]
+name = "pyaes"
+version = "1.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/44/66/2c17bae31c906613795711fc78045c285048168919ace2220daa372c7d72/pyaes-1.6.1.tar.gz", hash = "sha256:02c1b1405c38d3c370b085fb952dd8bea3fadcee6411ad99f312cc129c536d8f", size = 28536, upload-time = "2017-09-20T21:17:54.23Z" }
+
+[[package]]
+name = "pyasn1"
+version = "0.6.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/b6/6e630dff89739fcd427e3f72b3d905ce0acb85a45d4ec3e2678718a3487f/pyasn1-0.6.2.tar.gz", hash = "sha256:9b59a2b25ba7e4f8197db7686c09fb33e658b98339fadb826e9512629017833b", size = 146586, upload-time = "2026-01-16T18:04:18.534Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/b5/a96872e5184f354da9c84ae119971a0a4c221fe9b27a4d94bd43f2596727/pyasn1-0.6.2-py3-none-any.whl", hash = "sha256:1eb26d860996a18e9b6ed05e7aae0e9fc21619fcee6af91cca9bad4fbea224bf", size = 83371, upload-time = "2026-01-16T18:04:17.174Z" },
+]
+
+[[package]]
+name = "rsa"
+version = "4.9.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyasn1" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/da/8a/22b7beea3ee0d44b1916c0c1cb0ee3af23b700b6da9f04991899d0c555d4/rsa-4.9.1.tar.gz", hash = "sha256:e7bdbfdb5497da4c07dfd35530e1a902659db6ff241e39d9953cad06ebd0ae75", size = 29034, upload-time = "2025-04-16T09:51:18.218Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/8d/0133e4eb4beed9e425d9a98ed6e081a55d195481b7632472be1af08d2f6b/rsa-4.9.1-py3-none-any.whl", hash = "sha256:68635866661c6836b8d39430f97a996acbd61bfa49406748ea243539fe239762", size = 34696, upload-time = "2025-04-16T09:51:17.142Z" },
+]
+
+[[package]]
+name = "telethon"
+version = "1.42.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyaes" },
+    { name = "rsa" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8c/10/8c8c9476bfce767a856d8aaf9eae8ea1869df4e970da16f1c5b638fd1b0c/telethon-1.42.0.tar.gz", hash = "sha256:032e95511261d5ead719f75494c6c85ece2ce71816b54f3c65d6ccc371d6994d", size = 672734, upload-time = "2025-11-05T19:15:19.849Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e4/e4/8ce0ff55251381966a7c3f88bd5b34abda79b225a8e7fb51ddef3b849c94/telethon-1.42.0-py3-none-any.whl", hash = "sha256:cf361c94586bcacd6d0fc8959a2bce509d1bb37007fe6476a80c4fb4a2decc29", size = 748466, upload-time = "2025-11-05T19:15:18.241Z" },
+]
+
+[[package]]
+name = "tg-hub"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "telethon" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "telethon", specifier = ">=1.36" }]

@@ -1,0 +1,77 @@
+{
+  "skill_name": "ytmusic-hub",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我读取我的 YouTube Music 歌单。",
+      "expected_output": "触发 ytmusic-hub，先检查依赖与认证状态；若未认证则指导用户用 browser_use 打开 music.youtube.com、获取 cookies、生成认证文件，再列出歌单。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "YouTube Music"},
+        {"type": "contains", "text": "get_cookies"},
+        {"type": "contains", "text": "setup_auth.py"},
+        {"type": "contains", "text": "歌单"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "把周杰伦的一首歌加进我的 YT Music 歌单。",
+      "expected_output": "触发 ytmusic-hub，先确认登录态和目标歌单，再执行搜索歌曲与 add_playlist_items 的流程。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "yt.search"},
+        {"type": "contains", "text": "add_playlist_items"},
+        {"type": "contains", "text": "确认"},
+        {"type": "contains", "text": "歌单"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "导出我的某个 YouTube Music 歌单成 Markdown。",
+      "expected_output": "触发 ytmusic-hub，读取指定歌单详情，并用 Markdown 列表格式导出歌曲标题与艺人。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "Markdown"},
+        {"type": "contains", "text": "get_playlist"},
+        {"type": "contains", "text": "title"},
+        {"type": "contains", "text": "artists"}
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "我的 YT Music 登录失效了，帮我重新认证。",
+      "expected_output": "触发 ytmusic-hub，重新执行 browser_use + get_cookies + setup_auth.py + test_auth.py 的认证与验证闭环，并明确检查 SAPISID。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "music.youtube.com"},
+        {"type": "contains", "text": "get_cookies"},
+        {"type": "contains", "text": "SAPISID"},
+        {"type": "contains", "text": "test_auth.py"}
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "根据我的点赞歌曲推荐一些类似风格的歌，然后创建一个新的 YouTube Music 歌单。",
+      "expected_output": "触发 ytmusic-hub，先读取点赞歌曲，分析高频艺人或风格线索，再搜索候选歌曲、去重、创建新歌单并输出结果表。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "get_liked_songs"},
+        {"type": "contains", "text": "recommend_from_likes.py"},
+        {"type": "contains", "text": "创建"},
+        {"type": "contains", "text": "歌单"}
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "这是个新号，按周杰伦风格给我做一个新歌单。",
+      "expected_output": "触发 ytmusic-hub，识别这是冷启动场景，不依赖空的 liked songs，而是按指定歌手风格做种子推荐并创建新歌单。",
+      "files": [],
+      "assertions": [
+        {"type": "contains", "text": "新号"},
+        {"type": "contains", "text": "周杰伦"},
+        {"type": "contains", "text": "冷启动"},
+        {"type": "contains", "text": "创建"}
+      ]
+    }
+  ]
+}
