@@ -1,0 +1,65 @@
+{
+  "skill_name": "android-ui-automation",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "放首歌，打开 Spotify 搜 Circles 然后播放",
+      "expected_output": "Spotify reached foreground via spotify://search/circles; the top matching row is tapped; the playback bar shows the track and the play button reads 'pause' (verification marker hit). No API key or OAuth involved.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "opens Spotify via a spotify:// deep link",
+          "type": "contains"
+        },
+        {
+          "text": "confirms playback with a pause-button marker",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "搜一首歌：连名带姓 张惠妹 然后播第一首",
+      "expected_output": "Deep link spotify://search/连名带姓%20张惠妹 (percent-encoded CJK) opens Spotify; the first song row matching the query is located and tapped; playback verified by marker.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "percent-encodes the CJK query in the deep link",
+          "type": "contains"
+        },
+        {
+          "text": "verifies playback before reporting success",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "打开微信朋友圈，随便滑一滑",
+      "expected_output": "weixin:// deep link brings WeChat foreground; since Moments hides its tree from accessibility, the skill performs human-like random swipes instead of trying to dump/tap inner nodes; it does NOT guess button coordinates.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "falls back to gesture swipes when the app tree is unavailable",
+          "type": "contains"
+        },
+        {
+          "text": "does not blind-tap unverified coordinates",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "打开一个没有前台的 app，比如一个没装的 app",
+      "expected_output": "open_and_verify returns ok=false with a clear error; the skill surfaces the failure instead of pretending the action succeeded.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "surfaces open failure instead of claiming success",
+          "type": "contains"
+        }
+      ]
+    }
+  ]
+}
