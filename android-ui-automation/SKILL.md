@@ -12,13 +12,38 @@ description: >
   use when the user asks why an automation didn't work (permissions, missing
   app, hidden view trees). Android-only; requires the Minis Accessibility
   Service enabled.
-compatibility: Android, requires the Minis Accessibility Service; uses the bundled android-a11y-cli
+compatibility: Android-only; requires the Minis app (Android) with its bundled android-a11y-cli / android-open CLIs and the Minis Accessibility Service enabled
 ---
 
 # Android UI Automation
 
 Drive Android apps through their **UI layer** when they have no public API or
 web version. This is the fallback that makes "phone-only" apps automatable.
+
+## Environment & dependencies (read first)
+
+This skill drives **the user's Android phone**. It relies on two CLI tools
+that ship with the **Minis app for Android** (installed at
+`/usr/local/bin/` inside the Minis runtime):
+
+| CLI | Role |
+|---|---|
+| `android-a11y-cli` | Accessibility-Service bridge: `ui dump`, `tap node`, `gesture swipe`, `wait`, `extract`, ... |
+| `android-open` | Launch any URL/scheme via the system handler (`spotify://...`, `weixin://...`, `tel:`, ...) |
+
+**Prerequisites on the device:**
+
+1. Minis app installed (Android). These CLIs do **not** exist on other hosts
+   (macOS/Windows/other Linux) — verify with `which android-a11y-cli` first,
+   and if missing, tell the user this skill only runs inside Minis on Android.
+2. **Minis Accessibility Service enabled**: Settings → Accessibility → Minis.
+   Check with `android-a11y-cli service ping`; if it reports not running, ask
+   the user to re-enable it before anything else.
+3. The target app installed on the same device.
+
+These are **device-side capabilities**, not network APIs — no API keys, no
+OAuth, no server. If a step returns `permission_denied` from the a11y service,
+it means the service was revoked; recover via Settings → Accessibility.
 
 ## When to use
 
