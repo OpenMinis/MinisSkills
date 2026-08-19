@@ -1,0 +1,21 @@
+{
+  "skill_name": "today-eats",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "今天吃点啥，随机附近外卖推到土豆片",
+      "expected_output": "Loads todoocard parent then today-eats sub-skill; picks one nearby place and pushes card to TodooCard.",
+      "files": [],
+      "assertions": [
+        {
+          "type": "contains",
+          "text": "today-eats"
+        },
+        {
+          "type": "contains",
+          "text": "eat"
+        }
+      ]
+    }
+  ]
+}

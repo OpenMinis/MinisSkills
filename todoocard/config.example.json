@@ -1,0 +1,13 @@
+{
+  "device_id": "",
+  "device_name": "",
+  "screen_orientation": "rotate-180-then-flip-horizontal",
+  "block_size": 240,
+  "pace": 0.0,
+  "wait_refresh": 8.0,
+  "transport": "auto",
+  "native_binary": "",
+  "target": "t3",
+  "size": "528x792",
+  "send_policy": "full-frame-only-no-resume"
+}
