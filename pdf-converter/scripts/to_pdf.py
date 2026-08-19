@@ -1,193 +1,336 @@
 #!/usr/bin/env python3
-"""转PDF：Markdown/HTML/文本/图片 → PDF（中文 + Emoji，数字半角）
+"""Convert Markdown/HTML/Text/Images to PDF (Chinese + Emoji, half-width digits)
 
-引擎：pandoc（MD→HTML）+ fontTools（CJK子集化）+ weasyprint（HTML→PDF）
+Engine: pandoc (→typst) + typst (compile PDF)
 
-字体策略（解决全角数字问题的核心）：
-  - ASCII（数字/字母/符号）→ DejaVu Sans（系统自带，半角字形）
-  - 中文/CJK标点 → WenQuanYi Zen Hei 子集（不含ASCII，回退到DejaVu渲染数字）
-  - Emoji → Twemoji 预子集化
-
-性能：wqy subset ~20s + weasyprint ~15s ≈ 35-60s
+- Emoji: embedded as Twemoji SVG images (crisp vector rendering, no bitmap distortion)
+- Fonts: native typst fallback (DejaVu Sans → WenQuanYi Zen Hei), half-width digits
 """
-import argparse, os, sys, shutil, tempfile, subprocess as sp
+import argparse, os, sys, shutil, tempfile, subprocess as sp, urllib.request, concurrent.futures
 from pathlib import Path
 
-# Emoji 替换模块（把 emoji 替换为内联 SVG 图片，避免 CBDT 位图字体尺寸巨大）
-sys.path.insert(0, os.path.dirname(__file__))
-from emoji_img import replace_emojis_with_svg as _replace_emoji
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_SKILL_DIR = os.path.dirname(_SCRIPT_DIR)
+_TEMPLATE = os.path.join(_SKILL_DIR, 'assets', 'template.typ')
+_CACHE_DIR = os.path.join(_SKILL_DIR, 'assets', 'emoji_cache')
+# CDN mirrors tried in order — first success wins. GitHub raw is primary
+# (canonical source); jsDelivr and unpkg are CDNs mirroring the npm package,
+# used as fallback when raw.githubusercontent.com is rate-limited or blocked.
+# Override the whole list with the EMOJI_CDN_BASE env var (single URL).
+_CDN_BASES = [b for b in (
+    os.environ.get('EMOJI_CDN_BASE'),
+    'https://raw.githubusercontent.com/twitter/twemoji/v14.0.2/assets/svg',
+    'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg',
+    'https://unpkg.com/twemoji@14.0.2/assets/svg',
+) if b]
 
-# ── 字体源 ──
-# 多候选路径：适应不同系统（Alpine/Debian/macOS Homebrew 等）
-def _find_font(*candidates):
-    for c in candidates:
-        if os.path.exists(c):
-            return c
-    return None
-
-CJK_TTC = _find_font(
-    '/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc',
-    '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
-    '/usr/local/share/fonts/wqy-zenhei.ttc',
-)
-DEJAVU_REG = _find_font(
-    '/usr/share/fonts/dejavu/DejaVuSans.ttf',
-    '/usr/share/fonts/TTF/DejaVuSans.ttf',
-    '/usr/local/share/fonts/DejaVuSans.ttf',
-)
-DEJAVU_BLD = _find_font(
-    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
-    '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
-    '/usr/local/share/fonts/DejaVuSans-Bold.ttf',
-)
-# Emoji 不用字体（CBDT位图字体在weasyprint中尺寸巨大），
-# 改用 emoji_img.py 把 emoji 替换为内联 SVG 图片（CSS可控大小）
-
-# Emoji 的 unicode-range（确保不拦截 ASCII/中文）
-EMOJI_RANGE = ("U+1F000-1FFFF,U+2600-27BF,U+2700-27BF,U+2190-21FF,U+2B00-2BFF,"
-               "U+FE0F,U+200D,U+20E3,U+231A-231B,U+23E9-23FA,U+24C2,"
-               "U+25A0-25FF,U+2934-2935,U+3030,U+303D,U+3297,U+3299,U+2139")
+# Per-request timeout for SVG downloads. urlretrieve has no timeout parameter,
+# so we use urlopen + shutil.copyfileobj below. Mobile networks (especially
+# iSH on iOS) need this to avoid hanging the whole prefetch batch when a
+# single CDN node is unresponsive.
+_SVG_TIMEOUT = int(os.environ.get('EMOJI_SVG_TIMEOUT', '15'))
 
 
-def is_cjk_char(c):
-    """判断字符是否为 CJK 字符（需要用中文字体渲染的）"""
+def _detect_prefetch_workers():
+    """Concurrency for the SVG prefetch batch.
+
+    Termux (PREFIX set) runs native ARM → 8 workers.
+    iSH on iOS is interpreted x86 with tight fd/memory limits → 4 workers.
+    Override either via the PDF_CONVERTER_WORKERS env var.
+    """
+    env = os.environ.get('PDF_CONVERTER_WORKERS')
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    return 8 if os.environ.get('PREFIX') else 4
+
+
+_PREFETCH_WORKERS = _detect_prefetch_workers()
+
+
+def _find_font_dir():
+    """Locate the system fonts directory (Alpine, Termux, Debian, macOS).
+
+    Returns the first existing candidate path.
+    """
+    prefix = os.environ.get('PREFIX', '')  # Termux sets PREFIX
+    candidates = [
+        '/usr/share/fonts',                                  # Alpine/Debian
+        os.path.join(prefix, 'share/fonts'),                 # Termux
+        '/usr/local/share/fonts',                            # macOS Homebrew
+        '/System/Library/Fonts',                             # macOS
+    ]
+    for d in candidates:
+        if d and os.path.isdir(d):
+            return d
+    return '/usr/share/fonts'  # fallback default
+
+
+# External tools the script shells out to. Each entry lists install commands
+# per platform; shown to the user when the binary is missing.
+_INSTALL_HINTS = {
+    'pandoc': (
+        ('Alpine (iSH/Docker)', 'apk add pandoc'),
+        ('Termux (Android)',    'pkg install pandoc'),
+        ('Debian/Ubuntu',       'apt install pandoc'),
+    ),
+    'typst': (
+        ('Alpine (iSH/Docker)', 'apk add typst'),
+        ('Termux (Android)',    'pkg install typst'),
+        ('Debian/Ubuntu',       'apt install typst'),
+    ),
+}
+
+
+def _check_dependencies(*, need_pil=False, core=True):
+    """Verify required external tools exist; exit with install hints if missing.
+
+    core (pandoc + typst) is required for text/markup conversion.
+    PIL is only required for the image-merge path (lazy-imported there).
+    Pass core=False for image-only mode so users aren't forced to install
+    the heavy pandoc/typst toolchain just to merge images.
+    """
+    missing = []
+    if core:
+        for tool in ('pandoc', 'typst'):
+            if shutil.which(tool) is None:
+                missing.append(tool)
+    if need_pil:
+        try:
+            import PIL  # noqa: F401
+        except ImportError:
+            missing.append('python-pillow')
+    if not missing:
+        return
+    print('❌ Missing required dependencies: ' + ', '.join(missing),
+          file=sys.stderr)
+    print('\nInstall hints:', file=sys.stderr)
+    for tool in missing:
+        if tool in _INSTALL_HINTS:
+            print(f'\n  {tool}:', file=sys.stderr)
+            for platform, cmd in _INSTALL_HINTS[tool]:
+                print(f'    {platform:<20} {cmd}', file=sys.stderr)
+        elif tool == 'python-pillow':
+            print('    pip3 install pillow', file=sys.stderr)
+            print('    Alpine:  apk add py3-pillow', file=sys.stderr)
+            print('    Termux:  pkg install python-pillow', file=sys.stderr)
+    sys.exit(1)
+
+
+# Twemoji provides only 116 of 448 codepoints in U+2600-27BF.
+# Store the exact set to avoid 404s on non-emoji symbols (★♔♩➜ ☐☒ etc.).
+_TWEMOJI_SYMBOLS = frozenset({
+    0x2600, 0x2601, 0x2602, 0x2603, 0x2604, 0x260E, 0x2611, 0x2614, 0x2615, 0x2618,
+    0x261D, 0x2620, 0x2622, 0x2623, 0x2626, 0x262A, 0x262E, 0x262F, 0x2638, 0x2639,
+    0x263A, 0x2640, 0x2642, 0x2648, 0x2649, 0x264A, 0x264B, 0x264C, 0x264D, 0x264E,
+    0x264F, 0x2650, 0x2651, 0x2652, 0x2653, 0x265F, 0x2660, 0x2663, 0x2665, 0x2666,
+    0x2668, 0x267B, 0x267E, 0x267F, 0x2692, 0x2693, 0x2694, 0x2695, 0x2696, 0x2697,
+    0x2699, 0x269B, 0x269C, 0x26A0, 0x26A1, 0x26A7, 0x26AA, 0x26AB, 0x26B0, 0x26B1,
+    0x26BD, 0x26BE, 0x26C4, 0x26C5, 0x26C8, 0x26CE, 0x26CF, 0x26D1, 0x26D3, 0x26D4,
+    0x26E9, 0x26EA, 0x26F0, 0x26F1, 0x26F2, 0x26F3, 0x26F4, 0x26F5, 0x26F7, 0x26F8,
+    0x26F9, 0x26FA, 0x26FD, 0x2702, 0x2705, 0x2708, 0x2709, 0x270A, 0x270B, 0x270C,
+    0x270D, 0x270F, 0x2712, 0x2714, 0x2716, 0x271D, 0x2721, 0x2728, 0x2733, 0x2734,
+    0x2744, 0x2747, 0x274C, 0x274E, 0x2753, 0x2754, 0x2755, 0x2757, 0x2763, 0x2764,
+    0x2795, 0x2796, 0x2797, 0x27A1, 0x27B0, 0x27BF,
+})
+
+
+def _is_emoji_char(c):
+    """True if *c* is a Twemoji-covered emoji codepoint.
+
+    U+2600-27BF: only the 116 codepoints Twemoji actually provides
+                 (avoids 404s on symbols like ☐☒★♔♩➜).
+    U+1F300-1FAFF: full range (Twemoji covers virtually all).
+    """
     cp = ord(c)
-    # CJK 统一表意文字 + 扩展A
-    if 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF:
+    if cp in _TWEMOJI_SYMBOLS:
         return True
-    # CJK 符号和标点（、。，！？等）
-    if 0x3000 <= cp <= 0x303F:
+    if 0x1F300 <= cp <= 0x1FAFF:
         return True
-    # 全角ASCII/标点（不包含！让数字用DejaVu）
-    # 注意：不全角化数字，所以 0xFF00-0xFFEF 范围排除 FF10-FF19（全角数字）
-    if 0xFF00 <= cp <= 0xFFEF and not (0xFF10 <= cp <= 0xFF19):
-        return True
-    # 特殊标点
-    if cp in (0x2014, 0x2018, 0x2019, 0x201C, 0x201D, 0x2026):  # —''""…
-        return True
-    # 日文假名（部分文档可能含）
-    if 0x3040 <= cp <= 0x30FF:
-        return True
-    # 高码位 emoji/符号由 emoji 字体处理，不纳入 CJK
     return False
 
 
-def subset_cjk(text, work_dir):
-    """子集化中文字体(wqy) + Latin字体(DejaVu)，返回 @font-face CSS
-    
-    关键：所有字体都用 @font-face 显式引用子集文件，
-    避免 weasyprint 通过 fontconfig 回退到系统大字体（如 Noto CJK，含全角数字）。
+def _ensure_cache():
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+
+
+def _download_with_timeout(url, path):
+    """Download URL to path with a per-request socket timeout.
+
+    Returns True on success, False on any error (caller must clean up `path`).
+    urllib.request.urlretrieve has no timeout parameter, so we use urlopen +
+    shutil.copyfileobj — necessary for flaky mobile networks where a hung
+    connection would otherwise stall the whole prefetch batch.
     """
-    from fontTools.ttLib import TTFont
-    from fontTools.subset import Subsetter, Options
-
-    opts = Options()
-    opts.drop_tables += ['DSIG']
-
-    # 1. CJK 子集（只含中文字符，不含 ASCII）
-    cjk_chars = set()
-    for c in text:
-        if is_cjk_char(c):
-            cjk_chars.add(c)
-    cjk_str = ''.join(sorted(cjk_chars))
-
-    cjk_out = os.path.join(work_dir, 'CJK.ttf')
-    if cjk_str:
-        font = TTFont(CJK_TTC, fontNumber=0)
-        ss = Subsetter(options=opts)
-        ss.populate(text=cjk_str)
-        ss.subset(font)
-        font.save(cjk_out)
-        font.close()
-
-    # 2. Latin 子集（ASCII 数字/字母/符号，用 DejaVu Sans 确保半角）
-    latin_chars = set(chr(i) for i in range(32, 127))
-    for c in text:
-        if 0x0080 <= ord(c) <= 0x024F:  # Latin-1 Supplement + Extended
-            latin_chars.add(c)
-    latin_str = ''.join(sorted(latin_chars))
-
-    latin_out = os.path.join(work_dir, 'Latin.ttf')
-    font = TTFont(DEJAVU_REG)
-    ss = Subsetter(options=opts)
-    ss.populate(text=latin_str)
-    ss.subset(font)
-    font.save(latin_out)
-    font.close()
-
-    latin_bld_out = os.path.join(work_dir, 'Latin-Bold.ttf')
-    font = TTFont(DEJAVU_BLD)
-    ss = Subsetter(options=opts)
-    ss.populate(text=latin_str)
-    ss.subset(font)
-    font.save(latin_bld_out)
-    font.close()
-
-    # 3. 构建 @font-face CSS
-    # 用 unicode-range 精确划定各字体管辖范围，杜绝系统大字体回退
-    css = ''
-    # Latin（数字/字母）— 管辖 ASCII + Latin 补充
-    css += f'@font-face {{ font-family:"Latin"; src:url("file://{latin_out}") format("truetype"); font-weight:normal; unicode-range:U+0020-007E,U+00A0-024F,U+2000-206F,U+20A0-20CF; }}\n'
-    css += f'@font-face {{ font-family:"Latin"; src:url("file://{latin_bld_out}") format("truetype"); font-weight:bold; unicode-range:U+0020-007E,U+00A0-024F,U+2000-206F,U+20A0-20CF; }}\n'
-    # CJK（中文）— 管辖 CJK 范围，绝不覆盖 ASCII
-    if cjk_str:
-        css += f'@font-face {{ font-family:"CJK"; src:url("file://{cjk_out}") format("truetype"); font-weight:normal; unicode-range:U+3000-303F,U+4E00-9FFF,U+3400-4DBF,U+FF00-FFEF,U+2014-201D,U+2026,U+3040-30FF; }}\n'
-        css += f'@font-face {{ font-family:"CJK"; src:url("file://{cjk_out}") format("truetype"); font-weight:bold; unicode-range:U+3000-303F,U+4E00-9FFF,U+3400-4DBF,U+FF00-FFEF,U+2014-201D,U+2026,U+3040-30FF; }}\n'
-    # Emoji 不用字体（CBDT 位图字体在 weasyprint 中尺寸巨大）
-    # 改用 emoji_img.py 把 emoji 替换为内联 SVG 图片
-
-    return css
+    try:
+        with urllib.request.urlopen(url, timeout=_SVG_TIMEOUT) as resp:
+            with open(path, 'wb') as f:
+                shutil.copyfileobj(resp, f)
+        return True
+    except Exception:
+        return False
 
 
-# ── 样式（琥珀色主题：表头+斑马纹 / 灰底代码块 / 琥珀色竖条引用块）──
-def build_css(font_face_css):
-    return font_face_css + '''
-* { box-sizing:border-box; }
-body {
-  font-family:"Latin","CJK",sans-serif;
-  line-height:1.8; font-size:11pt; color:#1a1a1a;
-  max-width:900px; margin:0 auto; padding:1.5em;
-}
-h1,h2,h3,h4 { font-family:"Latin","CJK",sans-serif; font-weight:bold; color:#1a1a1a; }
-h1 { font-size:18pt; border-bottom:2px solid #D97706; padding-bottom:0.3em; }
-h2 { font-size:15pt; border-bottom:1px solid #e0e0e0; padding-bottom:0.2em; margin-top:1.2em; }
-h3 { font-size:13pt; margin-top:1em; }
-p { margin:0.5em 0; }
+def _download_emoji_svg(emoji_char):
+    """Download Twemoji SVG for an emoji, return local path. None on failure."""
+    _ensure_cache()
+    cps = [ord(c) for c in emoji_char]
+    cps_no_vs = [cp for cp in cps if cp != 0xFE0F]
 
-/* 代码块：灰底等宽 */
-code,pre { font-family:"Latin","DejaVu Sans Mono","Courier New",monospace; font-size:9.5pt; }
-pre {
-  background:#f2f3f5; padding:0.8em 1em; overflow-x:auto;
-  border-radius:4px; white-space:pre-wrap; border-top:2px solid #d2d4d7;
-}
-code { background:#ececed; padding:0.15em 0.4em; border-radius:3px; }
-pre code { background:none; padding:0; }
+    def _valid(svg_path):
+        """A valid Twemoji SVG must be non-empty and start with <svg."""
+        try:
+            with open(svg_path, 'rb') as f:
+                head = f.read(16)
+            return len(head) > 0 and head.lstrip().startswith(b'<svg')
+        except Exception:
+            return False
 
-/* 引用块：琥珀色竖条 */
-blockquote {
-  border-left:4px solid #D97706;
-  background:#fef7ed;
-  margin:1em 0; padding:0.6em 1em;
-  color:#505050; font-size:10pt;
-}
-blockquote p { margin:0.3em 0; }
+    # 1. Check cache first (zero network cost)
+    for cps_list in [cps, cps_no_vs]:
+        hex_name = '-'.join(f'{cp:x}' for cp in cps_list)
+        svg_path = os.path.join(_CACHE_DIR, f'{hex_name}.svg')
+        if os.path.exists(svg_path):
+            if _valid(svg_path):
+                return svg_path
+            os.unlink(svg_path)  # corrupted cache entry, drop it
 
-/* 表格：琥珀色表头 + 斑马纹 */
-table { border-collapse:collapse; width:100%; margin:1em 0; }
-th,td { border:1px solid #d2d4d7; padding:0.5em 0.6em; text-align:left; font-size:10pt; }
-th { background:#D97706; color:#fff; font-weight:bold; border-color:#D97706; }
-tbody tr:nth-child(even) td { background:#f7f8fa; }
-tbody tr:nth-child(odd)  td { background:#fff; }
+    # 2. Cache miss — try every CDN mirror, then both codepoint spellings
+    for cps_list in [cps, cps_no_vs]:
+        hex_name = '-'.join(f'{cp:x}' for cp in cps_list)
+        svg_path = os.path.join(_CACHE_DIR, f'{hex_name}.svg')
+        for base in _CDN_BASES:
+            url = f'{base}/{hex_name}.svg'
+            if _download_with_timeout(url, svg_path) and _valid(svg_path):
+                return svg_path
+            if os.path.exists(svg_path):
+                os.unlink(svg_path)
+    return None
 
-img { max-width:100%; height:auto; }
-a { color:#D97706; text-decoration:none; }
-ul,ol { padding-left:2em; }
-li { margin:0.2em 0; }
-hr { border:none; border-top:1px solid #ddd; margin:1.5em 0; }
-@page { margin:2cm 2.5cm;
-  @bottom-center { content:"— " counter(page) " —"; font-size:8pt; color:#999; }
-}
-'''
+
+def _collect_emoji_sequences(text):
+    """Scan text, return list of unique emoji sequences (preserving first-seen order)."""
+    seqs = []
+    seen = set()
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if _is_emoji_char(c):
+            j = i + 1
+            while j < n:
+                nc = text[j]
+                ncp = ord(nc)
+                if ncp == 0xFE0F or ncp == 0x200D or _is_emoji_char(nc):
+                    j += 1
+                else:
+                    break
+            seq = text[i:j]
+            if seq not in seen:
+                seen.add(seq)
+                seqs.append(seq)
+            i = j
+        else:
+            i += 1
+    return seqs
+
+
+def _prefetch_svgs(sequences):
+    """Batch-download missing SVGs concurrently (8 workers).
+
+    Called once before the replacement pass so all SVGs are in cache
+    when _download_emoji_svg runs in the main loop (pure cache hits).
+    """
+    _ensure_cache()
+
+    def _is_valid(svg_path):
+        try:
+            with open(svg_path, 'rb') as f:
+                head = f.read(16)
+            return head.lstrip().startswith(b'<svg')
+        except Exception:
+            return False
+
+    # Determine which sequences need downloading
+    to_fetch = []  # list of hex_names
+    seen_hex = set()
+    for seq in sequences:
+        cps_no_vs = [cp for cp in (ord(c) for c in seq) if cp != 0xFE0F]
+        hex_name = '-'.join(f'{cp:x}' for cp in cps_no_vs)
+        if hex_name in seen_hex:
+            continue
+        # Check if already cached and valid
+        svg_path = os.path.join(_CACHE_DIR, f'{hex_name}.svg')
+        if os.path.exists(svg_path) and _is_valid(svg_path):
+            continue
+        seen_hex.add(hex_name)
+        to_fetch.append(hex_name)
+
+    if not to_fetch:
+        return
+
+    def _fetch(hex_name):
+        svg_path = os.path.join(_CACHE_DIR, f'{hex_name}.svg')
+        for base in _CDN_BASES:
+            url = f'{base}/{hex_name}.svg'
+            if _download_with_timeout(url, svg_path) and _is_valid(svg_path):
+                return
+            if os.path.exists(svg_path):
+                os.unlink(svg_path)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_PREFETCH_WORKERS) as ex:
+        list(ex.map(_fetch, to_fetch))
+
+
+def _scale_emoji(typst_content):
+    """Replace emoji in typst content with SVG image references."""
+    # Phase 1: collect unique emoji sequences
+    seqs = _collect_emoji_sequences(typst_content)
+
+    # Phase 2: batch-download missing SVGs in parallel (one shot, fast)
+    if seqs:
+        _prefetch_svgs(seqs)
+
+    # Phase 3: replace — all SVGs now cached (or confirmed unavailable)
+    result = []
+    i = 0
+    n = len(typst_content)
+    replaced = 0
+    failed = 0
+    while i < n:
+        c = typst_content[i]
+        if _is_emoji_char(c):
+            # Collect the full emoji sequence (incl. ZWJ, VS16)
+            j = i + 1
+            while j < n:
+                nc = typst_content[j]
+                ncp = ord(nc)
+                if ncp == 0xFE0F or ncp == 0x200D or _is_emoji_char(nc):
+                    j += 1
+                else:
+                    break
+            seq = typst_content[i:j]
+            svg_path = _download_emoji_svg(seq)  # cache hit (prefetched)
+            if svg_path and os.path.exists(svg_path):
+                # baseline: 5% aligns image bottom just below text baseline
+                result.append(f'#box(image("{svg_path}", width: 1.2em), baseline: 5%)')
+                replaced += 1
+            else:
+                # SVG unavailable, fall back to bitmap font
+                safe = seq.replace('\\', '\\\\').replace('"', '\\"')
+                result.append(f'#box(text(size: 1.2em, font: "Noto Color Emoji")[{safe}], baseline: 5%)')
+                failed += 1
+            i = j
+        else:
+            result.append(c)
+            i += 1
+    if replaced > 0:
+        print(f"  {replaced} emoji → SVG", file=sys.stderr)
+    if failed > 0:
+        print(f"  ⚠️ {failed} emoji SVG download failed, fell back to bitmap", file=sys.stderr)
+    return ''.join(result)
 
 
 def read_text(path):
@@ -200,153 +343,125 @@ def read_text(path):
     return raw.decode('utf-8', errors='replace')
 
 
-def replace_emojis(html_body):
-    """将 HTML body 中的 emoji 替换为内联 SVG 图片（CSS 可控大小）"""
+def _get_template():
+    with open(_TEMPLATE, 'r', encoding='utf-8') as f:
+        return f.read()
+
+
+def _pandoc_to_typst(inp):
+    r = sp.run(['pandoc', inp, '-t', 'typst'], capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"❌ pandoc: {r.stderr}", file=sys.stderr)
+        return None
+    return r.stdout
+
+
+def _typst_compile(typ_content, out_pdf):
+    work = tempfile.mkdtemp(prefix='typst_')
+    typ_file = os.path.join(work, 'doc.typ')
+    with open(typ_file, 'w', encoding='utf-8') as f:
+        f.write(typ_content)
     try:
-        return _replace_emoji(html_body, size_px=18)
-    except Exception as e:
-        print(f"  ⚠️ emoji 替换失败: {e}", file=sys.stderr)
-        return html_body
-
-
-def render_pdf(html_body, out_pdf, title, font_css):
-    """构造完整 HTML 并用 weasyprint 渲染 PDF
-    
-    关键：通过自定义 fontconfig 配置 + 环境变量，确保 weasyprint 不会
-    通过 fontconfig 回退到系统 CJK 字体（含全角数字），只用 @font-face 子集字体。
-    """
-    from weasyprint import HTML
-
-    # 创建临时字体目录：只含 DejaVu（Latin 半角数字/字母）
-    # 不放任何 emoji 字体（CBDT 位图字体在 weasyprint 中尺寸巨大）
-    # emoji 已在 HTML 中替换为内联 SVG 图片（尺寸由 CSS 控制）
-    tmp_font_dir = tempfile.mkdtemp(prefix='fc_fonts_')
-    import shutil as sh
-    for f in ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']:
-        src = os.path.join(os.path.dirname(DEJAVU_REG), f) if DEJAVU_REG else None
-        if src and os.path.exists(src):
-            sh.copy(src, tmp_font_dir)
-    if not DEJAVU_REG:
-        print("⚠️  DejaVu Sans font not found, using system fonts for Latin rendering", file=sys.stderr)
-
-    # 创建自定义 fontconfig 配置：只扫描临时字体目录
-    fc_conf = os.path.join(tmp_font_dir, 'fonts.conf')
-    with open(fc_conf, 'w') as f:
-        f.write(f'''<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<fontconfig>
-  <dir>{tmp_font_dir}</dir>
-  <cachedir>{tmp_font_dir}/cache</cachedir>
-  <config></config>
-</fontconfig>''')
-
-    css = build_css(font_css)
-    html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
-<title>{title}</title>
-<style>{css}</style>
-</head><body>
-{html_body}
-</body></html>'''
-    with tempfile.NamedTemporaryFile(suffix='.html', delete=False, mode='w', encoding='utf-8') as f:
-        f.write(html)
-        hp = f.name
-    try:
-        # 用自定义 fontconfig 配置，子进程渲染
-        env = os.environ.copy()
-        env['FONTCONFIG_FILE'] = fc_conf
-        sp.run(['fc-cache', '-f', tmp_font_dir], capture_output=True, timeout=30,
-               env=env)
-        # 用子进程运行 weasyprint，确保 FONTCONFIG_FILE 生效
-        sp.run([sys.executable,
-                os.path.join(os.path.dirname(__file__), '_render.py'),
-                hp, out_pdf, fc_conf],
-               env=env, capture_output=True, text=True, timeout=120)
-    finally:
-        os.unlink(hp)
-        sh.rmtree(tmp_font_dir, ignore_errors=True)
-
-
-def md_to_pdf(inp, out):
-    """Markdown → PDF"""
-    text = read_text(inp)
-    work = tempfile.mkdtemp()
-    try:
-        font_css = subset_cjk(text, work)
-        r = sp.run(['pandoc', inp, '--to', 'html5'],
-                   capture_output=True, text=True)
+        cmd = ['typst', 'compile', '--font-path', _find_font_dir(),
+               '--root', '/', typ_file, out_pdf]
+        r = sp.run(cmd, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
-            print(f"❌ pandoc: {r.stderr}", file=sys.stderr)
+            print(f"❌ typst: {r.stderr[:500]}", file=sys.stderr)
             return False
-        render_pdf(replace_emojis(r.stdout), out, Path(inp).stem, font_css)
-        print(f"✅ PDF 已生成: {out}")
         return True
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def _fix_table_widths(typst_content):
+    """Replace pandoc's `columns: N` (integer count) with 1fr equal columns,
+    so tables span the full page content width.
+
+    Pandoc emits `columns: 4` for narrow tables; typst then sizes the table
+    to content width only. Converting to `columns: (1fr, 1fr, 1fr, 1fr)`
+    stretches the table to the full content width.
+    """
+    import re
+
+    def repl(m):
+        n = int(m.group(1))
+        cols = ', '.join(['1fr'] * n)
+        return f'columns: ({cols}),'
+
+    return re.sub(r'columns:\s*(\d+)\s*,', repl, typst_content)
+
+
+def _build_content(body):
+    template = _get_template()
+    scaled = _scale_emoji(body)
+    fixed = _fix_table_widths(scaled)
+    return template + '\n' + fixed
+
+
+def md_to_pdf(inp, out):
+    body = _pandoc_to_typst(inp)
+    if body is None:
+        return False
+    content = _build_content(body)
+    if _typst_compile(content, out):
+        print(f"✅ PDF generated: {out}")
+        return True
+    return False
+
+
 def txt_to_pdf(inp, out, title=None):
-    """纯文本 → PDF"""
-    import html as H
     text = read_text(inp)
-    work = tempfile.mkdtemp()
-    try:
-        font_css = subset_cjk(text, work)
-        body = []
-        for line in text.splitlines():
-            e = H.escape(line)
-            body.append(f'<p>{e}</p>' if e.strip() else '<br>')
-        render_pdf(replace_emojis('\n'.join(body)), out, title or Path(inp).stem, font_css)
-        print(f"✅ PDF 已生成: {out}")
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    lines = []
+    for line in text.splitlines():
+        esc = line.replace('\\', '\\\\').replace('#', '\\#').replace('$', '\\$').replace('<', '\\<').replace('>', '\\>')
+        lines.append(esc if esc.strip() else '')
+    body = '\n\n'.join(lines)
+    t = title or Path(inp).stem
+    content = _build_content(f'\n\n= {t}\n\n' + body)
+    if _typst_compile(content, out):
+        print(f"✅ PDF generated: {out}")
+        return True
+    return False
 
 
 def html_to_pdf(inp, out):
-    """HTML → PDF"""
-    text = read_text(inp)
-    work = tempfile.mkdtemp()
-    try:
-        font_css = subset_cjk(text, work)
-        if '</head>' in text:
-            if 'charset=' not in text.lower():
-                text = text.replace('</head>', '<meta charset="utf-8">\n</head>', 1)
-            styled = text.replace('</head>', f'<style>{build_css(font_css)}</style>\n</head>', 1)
-            hp = os.path.join(work, 'doc.html')
-            with open(hp, 'w', encoding='utf-8') as f:
-                f.write(styled)
-            from weasyprint import HTML
-            HTML(filename=hp).write_pdf(out)
-        else:
-            render_pdf(replace_emojis(text), out, Path(inp).stem, font_css)
-        print(f"✅ PDF 已生成: {out}")
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    body = _pandoc_to_typst(inp)
+    if body is None:
+        return False
+    content = _build_content(body)
+    if _typst_compile(content, out):
+        print(f"✅ PDF generated: {out}")
+        return True
+    return False
 
 
 def img_to_pdf(paths, out):
-    """图片 → PDF（多图合并，每页一张）"""
     from PIL import Image
     imgs = [Image.open(p).convert('RGB') for p in paths]
     imgs[0].save(out, save_all=True, append_images=imgs[1:], quality=95)
-    print(f"✅ PDF 已生成: {out} ({len(imgs)} 页)")
+    print(f"✅ PDF generated: {out} ({len(imgs)} pages)")
 
 
 def main():
-    p = argparse.ArgumentParser(description='转PDF：MD/HTML/文本/图片 → PDF')
-    p.add_argument('input', nargs='+', help='输入文件')
-    p.add_argument('-o', '--output', help='输出PDF路径')
-    p.add_argument('--title', help='文档标题（仅文本模式）')
+    p = argparse.ArgumentParser(description='Convert to PDF: MD/HTML/Text/Images')
+    p.add_argument('input', nargs='+', help='input file(s)')
+    p.add_argument('-o', '--output', help='output PDF path')
+    p.add_argument('--title', help='document title (text mode only)')
     a = p.parse_args()
 
     inputs = [Path(x) for x in a.input]
     out = a.output or (inputs[0].with_suffix('.pdf').name if len(inputs) == 1 else 'merged.pdf')
     IMG = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
 
-    if all(x.suffix.lower() in IMG for x in inputs):
+    is_img_only = all(x.suffix.lower() in IMG for x in inputs)
+    # Image-merge needs only PIL; text/markup paths also need pandoc+typst.
+    _check_dependencies(need_pil=is_img_only, core=not is_img_only)
+
+    if is_img_only:
         img_to_pdf([str(x) for x in inputs], out)
         return
     if len(inputs) != 1:
-        print("❌ 多文件仅支持图片合并", file=sys.stderr)
+        print("❌ Multiple files are only supported for image merging", file=sys.stderr)
         sys.exit(1)
 
     x = inputs[0]
@@ -354,26 +469,23 @@ def main():
     if e in IMG:
         img_to_pdf([str(x)], out)
     elif e == '.md':
-        md_to_pdf(str(x), out)
+        if not md_to_pdf(str(x), out):
+            sys.exit(1)
     elif e in ('.html', '.htm'):
-        html_to_pdf(str(x), out)
+        if not html_to_pdf(str(x), out):
+            sys.exit(1)
     elif e == '.txt':
-        txt_to_pdf(str(x), out, a.title or x.stem)
+        if not txt_to_pdf(str(x), out, a.title or x.stem):
+            sys.exit(1)
     else:
-        # pandoc 兜底（.rst/.org/.latex 等）
-        text = read_text(str(x))
-        work = tempfile.mkdtemp()
-        try:
-            font_css = subset_cjk(text, work)
-            r = sp.run(['pandoc', str(x), '--to', 'html5'],
-                       capture_output=True, text=True)
-            if r.returncode != 0:
-                print(f"❌ pandoc: {r.stderr}", file=sys.stderr)
-                sys.exit(1)
-            render_pdf(replace_emojis(r.stdout), out, x.stem, font_css)
-            print(f"✅ PDF 已生成: {out}")
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
+        # pandoc fallback (.rst/.org/.latex etc.)
+        body = _pandoc_to_typst(str(x))
+        if body is None:
+            sys.exit(1)
+        content = _build_content(body)
+        if not _typst_compile(content, out):
+            sys.exit(1)
+        print(f"✅ PDF generated: {out}")
 
 
 if __name__ == '__main__':
