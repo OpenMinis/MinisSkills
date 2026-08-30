@@ -114,6 +114,11 @@ set; completing it makes the next occurrence available. Therefore:
 - when changing both due and recurrence, update due alone and verify it first, then
   update the full recurrence rule alone and verify it. Never combine
   `--clear-recur` with new recurrence flags.
+- A count-based end can be present in EventKit and command read-back while Apple's
+  Reminders UI shows “Never,” because the Mac UI exposes only a date-based repeat
+  end. Treat that UI as a lossy projection: verify `count` through command
+  read-back, do not edit the rule in Reminders merely to “fix” the display, and use
+  occurrence-by-occurrence completion when actual count enforcement is critical.
 
 Read the recurrence section in the CLI reference before acting.
 

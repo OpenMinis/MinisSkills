@@ -379,6 +379,21 @@ Rules:
 - Until must be later than the effective due date.
 - One recurrence rule is stored; a new full rule replaces the previous one.
 
+### Reminders UI interoperability
+
+EventKit supports both date-based and occurrence-count ends for reminders. Apple's
+Mac Reminders guide, however, exposes only **End Repeat > On Date** in the UI.
+Consequently, a rule can read back as `count:N` through EventKit while the
+Reminders inspector displays **Never**. Do not use that display alone as evidence
+that the count was lost, and do not edit/save the repeat field merely to correct
+the label because the UI may overwrite a value it cannot represent.
+
+Verify count-based storage with command read-back. When actual enforcement matters,
+complete a disposable recurring test one occurrence at a time: the next occurrence
+should appear after each completion before N, and no next incomplete occurrence
+should appear after completion N. Keep this behavioral check separate from whether
+a notification alarm exists.
+
 Apple documents that only the first incomplete reminder in a recurring set is
 obtainable; completing it exposes the next. The command has no occurrence/span
 selector for reminder update or delete. Before update, move, or delete, state the
@@ -407,6 +422,9 @@ apple-reminders update --id "<id>" --clear-recur --compact
 Serialized recurrence contains `frequency`, `interval`, optional
 `days_of_week`, and exactly one ending form: `until`, `count`, or
 `never_ends:true`.
+
+Apple's documented Mac UI boundary:
+https://support.apple.com/guide/reminders/remndc729e28/mac
 
 ## Location geofences
 

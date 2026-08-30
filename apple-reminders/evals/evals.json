@@ -164,6 +164,30 @@
           "type": "contains"
         }
       ]
+    },
+    {
+      "id": 8,
+      "prompt": "apple-reminders list reports that “Minis 반복 테스트” is daily with count:3, but the synced Mac Reminders details panel says Repeat End: Never. Diagnose this without changing the reminder.",
+      "expected_output": "The agent does not recreate or edit the recurrence. It explains that EventKit supports count-based ends while the Mac Reminders UI exposes a date-based end and can be a lossy projection. It treats independent command/EventKit count read-back as storage evidence, warns that editing the UI could overwrite the hidden count, and proposes an occurrence-by-occurrence disposable completion test to verify actual enforcement.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Does not treat the Reminders UI label Never as proof that count:3 was lost when command/EventKit read-back still returns count:3",
+          "type": "contains"
+        },
+        {
+          "text": "Performs no write and warns against editing the repeat details merely to fix the UI display",
+          "type": "contains"
+        },
+        {
+          "text": "Separates stored recurrence metadata from behavioral enforcement and from notification-alarm verification",
+          "type": "contains"
+        },
+        {
+          "text": "Proposes completing a disposable count-based series one occurrence at a time and checking that no N+1 occurrence appears",
+          "type": "contains"
+        }
+      ]
     }
   ]
 }
