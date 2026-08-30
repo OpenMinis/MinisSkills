@@ -168,7 +168,7 @@
     {
       "id": 8,
       "prompt": "apple-reminders list reports that “Minis 반복 테스트” is daily with count:3, but the synced Mac Reminders details panel says Repeat End: Never. Diagnose this without changing the reminder.",
-      "expected_output": "The agent does not recreate or edit the recurrence. It explains that EventKit supports count-based ends while the Mac Reminders UI exposes a date-based end and can be a lossy projection. It treats independent command/EventKit count read-back as storage evidence, warns that editing the UI could overwrite the hidden count, and proposes a disposable behavioral test whose recurring completion steps are explicitly retry-unsafe and verified one at a time.",
+      "expected_output": "The agent does not recreate or edit the recurrence. It explains that EventKit supports count-based ends while the Mac Reminders UI exposes a date-based end and can be a lossy projection. It treats independent command/EventKit count read-back as storage evidence, warns that editing the UI could overwrite the hidden count, and proposes a disposable behavioral test whose recurring completion steps are explicitly retry-unsafe and verified one at a time. It also warns that retrying, editing, or reverting the chat does not undo an already committed Reminder write and would create a new execution.",
       "files": [],
       "assertions": [
         {
@@ -185,6 +185,10 @@
         },
         {
           "text": "Treats each disposable-series completion as retry-unsafe, verifies one new completion and the immediate next due predicted by the full rule, uses remaining count only as corroboration, and only then checks that no N+1 occurrence appears",
+          "type": "contains"
+        },
+        {
+          "text": "Warns that chat retry, edit, or revert is not external rollback and must not be used to repeat a completion test step",
           "type": "contains"
         }
       ]
@@ -217,6 +221,34 @@
         },
         {
           "text": "Marks the requested end-to-end single-step invariant failed while native one-invocation atomicity and final count enforcement remain inconclusive",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "I completed one occurrence, then used Minis edit/revert on that user message and resent an edited prompt. The visible rerun has exactly one complete command at 02:03:08 followed by two read-only list commands; its response is ok:true/action:complete but data.completed:false. A hidden earlier completed record is timestamped 02:01:34. After I manually completed the final 2026-09-03 occurrence, exact reads show completed occurrences due 9/1, 9/2, and 9/3 and no incomplete successor. Diagnose this without changing anything.",
+      "expected_output": "The agent performs no write. It explains that the original run and the edit/revert rerun were two separate committed executions because chat history rewind does not roll back EventKit. It withdraws the duplicate-within-one-run and native-double-save explanations. It treats data.completed:false as a non-authoritative post-save projection rather than failure or retry permission and relies on fresh completed/incomplete reads. It reports count:3 enforcement as passed only for this observed device/build/account/rule, while notification behavior and broader recurrence variants remain unverified.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Explains that chat edit/revert removed history but did not undo the first committed Reminder completion",
+          "type": "contains"
+        },
+        {
+          "text": "Attributes the two timestamps to the original execution and the later rerun, not to duplicate calls inside the visible rerun or one native double-save",
+          "type": "contains"
+        },
+        {
+          "text": "Does not treat recurring data.completed:false as failure, a no-op, or permission to retry and requires fresh completed/incomplete reads",
+          "type": "contains"
+        },
+        {
+          "text": "Reports exactly-three-occurrence enforcement passed for the observed daily interval-1 count-3 case because three completed records and no successor were verified",
+          "type": "contains"
+        },
+        {
+          "text": "Keeps notification behavior and other builds, accounts, and recurrence shapes outside the pass claim",
           "type": "contains"
         }
       ]

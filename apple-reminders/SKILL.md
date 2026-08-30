@@ -91,7 +91,11 @@ Do not judge success from exit 0 or `ok:true` alone:
 6. Verify echoed fields and use bounded read-back for omitted or high-impact state.
    If verification is incomplete, report that and do not retry blindly; create has
    no idempotency key.
-7. For a batch, work sequentially and stop on the first failed, mismatched, or
+7. A chat retry, edit, or revert rewinds conversation history, not committed
+   EventKit writes. When such a rewind is disclosed or visible history conflicts
+   with live state, re-read Reminders before another mutation. A vanished tool card
+   is not rollback evidence.
+8. For a batch, work sequentially and stop on the first failed, mismatched, or
    uncertain item. Separate verified, uncertain, and not-attempted items.
 
 Permission denial requires the user to grant Minis access in iOS Settings. Retry
@@ -117,6 +121,10 @@ set; completing it makes the next occurrence available. Therefore:
   leaves no successor under a trustworthy read. On builds that serialize `count`
   as remaining occurrences, a one-count reduction is corroborating evidence. Any
   larger jump stops the workflow without attributing an actor from state alone;
+- on an observed build, recurring `complete` returned `ok:true` and
+  `action:"complete"` with `data.completed:false` after the series advanced. That
+  post-save boolean is not a completion receipt or permission to retry; verify the
+  completed occurrence and successor through fresh reads;
 - do not use `--undo` as a guaranteed rollback after the series advanced;
 - the command has no occurrence/span selector for reminder update or delete, so
   require explicit whole-series intent before either action on a recurring item.

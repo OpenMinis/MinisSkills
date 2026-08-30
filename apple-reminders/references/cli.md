@@ -273,7 +273,8 @@ There is no `--clear-due` or `--clear-notes`.
 apple-reminders complete --id <id> [--undo]
 ```
 
-Without `--undo`, completion becomes true. With it, completion becomes false.
+Without `--undo`, the command requests completion. With it, the command requests
+incompletion. A typical non-recurring completion response is:
 
 ```json
 {
@@ -287,6 +288,16 @@ Without `--undo`, completion becomes true. With it, completion becomes false.
 This is the most recoverable mutation and should represent “done.” The response is
 not a separate final re-fetch; verify broad or consequential changes with a bounded
 completed or incomplete read.
+
+For a recurring item, an observed build returned `ok:true`, `action:"complete"`,
+and `data.completed:false` even though one occurrence committed and the series
+advanced. The handler serializes `isCompleted` from the same mutable `EKReminder`
+object after save rather than fetching the completed occurrence. Apple does not
+document the exact post-save boolean projection, so neither value of this field is
+a recurring-completion receipt. Confirm the target due in a fresh completed read
+and the successor or terminal absence in a fresh incomplete read. In particular,
+`completed:false` is not evidence of a no-op and never authorizes a retry.
+Treat the mismatch as response-fidelity failure, not proof that the write failed.
 
 For a recurring reminder, Apple EventKit exposes only the first incomplete
 occurrence. Completing it makes the next occurrence available. Treat completion as
@@ -319,6 +330,12 @@ A larger jump or two distinct completion timestamps proves that the end-to-end
 single-step invariant failed; state alone does not identify the actor, shell/tool
 call count, or native invocation count. Inspect expanded tool-call logs before
 attribution, and never label the observation a native double-save without them.
+
+Chat retry/edit/revert controls remove or replace visible conversation and tool
+history only. They do not compensate an already committed Reminder write. If a
+write-bearing turn is rewound and run again, first read current external state and
+treat the rerun as a new mutation; never infer rollback because the earlier tool
+card disappeared.
 
 At the final count, no active successor should remain. Because an EventKit fetch
 timeout can masquerade as an empty successful list, absence is conclusive only
