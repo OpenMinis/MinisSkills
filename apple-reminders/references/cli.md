@@ -249,6 +249,16 @@ present. It also includes recurrence or location when present. The response is t
 in-memory post-save object, not an independent re-fetch, so high-impact work still
 benefits from bounded read-back.
 
+The current implementation sets and serializes `dueDateComponents` but neither
+updates nor exposes `startDateComponents`. A successful due-only update therefore
+proves only that the due field changed. It does not prove that a timed recurring
+series was fully re-anchored. In one observed build, the requested due and existing
+recurrence rule read back successfully while an independent EventKit read still
+showed the old start. Actual next-occurrence behavior was not established by that
+observation. Treat a request to retime an existing recurring reminder as
+unsupported unless the user explicitly accepts a due-field-only patch with that
+hidden-start limitation.
+
 Silent behaviors:
 
 - An invalid `--due` is ignored, leaving the previous due unchanged.
@@ -456,11 +466,12 @@ selector for reminder update or delete. Before update, move, or delete, state th
 repeating scope and require explicit whole-series intent. After completion, verify
 the next occurrence rather than assuming the same item can simply be undone.
 
-If both the due anchor and rule must change, make two verified patches: update only
-`--due`, compare the returned due against the intended value, then send only the
-complete new recurrence rule. An invalid due is silently ignored; combining both
-changes could otherwise build the rule from the old due. Clear recurrence in its
-own update and never mix `--clear-recur` with `--recur*`.
+Do not use a due-only patch followed by recurrence replacement as a verified
+re-anchor procedure. A replacement can validate a new rule against the current
+due, but the command still cannot update or inspect the hidden start components.
+Recurrence-only replacement and clear remain separate capabilities with their own
+verification. Clear recurrence in its own update and never mix `--clear-recur`
+with `--recur*`.
 
 Examples:
 
@@ -566,6 +577,7 @@ No current verb or flag provides:
 - the reminder URL field or URL attachments;
 - list enumeration, account/source IDs, exact list selection, or list management;
 - typed all-day due values, clearing due, or clearing notes;
+- `startDateComponents` read/write or a verifiable recurring-time anchor update;
 - message/contact triggers;
 - search, sort, due/completion range, pagination, or exact read-by-ID;
 - completion timestamp or revision guard;

@@ -252,6 +252,34 @@
           "type": "contains"
         }
       ]
+    },
+    {
+      "id": 11,
+      "prompt": "A due-only update on a recurring reminder returned ok:true/action:update. CLI read-back shows the requested new due of 2026-09-01 09:20 and the same daily recurrence ending 2026-09-03 09:10. An independent exact EventKit read shows dueDateComponents at 09:20 but startDateComponents still at the previous 09:10. The CLI output contains no start field. Diagnose whether the series re-anchor succeeded, without changing anything.",
+      "expected_output": "The agent performs no write and separates the evidence into explicit verdicts: the due-field patch passed; CLI-visible recurrence preservation passed; startDateComponents re-anchoring failed in the observed state because exact start stayed at 09:10; CLI-only anchor verification is impossible because start is not exposed; and actual next-occurrence behavior remains untested. It does not claim that the 9/3 occurrence will run or disappear and does not propose or use a second recurrence update as a workaround.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no additional update, recurrence replacement, clear, completion, or other write",
+          "type": "contains"
+        },
+        {
+          "text": "Reports the due-field patch and CLI-visible recurrence preservation as observed passes",
+          "type": "contains"
+        },
+        {
+          "text": "Reports startDateComponents re-anchoring as failed in the observed state because the exact value remained at 09:10, while keeping actual scheduling behavior unverified",
+          "type": "contains"
+        },
+        {
+          "text": "States that CLI-only anchor verification is impossible because startDateComponents is neither returned nor writable",
+          "type": "contains"
+        },
+        {
+          "text": "Does not predict whether the 9/3 occurrence will exist and does not propose or execute a workaround write",
+          "type": "contains"
+        }
+      ]
     }
   ]
 }

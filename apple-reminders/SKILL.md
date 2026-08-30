@@ -128,8 +128,14 @@ set; completing it makes the next occurrence available. Therefore:
 - do not use `--undo` as a guaranteed rollback after the series advanced;
 - the command has no occurrence/span selector for reminder update or delete, so
   require explicit whole-series intent before either action on a recurring item.
-- when changing both due and recurrence, update due alone and verify it first, then
-  update the full recurrence rule alone and verify it. Never combine
+- `--due` updates and exposes `dueDateComponents`, but the current command neither
+  updates nor exposes `startDateComponents`. On an observed recurring reminder, a
+  due-only update preserved the serialized rule while exact EventKit state kept
+  the old start. Do not use due-only update to claim that a timed series was
+  re-anchored, or chain a recurrence replacement as a workaround. For a request
+  to retime an existing series, explain the boundary and stop unless the user
+  explicitly accepts a due-field-only patch with the hidden start preserved. Even
+  then, report actual next-occurrence timing as unverified. Never combine
   `--clear-recur` with new recurrence flags.
 - A count-based end can be present in EventKit and command read-back while Apple's
   Reminders UI shows “Never,” because the Mac UI exposes only a date-based repeat
@@ -195,6 +201,7 @@ success.
 | Create, rename, delete, or enumerate empty lists | Not exposed |
 | Exact list/account selector | Not exposed; `--list` is fuzzy |
 | Typed all-day due, clear due, clear notes | Not exposed |
+| Reminder start date / recurring time anchor | Not exposed; due-only update cannot verify re-anchoring |
 | Message/contact triggers | Not exposed |
 | Search, sort, ranges, pagination, exact read-by-ID | Not exposed |
 | Inspect/recover Recently Deleted | Not exposed; use the iPhone app |
