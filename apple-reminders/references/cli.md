@@ -1,61 +1,86 @@
 # `apple-reminders` command reference
 
-Full contract for the built-in `apple-reminders` native command. Read this when you
-need exact flags, response fields, error codes, or the date grammar. `SKILL.md`
-covers the workflow and safety rules that sit on top of it.
+This is the detailed contract for Minis' built-in iOS command. Installed builds
+can be newer than the public source and older builds may lack newer flags. Check
+`apple-reminders --help` before using a build-varying branch and treat it as
+authoritative.
 
-Everything here is derived from the Minis source: the command dispatch lives in
-`src/ios/NativeOffloads/RemindersOffload.m`, the five verb implementations in
-`src/ios/NativeOffloads/CalendarOffload.m` (`calendar_cmd_reminders`,
-`calendar_cmd_remind`, `calendar_cmd_update_reminder`,
-`calendar_cmd_complete_reminder`, `calendar_cmd_delete_reminder`), and the shared
-envelope, argument, and date helpers in
-`src/ios/NativeOffloads/NativeOffloadUtils.m`.
+Verified on 2026-08-30 against the public OpenMinis 1.12 source at commit
+[`09fc199`](https://github.com/OpenMinis/OpenMinis/tree/09fc199928de0f26685e766c34e6d541c7a69e5a).
+The implementation delegates reminder work from
+[`RemindersOffload.m`](https://github.com/OpenMinis/OpenMinis/blob/09fc199928de0f26685e766c34e6d541c7a69e5a/src/ios/NativeOffloads/RemindersOffload.m)
+to EventKit-backed functions in
+[`CalendarOffload.m`](https://github.com/OpenMinis/OpenMinis/blob/09fc199928de0f26685e766c34e6d541c7a69e5a/src/ios/NativeOffloads/CalendarOffload.m).
+It uses the same reminder store as Apple's Reminders app and does not read its
+database directly.
 
-The backend is EventKit (`EKReminder` / `EKCalendar` with
-`EKEntityTypeReminder`). It reaches the same reminder store as the Reminders app,
-so changes sync through the user's normal iCloud setup. Nothing here touches a
-database directly, and there are no scripts or network calls.
+## Contents
 
-**iOS only.** `reminders_offload_register()` installs the guest stub at
-`/usr/local/bin/apple-reminders`, so the command is on `PATH` inside the sandbox on
-iOS. The Android offload set has a calendar handler but no reminders handler, so
-this command does not exist there — check for it before assuming, and say so
-plainly rather than failing obscurely.
+- [Platform and global behavior](#platform-and-global-behavior)
+- [List](#list)
+- [Create](#create)
+- [Update](#update)
+- [Complete and undo](#complete-and-undo)
+- [Delete](#delete)
+- [Date grammar](#date-grammar)
+- [Priority](#priority)
+- [Recurrence](#recurrence)
+- [Location geofences](#location-geofences)
+- [Verification](#verification)
+- [Errors and timeout ambiguity](#errors-and-timeout-ambiguity)
+- [Not exposed](#not-exposed)
 
-## Global behaviour
+## Platform and global behavior
 
-Every invocation prints exactly one JSON object to stdout.
+The command is registered only on iOS. Check its existence before use; inspect full
+help when requested flags can vary by build:
 
-Success envelope:
+```bash
+command -v apple-reminders
+apple-reminders --help
+```
+
+The five verbs are:
+
+```text
+apple-reminders list
+apple-reminders create
+apple-reminders update
+apple-reminders complete
+apple-reminders delete
+```
+
+Global flags:
+
+| Flag | Effect |
+|---|---|
+| `--help`, `-h` | Prints help to stderr and exits 0 |
+| `--compact` | Minifies the JSON envelope |
+| `-q`, `--quiet` | Prints only `data` on success or `error` on failure |
+
+Prefer `--compact` without quiet mode. Quiet output removes `ok`, so the process
+exit code becomes essential.
+
+Typical envelope:
 
 ```json
 {
   "ok": true,
-  "tool": "apple-reminders",
-  "action": "<action name>",
-  "data": { },
-  "timestamp": "2026-07-30T14:12:05+09:00"
+  "tool": "apple-calendar",
+  "action": "reminders",
+  "data": {},
+  "timestamp": "2026-08-30T12:00:00+09:00"
 }
 ```
 
-Error envelope:
+Because the current implementation delegates to `CalendarOffload`, recognized
+reminder actions can say `tool: "apple-calendar"`; other builds may say
+`"apple-reminders"`. Do not validate success from `tool`. Validate exit status,
+`ok`, the expected `action`, response shape, and stored state.
 
-```json
-{
-  "ok": false,
-  "tool": "apple-reminders",
-  "action": "<action name>",
-  "error": { "code": "invalid_args", "message": "Required: --id <reminder_id>" },
-  "timestamp": "2026-07-30T14:12:05+09:00"
-}
-```
+Action values:
 
-`timestamp` is ISO 8601 in the device's local timezone.
-
-The `action` field does not always equal the subcommand you typed:
-
-| Subcommand | `action` value |
+| Verb | `action` |
 |---|---|
 | `list` | `reminders` |
 | `create` | `remind` |
@@ -63,253 +88,415 @@ The `action` field does not always equal the subcommand you typed:
 | `complete` | `complete` |
 | `delete` | `delete` |
 
-Global flags, accepted by every subcommand:
-
-| Flag | Effect |
-|---|---|
-| `--help`, `-h` | Print help to **stderr**, exit 0 |
-| `--compact` | Minify JSON. Without it, output is pretty-printed with sorted keys |
-| `-q`, `--quiet` | Print only the `data` object on success, or only the `error` object on failure |
-
-`-q` drops the `ok` field, so under `-q` you must use the exit code to tell success
-from failure. Prefer `--compact` alone for large reads.
-
 Exit codes:
 
 | Code | Meaning |
 |---|---|
-| 0 | Success (also returned by `--help`) |
-| 1 | Error — including "not found" |
+| 0 | Command accepted; also used by help |
+| 1 | Error, including unresolved ID |
 | 2 | Invalid arguments |
-| 3 | Reminders authorization denied |
-| 4 | Not available |
+| 3 | Permission denied |
+| 4 | Capability unavailable |
 
-Error codes in `error.code`: `authorization_denied`,
-`authorization_not_determined`, `not_available`, `invalid_args`, `no_data`,
-`internal_error`.
+Exit 0 is not proof that a list or date was applied. See the silent behaviors below.
 
-Every subcommand requests Reminders authorization first and fails with
-`authorization_denied` (exit 3) if it is not granted. Retrying does not help; the
-user has to grant access to Minis in iOS Settings.
+## List
 
-## `list`
-
-```
+```text
 apple-reminders list [--incomplete | --completed] [--list <name>] [--limit <N>]
 ```
 
-| Flag | Notes |
+| Flag | Meaning |
 |---|---|
-| `--incomplete` | Incomplete reminders, **including ones with no due date** |
+| `--incomplete` | Incomplete reminders, including ones with no due date |
 | `--completed` | Completed reminders only |
-| *(neither)* | All reminders, complete and incomplete |
-| `--list <name>` | Case-insensitive **substring** match on list titles |
-| `--limit <N>` | Default **100** |
+| neither | All completed and incomplete reminders |
+| `--list <name>` | Case-insensitive substring across list titles |
+| `--limit <N>` | Maximum results; default 100 |
 
-`data`:
+Example `data`:
 
 ```json
 {
   "reminders": [
     {
       "id": "A1B2C3D4-...",
-      "title": "Pick up prescription",
+      "title": "Send project update",
       "completed": false,
-      "list": "Errands",
-      "priority": 0,
+      "list": "Work",
+      "priority": 1,
       "notes": null,
-      "due": "2026-08-07T18:00:00+09:00"
+      "due": "2026-09-01T09:00:00+09:00",
+      "recurrence": {
+        "frequency": "weekly",
+        "interval": 1,
+        "days_of_week": ["mon"],
+        "never_ends": true
+      },
+      "location": {
+        "name": "Office",
+        "latitude": 37.5665,
+        "longitude": 126.978,
+        "radius_m": 200,
+        "proximity": "enter"
+      }
     }
   ],
   "count": 1
 }
 ```
 
-- `notes` is `null` when empty.
-- `due` is **absent** when the reminder has no due date, and `null` when it has
-  date components that cannot be converted. Treat both as unscheduled.
-- `id` is the EventKit `calendarItemIdentifier`. It is the only safe write target.
+`due`, `recurrence`, and `location` are absent when not set. `notes` is null
+when empty. A due value can be null when date components cannot be converted.
 
-When more reminders matched than `--limit` allowed, `data` also carries:
+When more records match than the limit:
 
 ```json
 {
-  "_warning": "Results truncated by --limit. Returned 100 of 412 total records. Use a larger --limit to retrieve more data.",
+  "_warning": "Results truncated by --limit...",
   "total_available": 412
 }
 ```
 
-**Result order is not guaranteed.** A truncated read is an arbitrary subset, not the
-earliest or most urgent items, so a truncated read cannot support any statement
-about the whole set. Narrow the scope or raise `--limit` above `total_available`.
+Order is unspecified. A truncated response is an arbitrary subset. Raise the limit
+above `total_available` or narrow the query before concluding that an item or date
+group is absent.
 
-There is no date-range filter, no search-text filter, and no sort flag. Group,
-filter, and sort on your side after reading.
+There is a second silent read failure: the implementation waits 10 seconds for
+EventKit but does not check whether that wait timed out. A timeout becomes
+`ok:true`, `count:0`, with no warning. Treat an unexpected empty result as
+empty-or-timed-out and retry once with a narrower available filter, or repeat the
+same bounded read when no safe narrower scope exists. Even after retry, an empty
+result is not strong absence proof. A positive ID match is strong evidence;
+deletion absence needs independent fetch-completion evidence, such as expected
+known survivors in the same bounded result.
 
-## `create`
+`--list` can match and merge multiple lists. Empty lists never appear because the
+output learns list titles only from returned reminders. The command has no list ID,
+account, search, date-range, sort, or cursor option.
 
-```
-apple-reminders create --title <t> [--due <dt>] [--list <name>] [--priority <0-9>] [--notes <text>]
-```
+## Create
 
-`--title` is required; without it the command prints help to stderr and returns
-`invalid_args` (exit 2).
-
-`data` — note how little comes back:
-
-```json
-{ "id": "A1B2C3D4-...", "title": "Pick up prescription", "list": "Errands" }
-```
-
-`due`, `priority`, and `notes` are **not echoed**. To confirm any of them, follow up
-with a `list` read.
-
-Two silent failure modes:
-
-- **Unmatched `--list` is not an error.** The list is resolved by case-insensitive
-  substring across reminder lists; on no match the reminder is saved to the device's
-  default reminder list and the response still reports `ok: true`. The returned
-  `list` field is the only signal — always compare it against what you intended.
-- **An unparseable `--due` is dropped.** No error, no warning, exit 0, reminder
-  created with no due date.
-
-`--parent-id` exists but always fails with `not_available` (exit 4): iOS through
-26.5 exposes no public EventKit API for reminder subtasks, and the implementation
-deliberately refuses to reach for private selectors. Create the reminder without it
-and nest it by hand in the Reminders app if nesting matters.
-
-## `update`
-
-```
-apple-reminders update --id <id> [--title <t>] [--due <dt>] [--list <name>] [--priority <0-9>] [--notes <text>]
+```text
+apple-reminders create --title <text>
+  [--due <datetime>] [--list <name>] [--priority <0-9>] [--notes <text>]
+  [recurrence flags] [location flags]
 ```
 
-`--id` is required (`invalid_args`, exit 2 if missing). An id that does not resolve
-returns `no_data` (exit 1).
-
-This is a patch: **omitted flags are left untouched.** Pass only what you intend to
-change.
-
-`data` returns full post-write state, which makes the response its own read-back:
+`--title` is required. Example response:
 
 ```json
 {
   "id": "A1B2C3D4-...",
-  "title": "File taxes",
-  "completed": false,
-  "list": "Admin",
-  "priority": 1,
-  "notes": null,
-  "due": "2026-08-10T09:00:00+09:00"
+  "title": "Send project update",
+  "list": "Work",
+  "recurrence": {
+    "frequency": "weekly",
+    "interval": 1,
+    "days_of_week": ["mon"],
+    "never_ends": true
+  },
+  "location": {
+    "name": "Office",
+    "latitude": 37.5665,
+    "longitude": 126.978,
+    "radius_m": 200,
+    "proximity": "enter"
+  }
 }
 ```
 
-`--due` has the same silent-drop behaviour as `create`. Because `update` echoes
-`due`, compare the returned value against what you intended — a mismatch means the
-parse failed.
+The response omits due, priority, and notes. Positively match the returned ID in a
+follow-up read before claiming those fields were stored. A match remains useful
+when the wider result is truncated; truncation prevents absence claims.
 
-`--list` here moves the reminder to another list, using the same substring match,
-but unlike `create` there is no fallback: on no match the reminder simply stays
-where it is, reported as a successful update.
+Silent behaviors:
 
-## `complete`
+- An unmatched `--list` falls back to the device's default reminder list and
+  returns success. Compare the returned full `list` title.
+- An unparseable `--due` is ignored and returns success. With a recurrence request,
+  the missing valid due causes recurrence validation to fail instead.
+- Priority is converted to an integer without strict validation in the current
+  public source. Pass only a validated 0–9 value.
 
+An observed single list match does not prove uniqueness because an empty colliding
+list remains invisible. Treat named-list creation as best effort, stop on known
+collisions, and disclose that only post-write destination verification is possible.
+An unobserved requested list may be empty or absent. If absent, create could fall
+back to the default list. Attempt it only for one create after the user accepts that
+risk, then verify the returned full list; never use it for a batch or list move.
+For exactly one observed match, one ordinary create may proceed as best effort; a
+batch or list move requires the user to accept that limit.
+
+`--parent-id` may appear in help but always returns `not_available`; public iOS
+EventKit exposes no reminder subtask relationship.
+
+## Update
+
+```text
+apple-reminders update --id <id>
+  [--title <text>] [--due <datetime>] [--list <name>]
+  [--priority <0-9>] [--notes <text>]
+  [recurrence flags | --clear-recur]
+  [location flags | --clear-location]
 ```
+
+`--id` is required and must come from a read. Update is a patch: omitted fields
+remain unchanged. Pass only fields the user asked to change.
+
+The response includes ID, title, completion, list, priority, notes, and due when
+present. It also includes recurrence or location when present. The response is the
+in-memory post-save object, not an independent re-fetch, so high-impact work still
+benefits from bounded read-back.
+
+Silent behaviors:
+
+- An invalid `--due` is ignored, leaving the previous due unchanged.
+- An unmatched `--list` leaves the previous list unchanged.
+- Recurrence option flags without `--recur` do not create a rule. Always include
+  the base frequency when adding or replacing recurrence.
+
+`--clear-recur` removes the current recurrence. Although the current
+implementation processes clear before a supplied new rule, do not combine clear
+and set flags. Use one unambiguous intent per update.
+
+`--clear-location` removes the structured location alarm. Full new location
+arguments already replace the old geofence. Do not combine clear and set flags in
+one update. Time-based alarms, when present in a build, are not removed by
+`--clear-location`.
+
+There is no `--clear-due` or `--clear-notes`.
+
+## Complete and undo
+
+```text
 apple-reminders complete --id <id> [--undo]
 ```
 
-Sets completion state: `--undo` marks the reminder incomplete again, so this verb is
-fully reversible in both directions.
-
-`data`:
+Without `--undo`, completion becomes true. With it, completion becomes false.
 
 ```json
-{ "id": "A1B2C3D4-...", "title": "File taxes", "completed": true, "list": "Admin" }
+{
+  "id": "A1B2C3D4-...",
+  "title": "Send project update",
+  "completed": true,
+  "list": "Work"
+}
 ```
 
-## `delete`
+This is the most recoverable mutation and should represent “done.” The response is
+not a separate final re-fetch; verify broad or consequential changes with a bounded
+completed or incomplete read.
 
-```
+For a recurring reminder, Apple EventKit exposes only the first incomplete
+occurrence. Completing it makes the next occurrence available. Treat completion as
+“finish this occurrence and advance the series,” then verify the next incomplete
+occurrence. Do not promise that `--undo` is a simple rollback after advancement.
+
+## Delete
+
+```text
 apple-reminders delete --id <id>
 ```
 
-Removes the reminder from the store via EventKit `removeReminder:`.
-
-`data`:
-
 ```json
-{ "id": "A1B2C3D4-...", "title": "File taxes", "list": "Admin", "deleted": true }
+{
+  "id": "A1B2C3D4-...",
+  "title": "Send project update",
+  "list": "Work",
+  "deleted": true
+}
 ```
 
-Whether the deletion is recoverable from the Reminders app's Recently Deleted is
-**not verified** for this path — do not promise the user that it is. Capture
-`title`, `list`, `due`, `priority`, and `notes` from a read before deleting so the
-reminder can be recreated by hand.
+The command calls EventKit removal and does not independently re-fetch active or
+Recently Deleted state. Capture a deletion record first. `deleted:true` does not
+prove the item entered Apple's Recently Deleted list or will be recoverable.
 
-## Id resolution cost
-
-`update`, `complete`, and `delete` resolve `--id` by fetching **every reminder in
-the store** and linear-searching for a matching `calendarItemIdentifier`, under a
-10-second timeout. If that fetch times out the lookup returns nothing, which
-surfaces as `no_data` — "Reminder not found with id ...".
-
-So `no_data` on a large store is ambiguous: it can mean the reminder is gone, or
-that the scan did not finish. Re-read before telling the user their reminder no
-longer exists.
+Reminder delete has no occurrence or span flag. When `recurrence` is present,
+require explicit whole-series deletion intent rather than implying that one future
+occurrence can be removed.
 
 ## Date grammar
 
-`--due` is parsed by `noff_parse_date`, in this order:
+`--due` and `--recur-until` use the shared date parser:
 
-1. **Relative, past only** — `-<N>d`, `-<N>h`, `-<N>m` (`-7d`, `-2h`, `-30m`).
-   `N` must be greater than 0, and only `d`, `h`, `m` are recognized. **There is no
-   future form**: `+3d` does not parse.
-2. **ISO 8601 internet date-time**, with or without fractional seconds —
-   `2026-08-07T18:00:00+09:00`, `2026-08-07T18:00:00Z`.
-3. **Local-timezone patterns**, tried in order, using the device timezone:
-   `yyyy-MM-dd'T'HH:mm:ss`, `yyyy-MM-dd'T'HH:mm`, `yyyy-MM-dd`.
+1. Past-only offsets: `-7d`, `-2h`, `-30m`.
+2. ISO 8601 with an offset or `Z`.
+3. Device-local patterns: `yyyy-MM-dd'T'HH:mm:ss`,
+   `yyyy-MM-dd'T'HH:mm`, and `yyyy-MM-dd`.
 
-Anything else returns nothing, and the caller drops the flag without an error.
-Natural language (`tomorrow`, `next Monday`, `내일`, `明天`) and bare offsets
-(`3d`, `+1w`) all fail this way.
+There is no future relative form: `+3d` does not parse. Natural-language dates do
+not parse. Convert them before invoking the command.
 
-Because due dates are almost always in the future and relative parsing only goes
-backwards, **absolute local datetimes are the only practical form for `--due`**:
-compute `YYYY-MM-DDTHH:MM` yourself.
+A date-only value becomes 00:00 local with hour and minute components. It is not a
+typed all-day value. Conversely, an all-day reminder created in Apple's app can
+also serialize as 00:00 here, making intentional midnight and all-day
+indistinguishable.
 
-Stored due dates keep year, month, day, hour, and minute. A date-only value
-therefore becomes 00:00 local — this command cannot create an all-day reminder. No
-`EKAlarm` is attached by any verb, so treat "a notification will fire at that time"
-as the Reminders app's behaviour, not something this command arranges.
+The due field alone does not expose whether the installed build attached a
+time-based `EKAlarm`. Do not promise a notification banner. A one-time physical
+device smoke test provides evidence only for the current device, account,
+notification settings, and Focus state; it does not prove build-wide behavior. Do
+not schedule a second notification automatically because it could duplicate alerts.
 
-**All-day reminders made elsewhere are indistinguishable in `list` output.** A
-reminder created in the Reminders app with a date but no time is all-day in EventKit
-— its `dueDateComponents` carry no hour or minute — and `list` converts those
-components with `dateFromComponents:`, so it surfaces as `T00:00:00` local, exactly
-like a reminder deliberately due at midnight. So a due time of exactly 00:00 is more
-likely an all-day item than a midnight deadline: present it as a date rather than as
-"due at 12:00 AM", and do not "correct" it by writing a time onto it.
+## Priority
 
-## Priority scale
-
-`--priority` takes 0–9 and is stored on `EKReminder.priority` without validation.
-The EventKit scale is inverted relative to intuition:
+EventKit priority is inverted:
 
 | Value | Meaning |
 |---|---|
 | 0 | None |
-| 1–4 | High (1 is highest) |
+| 1–4 | High; 1 is highest |
 | 5 | Medium |
-| 6–9 | Low (9 is lowest) |
+| 6–9 | Low; 9 is lowest |
 
-Map user words onto it — high → 1, medium → 5, low → 9 — and never pass a number
-the user offered as a 1-to-10 importance ranking.
+Use high → 1, medium → 5, low → 9 unless the user gives an exact valid EventKit
+value. Do not treat a user's “10 out of 10” importance as `--priority 10`.
+
+## Recurrence
+
+Use this branch only when runtime help shows the flags.
+
+```text
+--recur daily|weekly|monthly|yearly
+--recur-interval <positive integer>
+--recur-days <comma-separated weekdays>
+--recur-until <ISO datetime>
+--recur-count <positive integer>
+--clear-recur
+```
+
+Rules:
+
+- Recurrence requires a valid due date, either stored already for update or passed
+  in the same command.
+- Interval defaults to 1.
+- Weekday tokens accept names/codes such as `mon`, `monday`, or `mo`.
+- `--recur-days` is invalid with daily frequency. For weekly recurrence, omitting
+  days uses the due date's weekday.
+- `--recur-until` and `--recur-count` are mutually exclusive. With neither, the
+  rule repeats forever.
+- Until must be later than the effective due date.
+- One recurrence rule is stored; a new full rule replaces the previous one.
+
+Apple documents that only the first incomplete reminder in a recurring set is
+obtainable; completing it exposes the next. The command has no occurrence/span
+selector for reminder update or delete. Before update, move, or delete, state the
+repeating scope and require explicit whole-series intent. After completion, verify
+the next occurrence rather than assuming the same item can simply be undone.
+
+If both the due anchor and rule must change, make two verified patches: update only
+`--due`, compare the returned due against the intended value, then send only the
+complete new recurrence rule. An invalid due is silently ignored; combining both
+changes could otherwise build the rule from the old due. Clear recurrence in its
+own update and never mix `--clear-recur` with `--recur*`.
+
+Examples:
+
+```bash
+apple-reminders create --title "Send weekly report" \
+  --due 2026-08-31T09:00 --recur weekly --recur-days mon --compact
+
+apple-reminders create --title "Water plants" \
+  --due 2026-08-31T08:00 --recur daily --recur-interval 2 \
+  --recur-count 10 --compact
+
+apple-reminders update --id "<id>" --clear-recur --compact
+```
+
+Serialized recurrence contains `frequency`, `interval`, optional
+`days_of_week`, and exactly one ending form: `until`, `count`, or
+`never_ends:true`.
+
+## Location geofences
+
+Use this branch only when runtime help shows the flags.
+
+```text
+--lat <WGS-84 latitude>
+--lng <WGS-84 longitude>
+--location-name <label>
+--radius <non-negative meters>
+--proximity enter|leave
+--clear-location
+```
+
+Both latitude and longitude are required. Latitude must be -90 through 90 and
+longitude -180 through 180. Omitted name defaults to a coordinate label. Omitted
+radius uses the system default. Proximity defaults to `enter`; use `leave` for
+departure.
+
+When an address is given, `apple-location forward --address "<address>"` can
+resolve it. Use returned WGS-84 `latitude` and `longitude`, never a `gcj02_*`
+variant. If several places are plausible, resolve the place with the user before
+creating the reminder. Address geocoding may require connectivity.
+
+Location arguments add or replace one structured geofence. Bad or partial
+coordinates fail the command. If Location Services permission is denied, the
+command fails before saving rather than silently creating a reminder without the
+requested geofence.
+
+Examples:
+
+```bash
+apple-reminders create --title "Pick up parcel" \
+  --location-name "Station" --lat 37.5547 --lng 126.9707 \
+  --radius 200 --proximity enter --compact
+
+apple-reminders update --id "<id>" --clear-location --compact
+```
+
+Serialized location contains name, latitude, longitude, `radius_m`, and
+`proximity`. A due date and location geofence may coexist. Treat precise
+coordinates as sensitive; ordinary user-facing reports should show the place name,
+arrive/leave intent, and radius rather than raw latitude/longitude.
+
+## Verification
+
+Use the weakest sufficient verification without overstating it:
+
+1. Require expected exit status, `ok`, `action`, and response fields.
+2. Compare returned ID, title, and full list title.
+3. Compare fields echoed by update or by recurrence/location create.
+4. For due, priority, notes, or any material omitted field, use a bounded read and
+   positively match the returned ID. Truncation does not invalidate a returned
+   match; it invalidates absence claims.
+5. Check truncation and the silent-empty timeout before using absence as evidence.
+6. If final read-back cannot be completed, report the write as accepted but
+   unverified. Do not retry a create blindly.
+
+There is no exact read-by-ID command. Verification therefore depends on a positive
+ID match in a nonempty result. An empty result alone cannot verify absence because
+the fetch may have timed out.
+
+## Errors and timeout ambiguity
+
+Error codes include `authorization_denied`, `authorization_not_determined`,
+`not_available`, `invalid_args`, `no_data`, and `internal_error`.
+
+`update`, `complete`, and `delete` resolve an ID by fetching all reminders and
+linear-searching under a 10-second wait. On a large or slow store, `no_data` can
+mean the fetch timed out, not that the ID never existed. Separately, `list` can
+turn the same timeout into an empty successful result. Re-read before declaring an
+item absent.
+
+Never continue a batch after permission denial, invalid arguments, unexpected
+response shape, wrong destination, failed verification, or uncertain dispatch.
 
 ## Not exposed
 
-Not reachable through this command at all: sections, tags, flags, image or URL
-attachments, subtasks, list creation or deletion, list emoji and color, all-day due
-dates, recurrence rules, alarms, location triggers, messaging triggers, and
-enumerating lists that contain no reminders. There is also no `lists` subcommand —
-list titles are only observable through the `list` field of reminders that exist
-inside them.
+No current verb or flag provides:
+
+- sections, native tags, flags, or subtasks;
+- image/file attachments;
+- the reminder URL field or URL attachments;
+- list enumeration, account/source IDs, exact list selection, or list management;
+- typed all-day due values, clearing due, or clearing notes;
+- message/contact triggers;
+- search, sort, due/completion range, pagination, or exact read-by-ID;
+- completion timestamp or revision guard;
+- idempotency keys;
+- Recently Deleted inspection or recovery.
+
+Do not invent a command to cover these gaps. Use the manual iPhone recovery and
+honest recreation workflow in [capture-recovery.md](capture-recovery.md).
