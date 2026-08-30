@@ -280,6 +280,134 @@
           "type": "contains"
         }
       ]
+    },
+    {
+      "id": 12,
+      "prompt": "A Minis tool log shows this create command: apple-reminders create --title 'PR88 recurrence test' --due 2026-09-07T10:00:00+09:00 --recurrence '{\"frequency\":\"daily\",\"interval\":1,\"count\":3}' --compact. It returned ok:true and an ID; both list read-back and an independent EventKit read positively matched that returned ID and showed no recurrence. Diagnose this without creating or changing anything.",
+      "expected_output": "The agent performs no write. It identifies --recurrence JSON as an unsupported invented option, explains that this parser silently ignores unknown options, and classifies the result as a verified one-off create rather than successful recurring creation. It points to --recur daily --recur-count 3, optionally with explicit --recur-interval 1, but does not create a duplicate or repair the existing ID without authorization.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no write and does not replay the create command",
+          "type": "contains"
+        },
+        {
+          "text": "States that --recurrence JSON is not a supported alias and that unknown options can be silently ignored",
+          "type": "contains"
+        },
+        {
+          "text": "Treats the returned ID as an existing non-recurring reminder, not a failed transaction or successful recurrence",
+          "type": "contains"
+        },
+        {
+          "text": "If runtime help exposes recurrence, names --recur daily --recur-count 3, optionally with explicit --recur-interval 1, without applying it or creating a duplicate",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "A daily reminder was created for 2026-09-01 09:10 with a date end of 2026-09-03 09:10. A due-only update moved due to 09:20 while exact start stayed 09:10. Manual completions produced completed records due 9/1 09:20 and 9/2 09:20, followed by trustworthy absence of a 9/3 item. A matched control with the same original 09:10 start/due/end and no due patch exposed its 9/3 09:10 occurrence after the same two completions; completing that third occurrence produced exactly three completed records and no 9/4 successor. Diagnose the controlled result without changing anything.",
+      "expected_output": "The agent performs no write and reports the observed daily-until retiming as failed relative to the intended through-9/3 schedule: the due patch passed, start re-anchoring failed, the 10-minute offset persisted, and the retimed series ended after two while the matched control exposed three. It says the controlled comparison shows the due-only patch shortened the series on this device/build/account without claiming a general EventKit boundary contract, and treats existing-series retiming as unsupported.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no completion, update, rule replacement, or other write",
+          "type": "contains"
+        },
+        {
+          "text": "Reports two occurrences for the retimed series and the third exact-boundary occurrence for the matched control",
+          "type": "contains"
+        },
+        {
+          "text": "Separates due-field success, start re-anchor failure, offset preservation, and the observed schedule-shortening outcome",
+          "type": "contains"
+        },
+        {
+          "text": "Uses the controlled comparison to report observed series shortening while keeping the underlying EventKit boundary rule scoped and ungeneralized",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "A disposable reminder was updated from no location alarm to Apple Park (37.3349, -122.0090) enter/200m, then replaced with Eiffel Tower (48.8584, 2.2945) enter/300m, then cleared. After each single write, exact EventKit reads showed respectively one requested structured-location alarm, one replacement alarm with the old one absent, and alarms:[]; due, start, title, and recurrence stayed unchanged. No physical boundary crossing or permission-denial test was performed. Summarize the verdicts without changing anything.",
+      "expected_output": "The agent performs no write. It reports geofence add, replace, and clear storage behavior as passed for the observed item and confirms unrelated fields were preserved. It keeps actual enter-trigger delivery and permission-denial behavior untested, avoids claiming a notification fired, and does not expose raw coordinates in an ordinary user-facing summary.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no create, update, clear, or other write",
+          "type": "contains"
+        },
+        {
+          "text": "Reports add, replace, and clear storage read-back as observed passes",
+          "type": "contains"
+        },
+        {
+          "text": "Confirms exactly one requested location alarm after each set/replace and zero after clear, with unrelated fields unchanged",
+          "type": "contains"
+        },
+        {
+          "text": "Keeps physical geofence delivery and permission denial untested and makes no banner claim",
+          "type": "contains"
+        },
+        {
+          "text": "Does not expose raw latitude and longitude in the ordinary user-facing summary",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "A disposable reminder was read exactly, deleted once through apple-reminders, and then absent from active EventKit while a known survivor still read successfully. The iPhone Recently Deleted list showed the exact title and due at the top. A manual Recover removed it from Recently Deleted, and exact active read-back showed the same ID, due, and TASKS list; TASKS is the device default list. Summarize what this proves without changing anything.",
+      "expected_output": "The agent performs no write. It reports active-store deletion, observed Recently Deleted appearance, and manual recovery as separate passes for this iPhone/account. It notes that recovery to TASKS is consistent with TASKS being the default list and that the immediate read returned the same calendarItemIdentifier string, which is an observation rather than a public EventKit guarantee or a result generalized to other devices and accounts.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no delete, recover, move, recreate, or other write",
+          "type": "contains"
+        },
+        {
+          "text": "Separates command deletion, verified active absence, Recently Deleted UI visibility, and recovery into distinct verdicts",
+          "type": "contains"
+        },
+        {
+          "text": "Uses the known-survivor read as support for trustworthy active absence",
+          "type": "contains"
+        },
+        {
+          "text": "Explains that TASKS was the default list and reports the immediately repeated calendarItemIdentifier string only as an observation",
+          "type": "contains"
+        },
+        {
+          "text": "Does not claim that every command deletion is recoverable or that public EventKit exposes Recently Deleted",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "A timed reminder create returned ok:true and due read-back passed. Independent EventKit reads show start and due at 2026-09-07 10:00 but alarms:[]. The current OpenMinis public reminder implementation sets dueDateComponents and constructs EKAlarm only for structured locations. No near-future banner or sound test was run. What can be claimed, and should the agent schedule another alert to test it?",
+      "expected_output": "The agent reports timed due storage as passed and that the independent read exposed no attached EventKit alarm objects for the observed item. It keeps iOS banner and sound delivery untested because due metadata and attached EKAlarm evidence are distinct, and it does not schedule a second alert automatically because that could duplicate notifications or wake the user.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Separates due storage, explicit EventKit alarm storage, and physical notification delivery into three verdicts",
+          "type": "contains"
+        },
+        {
+          "text": "Reports that alarms:[] exposed no attached EventKit alarm objects at read-back, not proof that iOS can never notify from due metadata",
+          "type": "contains"
+        },
+        {
+          "text": "Keeps banner and sound delivery untested for the current device settings",
+          "type": "contains"
+        },
+        {
+          "text": "Treats the question as advice rather than write authorization; performs no create, update, or scheduling, and requires explicit approval for any future smoke test",
+          "type": "contains"
+        }
+      ]
     }
   ]
 }

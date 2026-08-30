@@ -248,9 +248,9 @@ Stop on the first failed, mismatched, or unverified result.
 
 ## Recently Deleted recovery
 
-The current command cannot list or recover Recently Deleted. Public iOS EventKit
-does not expose that operation. Do not use private APIs or call a recreation a
-restore.
+The current command cannot list or recover Recently Deleted. Current public iOS
+EventKit does not expose that operation. Do not use private APIs or call a
+recreation a restore.
 
 When Recently Deleted is visible for the relevant account and settings, use
 Apple's [manual iPhone recovery workflow](https://support.apple.com/guide/iphone/iph51b488c05/ios):
@@ -267,6 +267,13 @@ Apple's [manual iPhone recovery workflow](https://support.apple.com/guide/iphone
    preserved; Apple documents recovery, not identifier stability.
 7. If a recorded original list has the best-effort selector conditions, offer to
    move the item from the default list back to it and verify the move.
+
+On one observed iPhone/iCloud account, a disposable command-deleted reminder
+appeared at the top of Recently Deleted with its title and due, and manual Recover
+returned it to the default `TASKS` list; immediate read-back exposed the same
+`calendarItemIdentifier` string and due. That is useful device evidence, not a
+public EventKit guarantee. Keep the workflow manual, and continue to verify
+destination, fields, and current ID after every recovery.
 
 Do not automate the Reminders UI or use private frameworks. A missing item in one
 truncated read does not prove recovery failed.

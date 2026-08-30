@@ -216,6 +216,11 @@ Silent behaviors:
   returns success. Compare the returned full `list` title.
 - An unparseable `--due` is ignored and returns success. With a recurrence request,
   the missing valid due causes recurrence validation to fail instead.
+- Unknown options are not rejected. In an observed run, `--recurrence '<JSON>'`
+  was ignored and create returned `ok:true` for a one-off reminder. It is not an
+  alias for the documented `--recur` and `--recur-*` flags. Treat a missing
+  recurrence field as a failed recurrence intent even when the envelope succeeded;
+  reconcile the returned ID instead of creating a duplicate.
 - Priority is converted to an integer without strict validation in the current
   public source. Pass only a validated 0–9 value.
 
@@ -255,11 +260,14 @@ proves only that the due field changed. It does not prove that a timed recurring
 series was fully re-anchored. In one observed build, the requested due and existing
 recurrence rule read back successfully while an independent EventKit read still
 showed the old start. A later single manual completion of that disposable series
-exposed the next occurrence with the same 10-minute start-to-due offset. That one
-nonterminal step does not establish the terminal date-end behavior or a general
-recurrence policy. Treat a request to retime an existing recurring reminder as
-unsupported unless the user explicitly accepts a due-field-only patch with this
-hidden-start limitation.
+exposed the next occurrence with the same 10-minute start-to-due offset. After the
+second completion, exact completed reads contained only the first two occurrences
+and trustworthy incomplete reads found no third. A matched control with the same
+daily start/due and date end, but no due-only patch, exposed the third occurrence
+at the exact 09:10 end boundary. This controlled comparison shows that the due-only
+patch shortened the observed series from three occurrences to two on that
+device/build/account. It does not establish a general EventKit boundary contract.
+Treat existing-series retiming as unsupported on this command.
 
 Silent behaviors:
 
@@ -394,11 +402,14 @@ typed all-day value. Conversely, an all-day reminder created in Apple's app can
 also serialize as 00:00 here, making intentional midnight and all-day
 indistinguishable.
 
-The due field alone does not expose whether the installed build attached a
-time-based `EKAlarm`. Do not promise a notification banner. A one-time physical
-device smoke test provides evidence only for the current device, account,
-notification settings, and Focus state; it does not prove build-wide behavior. Do
-not schedule a second notification automatically because it could duplicate alerts.
+The current OpenMinis public reminder implementation sets due components but
+constructs an `EKAlarm` only for structured locations. Independent exact read-back
+of observed timed reminders exposed no attached `EKAlarm` objects. That does not by
+itself prove that iOS will or will not derive a notification from due metadata.
+Keep due storage, attached-alarm storage, and physical banner or sound delivery as
+three verdicts. A one-time device smoke test is scoped to that device, account,
+notification settings, and Focus state. Do not schedule a second notification
+automatically because it could duplicate alerts.
 
 ## Priority
 

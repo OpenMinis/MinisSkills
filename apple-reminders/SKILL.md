@@ -128,14 +128,23 @@ set; completing it makes the next occurrence available. Therefore:
 - do not use `--undo` as a guaranteed rollback after the series advanced;
 - the command has no occurrence/span selector for reminder update or delete, so
   require explicit whole-series intent before either action on a recurring item.
+- The current `apple-reminders` handler does not reject unknown or unused
+  options. Use only the exact runtime help spellings: `--recur` plus
+  `--recur-*`; `--recurrence`
+  with a JSON value is not an alias. A create can return `ok:true` after silently
+  ignoring that invented flag. Require positive recurrence in the create response
+  or ID-matched read-back; when absent, report a non-recurring write and reconcile
+  that exact item rather than creating another one.
 - `--due` updates and exposes `dueDateComponents`, but the current command neither
   updates nor exposes `startDateComponents`. On an observed recurring reminder, a
   due-only update preserved the serialized rule while exact EventKit state kept
-  the old start. Do not use due-only update to claim that a timed series was
-  re-anchored, or chain a recurrence replacement as a workaround. For a request
-  to retime an existing series, explain the boundary and stop unless the user
-  explicitly accepts a due-field-only patch with the hidden start preserved. Even
-  then, report actual next-occurrence timing as unverified. Never combine
+  the old start. In that disposable daily-until test, the offset persisted into
+  the second occurrence and no third active occurrence was found afterward,
+  while a matched control without the due patch exposed its third occurrence at
+  the exact date-end boundary. On that observed device/build/account, the due-only
+  patch shortened the series from three occurrences to two. Treat existing-series
+  retiming as unsupported without generalizing the underlying EventKit boundary
+  rule. Do not chain a recurrence replacement as a workaround. Never combine
   `--clear-recur` with new recurrence flags.
 - A count-based end can be present in EventKit and command read-back while Apple's
   Reminders UI shows “Never,” because the Mac UI exposes only a date-based repeat
