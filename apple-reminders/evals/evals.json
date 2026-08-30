@@ -120,7 +120,7 @@
     {
       "id": 6,
       "prompt": "Today is 2026-08-30 and my device timezone is America/Los_Angeles. Starting 2026-08-31 at 09:00, every other Monday for 8 occurrences, remind me to send the report when I arrive at the office. Office WGS-84 coordinates are 37.3318, -122.0312.",
-      "expected_output": "The agent first checks runtime help for recurrence and location flags. If present, it creates one reminder with a due anchor, weekly interval 2, Monday, count 8, and an enter geofence using the supplied WGS-84 coordinates. It verifies recurrence/location output and does not create eight copies or promise a time banner.",
+      "expected_output": "The agent first checks runtime help for recurrence and location flags. If present, it creates one reminder with a due anchor, weekly interval 2, Monday, count 8, and an enter geofence using the supplied WGS-84 coordinates. It verifies stored recurrence/location output and does not create eight copies, claim that read-back proves eight-occurrence enforcement, or promise a time banner.",
       "files": [],
       "assertions": [
         {
@@ -136,7 +136,7 @@
           "type": "contains"
         },
         {
-          "text": "Verifies recurrence and location state and does not promise that the due field guarantees a notification banner",
+          "text": "Verifies stored recurrence and location state without claiming this proves eight-occurrence enforcement or a notification banner",
           "type": "contains"
         }
       ]
@@ -168,7 +168,7 @@
     {
       "id": 8,
       "prompt": "apple-reminders list reports that “Minis 반복 테스트” is daily with count:3, but the synced Mac Reminders details panel says Repeat End: Never. Diagnose this without changing the reminder.",
-      "expected_output": "The agent does not recreate or edit the recurrence. It explains that EventKit supports count-based ends while the Mac Reminders UI exposes a date-based end and can be a lossy projection. It treats independent command/EventKit count read-back as storage evidence, warns that editing the UI could overwrite the hidden count, and proposes an occurrence-by-occurrence disposable completion test to verify actual enforcement.",
+      "expected_output": "The agent does not recreate or edit the recurrence. It explains that EventKit supports count-based ends while the Mac Reminders UI exposes a date-based end and can be a lossy projection. It treats independent command/EventKit count read-back as storage evidence, warns that editing the UI could overwrite the hidden count, and proposes a disposable behavioral test whose recurring completion steps are explicitly retry-unsafe and verified one at a time.",
       "files": [],
       "assertions": [
         {
@@ -184,7 +184,39 @@
           "type": "contains"
         },
         {
-          "text": "Proposes completing a disposable count-based series one occurrence at a time and checking that no N+1 occurrence appears",
+          "text": "Treats each disposable-series completion as retry-unsafe, verifies one new completion and the immediate next due predicted by the full rule, uses remaining count only as corroboration, and only then checks that no N+1 occurrence appears",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "I asked Minis to complete one occurrence of a daily count:3 test. The active series ID stayed the same, but due jumped from 2026-09-01 to 2026-09-03 and count fell to 1. Completed records show 2026-09-01 at 02:01:34.775 and 2026-09-02 at 02:03:08.932. Diagnose this, and do not complete anything else.",
+      "expected_output": "The agent performs no write. It recognizes two completion transitions about 94 seconds apart rather than one atomic completion. It explains that the evidence is consistent with a retry or another client write because the unchanged active series ID lets a repeated complete command consume the newly exposed successor, but does not identify the actor or number of native invocations without expanded logs. It asks for or reviews the relevant expanded shell tool calls. It classifies recurring completion as retry-unsafe and reports three explicit verdicts: the requested end-to-end single-step invariant failed, one native invocation's atomicity remains inconclusive until logs are inspected, and final count enforcement remains inconclusive while the 2026-09-03 occurrence is still active.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no further completion and identifies two timestamped completion transitions rather than one atomic step",
+          "type": "contains"
+        },
+        {
+          "text": "Explains that the stable active series ID lets a retry target the next occurrence and marks recurring complete as retry-unsafe",
+          "type": "contains"
+        },
+        {
+          "text": "Requests expanded shell tool-call evidence to determine which client or agent call performed the second write",
+          "type": "contains"
+        },
+        {
+          "text": "Does not claim that one native invocation double-saved or identify the second actor without expanded logs",
+          "type": "contains"
+        },
+        {
+          "text": "Keeps storage read-back, the requested agent-run step, native-call atomicity, and final count enforcement as separate verdicts",
+          "type": "contains"
+        },
+        {
+          "text": "Marks the requested end-to-end single-step invariant failed while native one-invocation atomicity and final count enforcement remain inconclusive",
           "type": "contains"
         }
       ]

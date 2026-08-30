@@ -293,6 +293,38 @@ occurrence. Completing it makes the next occurrence available. Treat completion 
 “finish this occurrence and advance the series,” then verify the next incomplete
 occurrence. Do not promise that `--undo` is a simple rollback after advancement.
 
+Recurring completion is **retry-unsafe**. The active series can keep the same ID
+after a completion, so repeating the same command can complete the newly exposed
+successor rather than harmlessly re-completing the prior occurrence. The command
+has no idempotency key, expected-due guard, or revision precondition.
+
+Before dispatch, record the active ID, due, recurrence, and a bounded matching
+completed baseline. If the baseline is truncated, unexpectedly empty, ambiguous,
+or cannot uniquely isolate the series, skip the automated behavioral completion;
+use a manual one-tap step or report the test inconclusive.
+
+For one user-authorized step, dispatch exactly one write-bearing shell/tool call
+total with exactly one completion invocation. Every later call in the same turn is
+read-only, including after success, timeout, lost response, or ambiguity. Those
+uncertain outcomes are possibly committed and must not be retried. Re-read active
+and bounded completed state instead. A verified nonterminal step adds one completed
+occurrence, exposes the immediate next due predicted by the full recurrence rule,
+and does not otherwise mutate the series. A terminal step adds one completed
+occurrence and leaves no active successor under a trustworthy read. On builds whose
+read-back uses `count` for remaining occurrences, a one-count reduction is
+corroborating rather than primary evidence. Stop on any larger jump or unexplained
+delta.
+
+A larger jump or two distinct completion timestamps proves that the end-to-end
+single-step invariant failed; state alone does not identify the actor, shell/tool
+call count, or native invocation count. Inspect expanded tool-call logs before
+attribution, and never label the observation a native double-save without them.
+
+At the final count, no active successor should remain. Because an EventKit fetch
+timeout can masquerade as an empty successful list, absence is conclusive only
+when the same bounded read also returns expected known survivors or comparable
+fetch-completion evidence. Otherwise report final enforcement as inconclusive.
+
 ## Delete
 
 ```text
@@ -389,9 +421,16 @@ that the count was lost, and do not edit/save the repeat field merely to correct
 the label because the UI may overwrite a value it cannot represent.
 
 Verify count-based storage with command read-back. When actual enforcement matters,
-complete a disposable recurring test one occurrence at a time: the next occurrence
-should appear after each completion before N, and no next incomplete occurrence
-should appear after completion N. Keep this behavioral check separate from whether
+use a disposable recurring test and apply the retry-unsafe completion guard above.
+Each accepted nonterminal step must add one completed occurrence, expose the
+immediate next due predicted by the full rule, and leave the rest of the series
+unchanged. The terminal step must add one completed occurrence and leave no
+successor under a trustworthy read. A one-count reduction, when this build
+serializes remaining occurrences that way, is corroborating evidence. Only after
+every step passes may absence of an N+1 occurrence establish enforcement. A manual
+one-tap completion in Reminders can isolate EventKit behavior from agent or shell
+replay. For an automated test, use a separate human-reviewed turn for each step;
+never batch multiple completions. Keep this behavioral check separate from whether
 a notification alarm exists.
 
 Apple documents that only the first incomplete reminder in a recurring set is

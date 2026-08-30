@@ -106,8 +106,17 @@ set; completing it makes the next occurrence available. Therefore:
 
 - before update, move, complete, undo, or delete, inspect whether `recurrence` is
   present and state the repeating scope;
-- completion means “finish the current occurrence and advance the series”; verify
-  the next incomplete occurrence rather than promising simple reversal;
+- recurring completion is retry-unsafe: after one successful write, the same
+  active series ID can resolve to the newly exposed next occurrence. First obtain
+  a complete-enough, uniquely matched snapshot of ID, due, recurrence, and bounded
+  completed state; otherwise skip automated completion testing. For one authorized
+  step, dispatch exactly one write-bearing shell/tool call total. Every later call
+  in that turn is read-only, even after success, timeout, or ambiguity. A valid
+  nonterminal step adds one completed occurrence and exposes the immediate next due
+  predicted by the full rule; a terminal step adds one completed occurrence and
+  leaves no successor under a trustworthy read. On builds that serialize `count`
+  as remaining occurrences, a one-count reduction is corroborating evidence. Any
+  larger jump stops the workflow without attributing an actor from state alone;
 - do not use `--undo` as a guaranteed rollback after the series advanced;
 - the command has no occurrence/span selector for reminder update or delete, so
   require explicit whole-series intent before either action on a recurring item.
@@ -117,8 +126,9 @@ set; completing it makes the next occurrence available. Therefore:
 - A count-based end can be present in EventKit and command read-back while Apple's
   Reminders UI shows “Never,” because the Mac UI exposes only a date-based repeat
   end. Treat that UI as a lossy projection: verify `count` through command
-  read-back, do not edit the rule in Reminders merely to “fix” the display, and use
-  occurrence-by-occurrence completion when actual count enforcement is critical.
+  read-back and do not edit the rule in Reminders merely to “fix” the display.
+  Behavioral enforcement tests use a disposable series, the single-step invariant
+  above, and a stop for human review after every completion.
 
 Read the recurrence section in the CLI reference before acting.
 
