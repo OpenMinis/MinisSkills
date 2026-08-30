@@ -254,9 +254,11 @@ updates nor exposes `startDateComponents`. A successful due-only update therefor
 proves only that the due field changed. It does not prove that a timed recurring
 series was fully re-anchored. In one observed build, the requested due and existing
 recurrence rule read back successfully while an independent EventKit read still
-showed the old start. Actual next-occurrence behavior was not established by that
-observation. Treat a request to retime an existing recurring reminder as
-unsupported unless the user explicitly accepts a due-field-only patch with that
+showed the old start. A later single manual completion of that disposable series
+exposed the next occurrence with the same 10-minute start-to-due offset. That one
+nonterminal step does not establish the terminal date-end behavior or a general
+recurrence policy. Treat a request to retime an existing recurring reminder as
+unsupported unless the user explicitly accepts a due-field-only patch with this
 hidden-start limitation.
 
 Silent behaviors:
