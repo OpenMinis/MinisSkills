@@ -29,6 +29,10 @@ trigger “Register for DevDay,” while the later event date is supporting cont
 Assign a date to `due` only when it controls this action; keep context dates in
 notes.
 
+Resolve clear relative wording against the source date and device timezone. Keep
+wording such as “early next week” unresolved when it does not identify one safe
+date or time.
+
 The current command cannot store a typed all-day due. Bare `YYYY-MM-DD` becomes a
 timed midnight. For a date-only trigger:
 
@@ -47,6 +51,12 @@ Choose one canonical link by the action it enables: Register, Join, Pay, Review,
 or another concrete next step. The current command cannot write the native
 reminder URL field, so a needed link can only be stored as concise labelled note
 text. Treat it as note text, not as a native URL or attachment.
+
+That fallback still shows the full raw URL. When the user values a clean card,
+apply their established preference or include one choice in the same clarification:
+keep the single labelled URL in notes, or omit it. Clean native URL presentation is
+unavailable until the command exposes the EventKit field; native support is tracked
+in [OpenMinis/OpenMinis#286](https://github.com/OpenMinis/OpenMinis/issues/286).
 
 Keep a second link only when it supports a genuinely different next step or
 reference the user will need. Source archiving is a different job from composing a
@@ -73,5 +83,6 @@ notes:
 
 The registration page is the canonical action link. The general information page
 stays out unless it adds needed information or the user asks to retain it. After
-the storage choice is resolved, use this same card as the write intent and the
-read-back comparison. Report only its verified phone-sized projection.
+the date and link storage choices are resolved, use this same card as the write
+intent and the read-back comparison. Report only its verified phone-sized
+projection.

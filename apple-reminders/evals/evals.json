@@ -420,7 +420,7 @@
     {
       "id": 17,
       "prompt": "UPCOMING EVENTS 목록에 OpenAI DevDay Exchange 2026 참가 신청 미리 알림을 만들어줘. 신청 마감은 2026-09-04이고 시간은 따로 없었어. 서울 행사는 2026-10-22 오후 2시야. 신청 페이지는 https://events.openai.com/devdayexchange2026/register?lang=ko 이고 행사 안내는 https://events.openai.com/devdayexchange2026?lang=ko 야. 나는 날짜가 제목과 메모에 반복되거나 URL이 여러 번 보이는 지저분한 항목은 싫어. 날짜만 있는 항목을 어떻게 저장할지 정해둔 선호는 아직 없어.",
-      "expected_output": "The agent first composes a compact card: an action-focused registration title, the Sep 4 deadline as the intended trigger, the Oct 22 14:00 Seoul event as supporting context, and the registration page as the single canonical action link. Because the current command cannot create a typed all-day due or native URL field, it performs no write yet and asks one compact storage choice for the date-only trigger: supply a real local time, or leave due unset and keep the date in notes. It explains that the canonical link would be labelled note text on this build, not a native URL attachment, and omits the general event-information URL unless it adds a distinct need or the user asks to retain it.",
+      "expected_output": "The agent first composes a compact card: an action-focused registration title, the Sep 4 deadline as the intended trigger, the Oct 22 14:00 Seoul event as supporting context, and the registration page as the single canonical action link. Because the current command cannot create a typed all-day due or native URL field, it performs no write yet and asks one compact storage decision covering both fidelity gaps: supply a real local time or leave due unset with the date in notes, and keep one fully visible labelled URL in notes or omit it for a cleaner card. It omits the general event-information URL unless it adds a distinct need or the user asks to retain it.",
       "files": [],
       "assertions": [
         {
@@ -436,11 +436,11 @@
           "type": "contains"
         },
         {
-          "text": "Asks one compact choice between a real local due time and an unscheduled reminder with the date in notes",
+          "text": "Asks one compact clarification covering a real local due time versus an unscheduled date note, and one fully visible labelled URL versus omitting it for a cleaner card",
           "type": "contains"
         },
         {
-          "text": "Selects the registration page as the one canonical action link, describes the current fallback as labelled note text rather than a native URL or attachment, and keeps the second URL only if it adds distinct value",
+          "text": "Selects the registration page as the one canonical action link, explains that the current note fallback still displays the full raw URL rather than a native URL or attachment, and keeps the second URL only if it adds distinct value",
           "type": "contains"
         }
       ]

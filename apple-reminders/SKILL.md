@@ -235,10 +235,10 @@ what changes.
 Reply in the user's language and lead with the result and item count. Project each
 verified reminder back as a phone-sized card: title first, followed by one compact
 line containing only the useful verified trigger, full list title, recurrence, or
-location. Use exact dates with weekdays, and omit a time when the source supplied
-none. Keep notes and raw URLs private unless the user asks to see them or they are
-needed to explain a material choice. Keep unresolved candidates in one separate
-sentence instead of mixing them with created items.
+location. Use exact dates with weekdays, and show a time only when the user supplied
+or selected it. Keep notes and raw URLs private unless the user asks to see them or
+they are needed to explain a material choice. Keep unresolved candidates in one
+separate sentence instead of mixing them with created items.
 
 Do not show raw JSON, IDs, local paths, command lines, or repeated note text in a
 normal response. Distinguish verified, accepted-but-unverified,
