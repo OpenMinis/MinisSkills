@@ -226,10 +226,7 @@ Silent behaviors:
 
 The public reminder path exposes neither `--url` nor an attachment flag. Because
 unknown options can be ignored, an invented URL flag is not a safe feature probe.
-When a source contains links, use the card-composition decision in
-[capture-recovery.md](capture-recovery.md): retain at most the canonical link the
-user needs in a labelled note, and describe it as note text rather than a native
-URL or attachment.
+Map source links with [card-composition.md](card-composition.md).
 
 An observed single list match does not prove uniqueness because an empty colliding
 list remains invisible. Treat named-list creation as best effort, stop on known
@@ -407,9 +404,8 @@ not parse. Convert them before invoking the command.
 A date-only value becomes 00:00 local with hour and minute components. It is not a
 typed all-day value. Conversely, an all-day reminder created in Apple's app can
 also serialize as 00:00 here, making intentional midnight and all-day
-indistinguishable. Do not use this parser behavior as a default time. Resolve a
-date-only trigger through the user's storage preference or the one-time choice in
-[capture-recovery.md](capture-recovery.md); context-only dates belong in notes.
+indistinguishable. Map date-only user intent with
+[card-composition.md](card-composition.md).
 
 The current OpenMinis public reminder implementation sets due components but
 constructs an `EKAlarm` only for structured locations. Independent exact read-back
@@ -606,6 +602,6 @@ No current verb or flag provides:
 - idempotency keys;
 - Recently Deleted inspection or recovery.
 
-Do not invent a command to cover these gaps. Use the content-mapping, manual
-iPhone recovery, and honest recreation workflows in
-[capture-recovery.md](capture-recovery.md).
+Do not invent a command to cover these gaps. Use
+[card-composition.md](card-composition.md) for content fidelity and
+[capture-recovery.md](capture-recovery.md) for manual recovery or recreation.

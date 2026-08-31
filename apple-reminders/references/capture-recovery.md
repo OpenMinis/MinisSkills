@@ -5,7 +5,7 @@ recovery. The command contract and exact flags live in [cli.md](cli.md).
 
 ## Contents
 
-- [Compose the reminder card](#compose-the-reminder-card)
+- [Reminder card composition](card-composition.md)
 - [Meeting notes to reminders](#meeting-notes-to-reminders)
 - [Screenshots and photos to reminders](#screenshots-and-photos-to-reminders)
 - [Bounded batch protocol](#bounded-batch-protocol)
@@ -14,60 +14,6 @@ recovery. The command contract and exact flags live in [cli.md](cli.md).
 - [Explicit deletion](#explicit-deletion)
 - [Recently Deleted recovery](#recently-deleted-recovery)
 - [Recreate from a deletion record](#recreate-from-a-deletion-record)
-
-## Compose the reminder card
-
-Source material is usually richer than a useful Reminders card. First extract the
-facts, then give each fact one visible home:
-
-| Card part | Purpose |
-|---|---|
-| title | The action or scheduled item the user will recognize at a glance |
-| trigger | The action's actual due time, recurrence, or arrive/leave condition |
-| notes | Brief context needed at the moment of action |
-| canonical link | The one page that performs the action or provides the essential reference |
-| evidence | Source text or image location used for reasoning, not copied by default |
-
-Use the title as the scan line, not as a miniature record. A date, place, owner,
-or event name can stay when it is part of recognizing the action; metadata already
-represented by the trigger, list, priority, or note adds no value when repeated in
-the title. Read title, notes, and trigger together and remove any fact that appears
-twice without changing what the user can do.
-
-Dates in the source have different jobs. A registration deadline can trigger
-“Register for DevDay,” while the later event date is supporting context. Assign a
-date to `due` only when it controls this action. The current command cannot store a
-typed all-day due: bare `YYYY-MM-DD` becomes a timed midnight. For a date-only
-trigger, apply the user's established storage preference; otherwise ask once
-whether to use a real local time or leave due unset and keep the date in notes.
-Context-only dates go directly to notes without a due decision.
-
-The current command also cannot write the native reminder URL field. Choose one
-canonical link and, when it is needed, store it once in notes with an action label
-such as `Register:` or `Join:`. Keep another link only when it serves a genuinely
-different next step or reference the user needs. Never call this fallback an
-attachment or claim it populated the native URL field.
-
-For example, this source:
-
-```text
-OpenAI DevDay Exchange 2026; registration closes Sep 4 (no time supplied);
-Seoul event Oct 22 at 14:00; registration URL; event-information URL.
-```
-
-becomes this card proposal on the current command:
-
-```text
-title: Register for OpenAI DevDay Exchange 2026
-due: unresolved date-only trigger (ask once unless a preference exists)
-notes:
-  Event: Oct 22 at 14:00 · Seoul
-  Register: <registration URL>
-```
-
-The registration URL is the canonical action link. The general information URL
-stays out unless it adds needed information beyond the event line or the user asks
-to retain it. This is a content projection, not source archiving.
 
 ## Meeting notes to reminders
 
@@ -78,15 +24,12 @@ Extract candidates with this internal shape:
 
 | Field | Rule |
 |---|---|
-| title | A concrete next action or explicitly requested scheduled item |
+| card | Use [card-composition.md](card-composition.md) for title, trigger, notes, and canonical link |
 | owner | Preserve only when explicit; the command cannot assign another person |
-| due | Use an explicit date/time only when it triggers this action; date-only triggers require the storage decision above |
 | list | Use only an explicit or standing destination that can be selected safely |
 | priority | Use only explicit urgency or an established user rule |
 | recurrence | Use only an explicit repeating cadence |
 | location | Use only an explicit arrive/leave trigger and resolved coordinates |
-| notes | Minimum complementary context needed to act |
-| canonical link | One action or essential reference URL; use the current notes fallback once |
 | evidence | Source sentence or page/image number, kept for reasoning rather than copied by default |
 
 Separate:
@@ -162,9 +105,9 @@ was attached.
 Before the first create:
 
 1. Establish the runtime contract.
-2. Compose each reminder card. Normalize explicit timed due values to absolute local
-   datetimes; resolve date-only triggers under the user's preference or keep them
-   unresolved until one shared choice is made.
+2. Compose each reminder with [card-composition.md](card-composition.md); keep
+   unresolved date-only candidates out of the ready set until its shared choice is
+   settled.
 3. Resolve the destination. If one destination applies to all candidates, resolve
    it once; if destinations differ, validate each as best effort and disclose that
    empty colliding lists make pre-write uniqueness unprovable.
