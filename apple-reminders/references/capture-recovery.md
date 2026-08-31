@@ -292,6 +292,20 @@ returned it to the default `TASKS` list; immediate read-back exposed the same
 public EventKit guarantee. Keep the workflow manual, and continue to verify
 destination, fields, and current ID after every recovery.
 
+### Scoped rich-card evidence
+
+In a bounded 2026-09-01 rich-card round on one iPhone/iCloud account, one
+disposable item carried a typed all-day date, priority, URL metadata plus one URL
+attachment, one image attachment, and two structured-location alarms.
+Priority-only update, list move, non-recurring completion/undo, command deletion,
+and recovery through out-of-band exact test instrumentation preserved those fields
+under exact EventKit/native read-back. The iPhone Recently Deleted screen showed
+the priority, date, image, and only the first location; it did not show the second
+location or URL card. The build number was not captured. Treat this as scoped
+evidence for that device/account, not as a cross-release result, general
+preservation guarantee, or public Minis recovery capability. Native storage, CLI
+projection, and iPhone presentation require separate verdicts.
+
 Do not automate the Reminders UI or use private frameworks. A missing item in one
 truncated read does not prove recovery failed.
 

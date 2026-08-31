@@ -472,6 +472,35 @@ Use this branch only when runtime help shows the flags.
 --clear-recur
 ```
 
+### Compile intent before flags
+
+Translate the request into five parts before invoking the command:
+
+1. first occurrence as an absolute local datetime;
+2. frequency and interval;
+3. weekday set when applicable;
+4. ending unit: total occurrences, calendar span, or exact wall-clock endpoint;
+5. timezone context used to resolve the local datetime.
+
+`--recur-count` counts total occurrences, not weeks. “Monday and Wednesday for
+four weeks” therefore means eight occurrences when all eight are intended, not
+`count:4`. A bare date passed to `--recur-until` parses as local midnight and can
+exclude a later occurrence on that final date. Resolve “through September 30” to
+the intended final scheduled time or ask; do not silently use midnight or invent
+23:59.
+
+The command does not expose a stored timezone or fixed-zone-after-travel behavior.
+Resolve the first due in the device's current local zone. If the user asks for a
+rule that stays at a named-zone time after travel, report that behavior as
+unrepresentable and unverified rather than promising it.
+
+The current builder can express plain daily/weekly/monthly/yearly intervals and
+non-ordinal weekday sets. It leaves `daysOfTheMonth`, `monthsOfTheYear`,
+`weeksOfTheYear`, `daysOfTheYear`, and `setPositions` unset. Rules such as “first
+Monday of every month,” “last day,” or “last business day” are not faithfully
+representable. Refuse the lossy rule and offer manual Reminders setup rather than
+approximating it.
+
 Rules:
 
 - Recurrence requires a valid due date, either stored already for update or passed
@@ -564,7 +593,15 @@ resolve it. Use returned WGS-84 `latitude` and `longitude`, never a `gcj02_*`
 variant. If several places are plausible, resolve the place with the user before
 creating the reminder. Address geocoding may require connectivity.
 
-Location arguments add or replace one structured geofence. Bad or partial
+The CLI serializes only the first structured-location alarm it finds. In contrast,
+location replacement and `--clear-location` remove every existing structured
+location alarm before adding at most one replacement. It therefore cannot change
+or remove one selected alarm among several. When multiple alarms are independently
+known, clear or replace only after the user explicitly chooses the whole-family
+scope: clear every location alarm, or replace the entire set with one alarm. If the
+scope is selective—or additional alarms may exist and whole-family scope was not
+explicitly chosen—perform no write and direct the user to the Reminders UI. Bad or
+partial
 coordinates fail the command. If Location Services permission is denied, the
 command fails before saving rather than silently creating a reminder without the
 requested geofence.
@@ -597,6 +634,9 @@ Use the weakest sufficient verification without overstating it:
 5. Check truncation and the silent-empty timeout before using absence as evidence.
 6. If final read-back cannot be completed, report the write as accepted but
    unverified. Do not retry a create blindly.
+7. Classify an unrelated post-write delta as possible concurrent mutation. Record
+   the requested fields, observable preserved fields, and unobservable fields;
+   never issue an automatic compensating patch or retry from the stale snapshot.
 
 There is no exact read-by-ID command. Verification therefore depends on a positive
 ID match in a nonempty result. An empty result alone cannot verify absence because
@@ -624,12 +664,15 @@ No current verb or flag provides:
 - image/file attachments;
 - the reminder URL field or URL attachments;
 - list enumeration, account/source IDs, exact list selection, or list management;
+- smart-list destinations, assignment/sharing metadata, Early Reminder, or
+  absolute time-alarm read/write;
 - typed all-day due values or clearing due; notes can be blanked to `""`, but not
   cleared to a distinct absent/null state;
 - `startDateComponents` read/write or a verifiable recurring-time anchor update;
 - message/contact triggers;
 - search, sort, due/completion range, pagination, or exact read-by-ID;
 - completion timestamp or revision guard;
+- full location-alarm enumeration or selection of one among several;
 - idempotency keys;
 - Recently Deleted inspection or recovery.
 

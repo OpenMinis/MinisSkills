@@ -712,6 +712,238 @@
           "type": "contains"
         }
       ]
+    },
+    {
+      "id": 31,
+      "prompt": "아이폰에서 이 비반복 항목은 종일 날짜, 네이티브 URL, 이미지 한 장, 위치 알림 두 개가 보여. apple-reminders list에는 00:00 due와 첫 위치만 있고 URL·이미지는 안 보여. 정확한 ID의 우선순위만 낮음으로 바꿔줘.",
+      "expected_output": "The agent may perform one priority-only patch because the exact target and requested field are resolved. It verifies priority 9 and every observable unchanged field, but reports all-day type, URL, image, and additional location preservation as unobservable rather than absent or guaranteed.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Uses one priority-only update with value 9 and positively verifies the exact item",
+          "type": "contains"
+        },
+        {
+          "text": "Separates requested-field success, observable unchanged fields, and unobservable native fields",
+          "type": "contains"
+        },
+        {
+          "text": "Does not claim that missing CLI URL, image, all-day type, or second location is absent or preserved",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "prompt": "이 항목에는 Apple Park 도착 위치 알림과 Eiffel Tower 출발 위치 알림이 있어. Apple Park 알림 하나만 지우고 Eiffel Tower 알림은 유지해줘. CLI 조회에는 Apple Park 하나만 보여.",
+      "expected_output": "The agent performs no write. It explains that list projects only the first structured location while clear or replacement removes all structured location alarms, so this command cannot select only Apple Park. It directs the user to edit that exact alarm in Reminders.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no clear-location, replacement, or other mutation",
+          "type": "contains"
+        },
+        {
+          "text": "Explains the first-location projection and all-location clear/replace behavior",
+          "type": "contains"
+        },
+        {
+          "text": "Preserves the requested Eiffel Tower alarm by routing the selective edit to the native UI",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "prompt": "현재는 2026-08-31이고 기기 시간대는 Asia/Seoul이야. 런타임 help에는 --recur, --recur-days, --recur-until, --recur-count가 노출돼. '약 먹기'를 2026-09-01 오전 9시부터 매일 오전 9시에 반복하고 2026-09-30까지 포함해서 기본 목록에 만들어줘. 종료일에는 시간을 따로 말하지 않았어.",
+      "expected_output": "The agent compiles the recurrence intent before flags and does not pass a bare Sep 30 date, which would become midnight and exclude the 09:00 occurrence. It resolves the final scheduled occurrence to Sep 30 at 09:00 Seoul time, creates once, and verifies the exact stored until value.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Does not use --recur-until 2026-09-30 or another midnight endpoint",
+          "type": "contains"
+        },
+        {
+          "text": "Treats through Sep 30 as including the scheduled 09:00 occurrence and uses or confirms that exact endpoint",
+          "type": "contains"
+        },
+        {
+          "text": "Verifies the serialized recurrence end without claiming notification delivery",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "prompt": "런타임 help에는 --recur, --recur-days, --recur-until, --recur-count가 노출돼. 2026-09-07 월요일 오전 9시부터 매주 월요일과 수요일, 4주 동안 보고서를 보내라고 반복 미리 알림을 만들어줘. 네 주의 월·수요일을 모두 포함하고 싶어.",
+      "expected_output": "The agent interprets four weeks separately from occurrence count. It creates one weekly Monday/Wednesday rule using either eight total occurrences or the exact final scheduled endpoint on Sep 30 at 09:00, never count 4, verifies the stored weekday set and ending, and does not create eight independent reminders.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Uses one weekly recurrence with Monday and Wednesday",
+          "type": "contains"
+        },
+        {
+          "text": "Represents all eight occurrences with count 8 or the exact Sep 30 09:00 endpoint, never count 4",
+          "type": "contains"
+        },
+        {
+          "text": "Verifies storage without claiming that read-back alone proves eight behavioral firings",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "prompt": "런타임 help에는 현재 문서의 recurrence flags만 있고 ordinal/set-position 옵션은 없어. 매월 첫 번째 월요일 오전 10시에 월간 보고서를 준비하라고 반복 미리 알림을 만들어줘.",
+      "expected_output": "The agent performs no write because the current recurrence builder cannot encode an ordinal weekday. It explains that plain monthly or every-Monday rules would change the meaning and offers manual Reminders setup instead of approximation.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no create or approximate recurrence write",
+          "type": "contains"
+        },
+        {
+          "text": "Explains that first-Monday ordinal recurrence is not representable by the current flags",
+          "type": "contains"
+        },
+        {
+          "text": "Does not substitute every Monday or the first calendar day of each month",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "prompt": "우선순위만 중간으로 바꾸기 전에는 메모가 'A'였어. update는 ok:true이고 priority:5를 반환했으며, 최종 재조회에도 priority:5와 다른 기기에서 쓴 notes:'B'가 함께 보여. 자동으로 A로 되돌리자는 제안이 있는데, 무슨 일이 생긴 건지 진단하고 안전한 다음 행동을 알려줘.",
+      "expected_output": "The agent performs no compensating patch or retry. It reports priority as observed successful, treats the unrelated notes delta as possible concurrent mutation, preserves B, and asks for a new decision from current state rather than overwriting another client's change.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no automatic notes restoration, retry, or rollback",
+          "type": "contains"
+        },
+        {
+          "text": "Separates requested priority success from the unexplained concurrent notes change",
+          "type": "contains"
+        },
+        {
+          "text": "Treats the current B value as new external state requiring a fresh user decision",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "prompt": "읽기 결과에 iCloud 계정의 Work 목록과 Exchange 계정의 Work 목록이 각각 하나씩 보여. 운동화 미리 알림을 iCloud Work로 옮겨줘.",
+      "expected_output": "The agent performs no move because the command accepts only a fuzzy title and exposes no account selector. Identical full display titles make both pre-write selection and post-write account verification impossible; it recommends a uniquely named destination or manual move.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no update --list Work",
+          "type": "contains"
+        },
+        {
+          "text": "Explains that identical titles across accounts cannot be resolved by the current selector",
+          "type": "contains"
+        },
+        {
+          "text": "Does not claim that the requested account can be verified after the move",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "prompt": "Reminders 첫 화면 상단의 시스템 Today 스마트 타일로 이 미리 알림을 옮겨줘. 별도로 만든 Today라는 실제 목록은 없어.",
+      "expected_output": "The agent performs no list move because the named target is the native Today smart view, not a writable Reminder List. It asks whether the user wants a due date that makes the item appear in Today or a real destination list, without inventing either.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no fuzzy list update to Today",
+          "type": "contains"
+        },
+        {
+          "text": "Explains the difference between a smart view and a writable list",
+          "type": "contains"
+        },
+        {
+          "text": "Does not invent a due date merely to make the item appear in Today",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "prompt": "정확한 ID로 조회하니 이 비반복 항목은 이미 completed:true야. 완료 처리해줘.",
+      "expected_output": "The agent performs no completion write and reports the item unchanged/already completed. It does not issue the same command for confirmation or alter the completion timestamp.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no complete command or other write",
+          "type": "contains"
+        },
+        {
+          "text": "Reports already completed as an unchanged state rather than a new success",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "prompt": "오래전에 완료된 항목의 recurrence는 현재 null로 보여. 완료 직전 스냅샷이나 당시 실행 기록은 없지만 비반복이었던 것 같으니 --undo로 다시 열어줘.",
+      "expected_output": "The agent performs no undo. It explains that recurrence null on a completed record does not prove the original item was one-off and that the active ID could represent recurring history ambiguously. It recommends manual review or better provenance.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no complete --undo or compensating write",
+          "type": "contains"
+        },
+        {
+          "text": "Requires reliable pre-completion one-off provenance rather than current recurrence null",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "prompt": "제출 마감은 2026-09-15 오후 5시이고 하루 전인 9월 14일 오후 5시에 미리 알려줘. 마감일 자체는 바꾸지 마.",
+      "expected_output": "The agent does not move the due date to Sep 14 or claim an Early Reminder/time alarm. It explains that this command can store the Sep 15 due but cannot express the separate Sep 14 absolute alert, then asks whether to create only the due or use manual Reminders setup for the alert.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Keeps the Sep 15 17:00 due distinct from the requested Sep 14 alert",
+          "type": "contains"
+        },
+        {
+          "text": "Performs no write until the user chooses a faithful supported alternative",
+          "type": "contains"
+        },
+        {
+          "text": "Does not shift due or simulate the early alert in notes as successful notification setup",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "prompt": "정확한 시스템 읽기에서는 URL 메타데이터와 로컬 URL attachment가 있고 저장 검증도 통과했어. 그런데 attachment sync에는 has_server_record:false이고, 실제 iPhone 화면을 새로 열어도 이미지 attachment만 보이고 URL 카드는 안 보여. URL을 다시 붙여서 고쳐줘.",
+      "expected_output": "The agent performs no duplicate URL write. It separates local metadata/attachment storage from mobile presentation, reports the observed iPhone URL card as not visible, and treats the missing server-record evidence as a possible transient sync or implementation visibility issue requiring diagnosis rather than a blind retry.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no repeated URL patch or additional URL attachment write",
+          "type": "contains"
+        },
+        {
+          "text": "Separates EventKit metadata, local native attachment, sync evidence, and direct iPhone presentation",
+          "type": "contains"
+        },
+        {
+          "text": "Reports local storage success and observed mobile visibility failure without claiming the URL is absent everywhere",
+          "type": "contains"
+        }
+      ]
     }
   ]
 }
