@@ -21,9 +21,10 @@ Use the on-device command only. Do not install an adapter, call private iOS
 frameworks, automate the Reminders UI, use AppleScript, or read Reminders storage.
 
 Before first use, run `command -v apple-reminders`. If it is missing, say Reminders
-access is unavailable on this device and stop. Run `apple-reminders --help` only
-when the requested branch depends on build-varying flags such as recurrence or
-location; runtime help overrides this skill.
+access is unavailable on this device and stop. Run `apple-reminders --help` when
+the requested branch depends on build-varying flags such as recurrence, location,
+all-day dates, URL fields, or clear operations; runtime help overrides this skill.
+Never probe support by inventing a flag on a real reminder.
 
 Read [references/cli.md](references/cli.md) for flags, response fields, recurrence,
 geofences, dates, errors, and verification. Read
@@ -92,8 +93,13 @@ write intent and the read-back comparison.
 
 1. Read real state with a deliberate completion filter and limit. `--incomplete`
    includes unscheduled reminders. A single create into the default list may skip
-   the preliminary reminder read when no duplicate check is requested; still
-   verify the returned ID afterward. Named-list creates require discovery first.
+   the preliminary reminder read only when no duplicate check is requested and the
+   intent is not a replay of a recent create; still verify the returned ID
+   afterward. If the user retries because the UI looked stuck, or discloses a chat
+   edit/revert, first reconcile the full write fingerprint defined in the capture
+   reference. Treat one exact stored match as a possible earlier commit and offer
+   to reuse it; create another copy only when the user explicitly wants one.
+   Multiple matches are ambiguous. Named-list creates require discovery first.
 2. Check truncation and the silent-empty possibility before answering from absence.
 3. Resolve one exact reminder ID from returned state. Disambiguate duplicate titles
    with list, due, completion, or the minimum notes needed. Never mutate a title.
@@ -148,16 +154,13 @@ set; completing it makes the next occurrence available. Therefore:
   or ID-matched read-back; when absent, report a non-recurring write and reconcile
   that exact item rather than creating another one.
 - `--due` updates and exposes `dueDateComponents`, but the current command neither
-  updates nor exposes `startDateComponents`. On an observed recurring reminder, a
-  due-only update preserved the serialized rule while exact EventKit state kept
-  the old start. In that disposable daily-until test, the offset persisted into
-  the second occurrence and no third active occurrence was found afterward,
-  while a matched control without the due patch exposed its third occurrence at
-  the exact date-end boundary. On that observed device/build/account, the due-only
-  patch shortened the series from three occurrences to two. Treat existing-series
-  retiming as unsupported without generalizing the underlying EventKit boundary
-  rule. Do not chain a recurrence replacement as a workaround. Never combine
-  `--clear-recur` with new recurrence flags.
+  updates nor exposes `startDateComponents`. Exact observations found stale hidden
+  starts both after retiming an existing series and after adding recurrence to a
+  previously non-recurring item whose due had changed. Treat existing-series
+  retiming as unsupported. Do not combine `--due` with recurrence addition or
+  replacement, and do not chain those updates as a workaround. Never combine
+  `--clear-recur` with new recurrence flags. The CLI reference contains the scoped
+  evidence and verification boundary.
 - A count-based end can be present in EventKit and command read-back while Apple's
   Reminders UI shows “Never,” because the Mac UI exposes only a date-based repeat
   end. Treat that UI as a lossy projection: verify `count` through command
@@ -181,9 +184,14 @@ and non-idempotent; report the chunk, then continue with another only when the u
 asked for the full larger set and the previous chunk verified cleanly.
 
 “Clean up,” “clear,” or “organize” does not authorize deletion. Prefer completion
-for a finished non-recurring item. An archive-list move can avoid deletion, but list
-selection is still fuzzy and EventKit IDs are not durable sync identities; use it
-only after the user accepts those limits and verify observable post-move state.
+for a finished non-recurring item. For an ordinary non-recurring item, `--undo`
+can make a verified completed item active again only when reliable pre-completion
+provenance established that it was one-off; a completed record with no recurrence
+is not enough. Re-resolve the exact completed ID, apply one undo, then verify active
+state and unchanged observable fields. An archive-list move can avoid deletion,
+but list selection is still fuzzy and EventKit IDs are not durable sync identities;
+use it only after the user accepts those limits and verify observable post-move
+state.
 
 The command cannot inspect or recover Recently Deleted. For recovery, first use
 Apple's manual iPhone flow within the 30-day retention window, then re-read and
@@ -220,7 +228,8 @@ success.
 | Reminder URL field or URL attachment | Not exposed by this command |
 | Create, rename, delete, or enumerate empty lists | Not exposed |
 | Exact list/account selector | Not exposed; `--list` is fuzzy |
-| Typed all-day due, clear due, clear notes | Not exposed |
+| Typed all-day due or clear due | Not exposed |
+| Empty-string notes | `--notes ""` stores `""`; physical blank presentation is unverified |
 | Reminder start date / recurring time anchor | Not exposed; due-only update cannot verify re-anchoring |
 | Message/contact triggers | Not exposed |
 | Search, sort, ranges, pagination, exact read-by-ID | Not exposed |

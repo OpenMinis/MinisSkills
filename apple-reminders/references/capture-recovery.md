@@ -102,6 +102,11 @@ was attached.
 
 ## Bounded batch protocol
 
+Use a **write fingerprint** for duplicate and replay decisions: the composed card
+plus the verified full destination title and every requested stored field, including
+priority, recurrence, location, and intended completion state. A title or visible
+card match alone is insufficient.
+
 Before the first create:
 
 1. Establish the runtime contract.
@@ -111,8 +116,9 @@ Before the first create:
 3. Resolve the destination. If one destination applies to all candidates, resolve
    it once; if destinations differ, validate each as best effort and disclose that
    empty colliding lists make pre-write uniqueness unprovable.
-4. Check the active bounded read for obvious duplicate candidates. Similarity is a
-   proposal, not authority to suppress an item.
+4. Check the active bounded read for obvious duplicate candidates and record every
+   matching ID per write fingerprint. Similarity is a proposal, not authority to
+   suppress an item.
 5. Split candidates into ready and unresolved. Create ready items only when doing
    so does not depend on an unresolved shared choice.
 
@@ -148,7 +154,12 @@ Stop the entire batch on:
 
 Do not blindly retry the failed item. `create` has no idempotency key, so a retry
 can duplicate a reminder that was committed before the response failed. First
-re-read and search the bounded set for the exact intended state. Report:
+re-read and search the bounded set for the exact write fingerprint, comparing it with
+the pre-write matching IDs when a baseline exists. If exactly one new exact match
+exists, treat it as the possible committed create and offer to reuse it rather than
+creating a second copy. Zero new matches leaves the dispatch uncertain; multiple
+matches require duplicate review. Create another only when the user explicitly
+asks for another copy. Report:
 
 - verified items;
 - one uncertain or failed item;
@@ -269,6 +280,11 @@ Apple's [manual iPhone recovery workflow](https://support.apple.com/guide/iphone
 7. If a recorded original list has the best-effort selector conditions, offer to
    move the item from the default list back to it and verify the move.
 
+If the original non-default list is not observable or safely selectable after
+recovery, do not guess a fuzzy destination. Leave the reminder in the verified
+default list and explain how to move it manually, or wait until a uniquely
+selectable reminder makes the destination observable.
+
 On one observed iPhone/iCloud account, a disposable command-deleted reminder
 appeared at the top of Recently Deleted with its title and due, and manual Recover
 returned it to the default `TASKS` list; immediate read-back exposed the same
@@ -300,6 +316,13 @@ complete action. Do not silently change completion state or report a partial pai
 as full recreation. If the record is also recurring, completing the replacement
 would advance its series; do not automate that pair until the user explicitly
 chooses the intended active occurrence/series state.
+
+For any recurring deletion record, manual Recently Deleted recovery is the only
+path that may preserve the original series. Even then, verify only the visible
+active occurrence and rule; do not claim that completion history or the hidden
+start anchor survived. Recreation means a new series. Do not copy a count, end, or
+due as though it fully reconstructs the original: require explicit intent for the
+new first due and ending semantics before creating it.
 
 Resolve the destination list under the same best-effort selector rules, create once, and
 verify every reapplied field. Report it as **recreated from deletion record (new

@@ -45,6 +45,18 @@ timed midnight. For a date-only trigger:
 Collect the choice once for a batch when the same preference can apply to every
 date-only candidate.
 
+### Repairing an existing midnight-shaped card
+
+The date-only preference is easy to apply before create, but it may not be
+patchable afterward. If an existing reminder already has a 00:00 due, the command
+cannot clear that due and turn the card into “date in notes, no due.” Offer the
+smallest honest choices: keep the midnight approximation, choose a real local
+time, clear the date manually in Reminders, or—only with explicit replacement and
+delete/complete authorization—create a new unscheduled card and reconcile the old
+one. Adding a date to notes alone does not repair the existing trigger. Because the
+CLI projects native all-day and intentional midnight identically, do not rewrite
+an existing 00:00 item until the user resolves that meaning.
+
 ## One useful link
 
 Choose one canonical link by the action it enables: Register, Join, Pay, Review,
@@ -54,9 +66,15 @@ text. Treat it as note text, not as a native URL or attachment.
 
 That fallback still shows the full raw URL. When the user values a clean card,
 apply their established preference or include one choice in the same clarification:
-keep the single labelled URL in notes, or omit it. Clean native URL presentation is
-unavailable until the command exposes the EventKit field; native support is tracked
-in [OpenMinis/OpenMinis#286](https://github.com/OpenMinis/OpenMinis/issues/286).
+keep the single labelled URL in notes, or omit it. Distinguish three future
+capabilities: singular EventKit URL metadata, a visible native URL attachment/card
+on iPhone, and raw or linkified note text. Exposing only URL metadata would not by
+itself prove clean mobile presentation. Treat any future `--url` flag as
+metadata-only until a physical-device check proves a visible native card; require
+metadata read-back separately from physical presentation, and claim clean mobile
+presentation only after a device check shows the intended native card. Current
+native support is tracked in
+[OpenMinis/OpenMinis#286](https://github.com/OpenMinis/OpenMinis/issues/286).
 
 Keep a second link only when it supports a genuinely different next step or
 reference the user will need. Source archiving is a different job from composing a

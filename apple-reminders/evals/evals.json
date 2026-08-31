@@ -472,6 +472,246 @@
           "type": "contains"
         }
       ]
+    },
+    {
+      "id": 19,
+      "prompt": "미리 알림을 만들라는 메시지를 보냈는데 화면이 멈춘 것 같아서 그 메시지를 edit/revert한 뒤 다시 보냈어. 지금 읽어보니 제목, 전체 목록명, 기한, 메모, 우선순위뿐 아니라 미완료·비반복·위치 없음까지 내가 원한 값과 정확히 같은 항목이 하나 있어. 중복은 원하지 않고 이미 반영됐다면 그 항목을 그대로 쓰면 돼. 상태를 확인해줘.",
+      "expected_output": "The agent treats the exact live card as a possible earlier committed create. It performs no second create, explains that chat rewind did not roll back Reminders, and offers to reuse the observed item or create another only if the user explicitly wants a duplicate.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no create and treats the one exact stored card as a possible earlier commit",
+          "type": "contains"
+        },
+        {
+          "text": "Explains that edit, revert, retry, or a vanished tool card does not roll back EventKit",
+          "type": "contains"
+        },
+        {
+          "text": "Offers to reuse the observed item and creates another only after explicit duplicate-copy intent",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "prompt": "조금 전 같은 작업 흐름에서 완료한 미리 알림 하나를 다시 미완료로 돌려줘. 완료 직전의 정확한 스냅샷에는 recurrence가 없었고, ID·TASKS 목록·9월 8일 오후 3시·우선순위 5·메모가 기록돼 있어. 완료 목록에서도 그 ID가 정확히 하나 일치해.",
+      "expected_output": "The agent uses the reliable pre-completion snapshot to establish the item was non-recurring, dispatches one undo for the exact completed ID, requires the response to show incomplete state, and positively verifies the item in an incomplete read with due, list, priority, and notes preserved. It makes no claim about unexposed completion time or hidden metadata.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Requires reliable pre-completion provenance that the exact item was non-recurring before calling complete --undo once",
+          "type": "contains"
+        },
+        {
+          "text": "Requires completed:false and a positive incomplete read-back",
+          "type": "contains"
+        },
+        {
+          "text": "Verifies due, full list title, priority, and notes remained unchanged without claiming hidden metadata preservation",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "prompt": "매일 반복 미리 알림의 오늘 항목을 방금 완료해서 내일 항목이 같은 ID로 나타났어. --undo로 방금 완료한 오늘 항목만 되돌려줘.",
+      "expected_output": "The agent refuses to call undo because the active same-ID target is now the successor and the command has no occurrence selector. It explains that undo cannot safely address the completed occurrence and offers manual Reminders review instead.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no undo or other write after the recurring series advanced",
+          "type": "contains"
+        },
+        {
+          "text": "Explains that the same ID can now resolve to the successor and no completed-occurrence selector exists",
+          "type": "contains"
+        },
+        {
+          "text": "Does not promise rollback and offers a manual review path",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "prompt": "원래 2026-09-07 오전 10시였던 비반복 미리 알림이야. 어제 due만 2026-09-12 오전 9시로 바꿨어. 이제 이 항목을 그날부터 매일 3회 반복하게 해줘.",
+      "expected_output": "The agent does not combine or chain due and recurrence updates. It explains that the hidden start cannot be updated or verified and that this exact pattern has preserved a stale start in observation. It offers an explicitly authorized fresh series with duplicate reconciliation or a manual Reminders edit.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no due-plus-recurrence update and does not split it into consecutive writes",
+          "type": "contains"
+        },
+        {
+          "text": "Explains the unobservable startDateComponents and stale-anchor risk",
+          "type": "contains"
+        },
+        {
+          "text": "Offers a fresh-series or manual-edit path without replacing the existing reminder automatically",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "prompt": "이 비반복 미리 알림의 메모만 완전히 비워줘. 정확한 ID와 현재 필드는 기록해뒀고 다른 내용은 그대로 둬. 전용 clear-notes 옵션은 보이지 않는데, 가능한 방법이 있다면 저장 상태를 정확히 설명하고 응답과 재조회 표현이 다를 때 중복 실행하지 마.",
+      "expected_output": "The agent uses one empty-string notes patch, then re-reads instead of retrying. It reports semantically blank CLI-visible storage separately from native field absence, accepts the observed empty-string normalization as committed when other fields are preserved, and leaves physical iPhone presentation unverified.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Uses --notes with an empty string exactly once and preserves omitted fields",
+          "type": "contains"
+        },
+        {
+          "text": "Distinguishes stored empty-string notes from an absent or null field and does not claim physical iPhone presentation",
+          "type": "contains"
+        },
+        {
+          "text": "If null-versus-empty representations differ, re-reads and does not retry a possibly committed patch",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "prompt": "시간이 없는 2026-09-04 신청 마감이 00:00으로 저장돼 있어. 자정을 의도한 건 아니고, 내 선호는 due를 비우고 날짜를 메모에 한 번만 쓰는 거야. runtime help에는 clear-due가 없어. 깔끔하게 고쳐줘.",
+      "expected_output": "The agent does not add a date note while leaving the stale midnight trigger and call it fixed. Because due cannot be cleared and midnight may be all-day projection or intentional time, it performs no write and offers keeping midnight, choosing a real time, manually clearing the date, or explicitly replacing and reconciling the old card.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Does not claim a notes-only patch removed the existing midnight due",
+          "type": "contains"
+        },
+        {
+          "text": "Recognizes that clear-due is unavailable and 00:00 is ambiguous between all-day and intentional midnight",
+          "type": "contains"
+        },
+        {
+          "text": "Offers bounded repair choices and requires explicit authorization before identity-losing replacement",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "prompt": "Admin 목록의 유일한 항목을 Recently Deleted에서 수동 복구했더니 기본 TASKS로 돌아왔어. Admin은 이제 CLI 읽기에 안 보여. 원래 목록으로 자동 이동해줘.",
+      "expected_output": "The agent does not use a fuzzy or unobserved Admin selector. It explains that an empty original list is invisible and automatic move could silently remain in TASKS or hit a collision. It leaves the recovered item in the verified default list and gives a manual move-and-verify path.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no CLI move to the unobserved empty Admin list",
+          "type": "contains"
+        },
+        {
+          "text": "Explains the empty-list visibility and fuzzy destination risk",
+          "type": "contains"
+        },
+        {
+          "text": "Keeps the verified recovered item in TASKS and recommends a manual move followed by read-back",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "prompt": "매일 5회 반복 중 한 번을 완료한 뒤 전체 시리즈를 삭제했어. 삭제 기록에는 due와 count:4가 남아 있는데 Recently Deleted에는 없어. 그 기록 그대로 복원해줘.",
+      "expected_output": "The agent explains that this would be recreation of a new series, not restoration. It does not copy count:4 blindly because it may be a remaining-occurrence projection and the hidden start/history are absent. It asks for the intended new first due and whether the new series should have four total occurrences or another ending before any create.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no create and labels the fallback as a new series with a new ID",
+          "type": "contains"
+        },
+        {
+          "text": "Does not copy count:4 as original total-count proof or claim history and hidden anchor preservation",
+          "type": "contains"
+        },
+        {
+          "text": "Requires an explicit new first due and ending semantics before recreation",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "prompt": "이 비반복 항목을 Project Archive로 옮겼다가 다시 TASKS로 돌려줘. 두 목록은 각각 긴 고유 이름으로 한 번씩만 관찰됐고, fuzzy selector 한계도 감수할게. 기한·메모·우선순위는 바꾸지 마.",
+      "expected_output": "The agent performs the first authorized move using only the list patch, verifies the returned full destination title and positive read-back, and compares observable fields. It returns the item only after that verification passes; otherwise it stops before the second write. It reports the current ID without promising durable identity or exact account selection.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Uses isolated list-only updates and verifies the full destination title after each move",
+          "type": "contains"
+        },
+        {
+          "text": "Verifies title, due, notes, priority, recurrence absence, location, and completion state remained unchanged",
+          "type": "contains"
+        },
+        {
+          "text": "Stops before the return move if the first destination or read-back is mismatched, failed, or uncertain",
+          "type": "contains"
+        },
+        {
+          "text": "Reports the current ID without promising durable identity or exact account selection",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "prompt": "이 항목의 높은 우선순위를 없애서 '없음'으로 만들어줘. 비반복 항목이고 정확한 ID를 확인했어. 다른 내용은 건드리지 마.",
+      "expected_output": "The agent applies one priority-only update with EventKit priority 0, then positively verifies priority 0 and unchanged title, list, due, notes, recurrence, location, and completion state. It does not confuse 0 with highest priority.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Uses --priority 0 once to represent no priority, not highest priority",
+          "type": "contains"
+        },
+        {
+          "text": "Positively verifies priority 0 and preserves every omitted observable field",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "prompt": "아이폰 앱에서는 이 항목이 종일 날짜이고 깔끔한 네이티브 URL 카드도 보여. 그런데 apple-reminders list에는 due가 00:00으로만 보이고 URL 필드가 없어. 이걸 자정 항목이고 URL이 없는 걸로 정리해서 다시 써줘.",
+      "expected_output": "The agent performs no write. It explains that the CLI projection cannot distinguish native all-day from intentional midnight and cannot observe URL metadata or visible attachments. Missing projected fields are unobservable, not absent, so rewriting would risk degrading the card.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no update, replacement, or note fallback write",
+          "type": "contains"
+        },
+        {
+          "text": "Treats 00:00 as an ambiguous projection rather than proof of intentional midnight",
+          "type": "contains"
+        },
+        {
+          "text": "Separates EventKit URL metadata, visible native URL attachment, and note text, and treats missing CLI URL as unobservable rather than absent",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "prompt": "정확한 ID의 항목을 Definitely Missing List로 옮기는 update가 ok:true/action:update를 반환했는데 응답과 재조회 모두 원래 TASKS 목록이야. 성공한 거야? 다시 해봐.",
+      "expected_output": "The agent performs no retry. It reports that the response envelope was accepted but the requested move did not occur because this implementation silently keeps the old list when the selector matches nothing. It relies on the returned and re-read full list title rather than ok:true.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Performs no retry or second move",
+          "type": "contains"
+        },
+        {
+          "text": "Reports not moved based on the unchanged full list title despite ok:true",
+          "type": "contains"
+        },
+        {
+          "text": "Explains that an unmatched destination can silently leave the list unchanged",
+          "type": "contains"
+        }
+      ]
     }
   ]
 }

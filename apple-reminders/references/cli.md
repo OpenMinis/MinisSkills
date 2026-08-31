@@ -146,8 +146,9 @@ Example `data`:
 }
 ```
 
-`due`, `recurrence`, and `location` are absent when not set. `notes` is null
-when empty. A due value can be null when date components cannot be converted.
+`due`, `recurrence`, and `location` are absent when not set. `notes` is normally
+null when unset; an explicit empty-string update may serialize as `""`. A due value
+can be null when date components cannot be converted.
 
 When more records match than the limit:
 
@@ -273,6 +274,16 @@ patch shortened the observed series from three occurrences to two on that
 device/build/account. It does not establish a general EventKit boundary contract.
 Treat existing-series retiming as unsupported on this command.
 
+The hidden-anchor risk is not limited to reminders that were already recurring.
+In one exact system-level observation, a previously non-recurring reminder kept
+its old timed start after its due was changed to a new date and a daily count rule
+was added later. The visible due and recurrence read back, but the hidden start did
+not follow them. Do not combine `--due` with recurrence flags on update, and do not
+split that intent across a due update followed by recurrence addition. A fresh
+create avoids inheriting this existing item's stale start, but the command still
+cannot expose or verify the new hidden anchor. Replacing the existing item requires
+explicit new-item intent and duplicate reconciliation.
+
 Silent behaviors:
 
 - An invalid `--due` is ignored, leaving the previous due unchanged.
@@ -289,7 +300,14 @@ arguments already replace the old geofence. Do not combine clear and set flags i
 one update. Time-based alarms, when present in a build, are not removed by
 `--clear-location`.
 
-There is no `--clear-due` or `--clear-notes`.
+There is no `--clear-due` or distinct `--clear-notes` operation. Passing
+`--notes ""` is accepted by the current implementation and stores an empty string.
+Use that only when the user wants semantically blank CLI-visible notes, then verify
+`notes:""`. Do not describe it as field absence: an exact observed update
+normalized to the empty string rather than `null`. Physical iPhone presentation
+remains unverified until a device check passes. A `null` versus empty-string
+verification mismatch can mean the write committed; re-read and never retry it
+blindly.
 
 ## Complete and undo
 
@@ -312,6 +330,17 @@ incompletion. A typical non-recurring completion response is:
 This is the most recoverable mutation and should represent “done.” The response is
 not a separate final re-fetch; verify broad or consequential changes with a bounded
 completed or incomplete read.
+
+For ordinary non-recurring undo, require reliable pre-completion provenance—such
+as a snapshot from the same controlled workflow—that the exact item was one-off.
+`recurrence:null` on a completed occurrence is insufficient because completed
+occurrences from a recurring series can also serialize that way. Then resolve
+exactly one completed reminder, dispatch one `complete --id <id> --undo`, require
+`completed:false` in the response, and positively match the item in an incomplete
+read. Compare its due, list, priority, and notes with the recorded pre-undo state.
+The command exposes neither completion timestamp nor native URL, all-day type, or
+other hidden metadata, so report only the fields it can observe. Do not apply this
+workflow to a recurring item after the series has advanced.
 
 For a recurring item, an observed build returned `ok:true`, `action:"complete"`,
 and `data.completed:false` even though one occurrence committed and the series
@@ -484,12 +513,13 @@ selector for reminder update or delete. Before update, move, or delete, state th
 repeating scope and require explicit whole-series intent. After completion, verify
 the next occurrence rather than assuming the same item can simply be undone.
 
-Do not use a due-only patch followed by recurrence replacement as a verified
-re-anchor procedure. A replacement can validate a new rule against the current
-due, but the command still cannot update or inspect the hidden start components.
-Recurrence-only replacement and clear remain separate capabilities with their own
-verification. Clear recurrence in its own update and never mix `--clear-recur`
-with `--recur*`.
+Do not combine a due change with recurrence addition/replacement or use consecutive
+updates as a verified re-anchor procedure. A rule can validate against the current
+due while the command still leaves the hidden start components unchanged. This
+was observed both on an existing series and when recurrence was added later to a
+previously non-recurring item. Recurrence-only replacement and clear remain
+separate capabilities with their own verification. Clear recurrence in its own
+update and never mix `--clear-recur` with `--recur*`.
 
 Examples:
 
@@ -594,7 +624,8 @@ No current verb or flag provides:
 - image/file attachments;
 - the reminder URL field or URL attachments;
 - list enumeration, account/source IDs, exact list selection, or list management;
-- typed all-day due values, clearing due, or clearing notes;
+- typed all-day due values or clearing due; notes can be blanked to `""`, but not
+  cleared to a distinct absent/null state;
 - `startDateComponents` read/write or a verifiable recurring-time anchor update;
 - message/contact triggers;
 - search, sort, due/completion range, pagination, or exact read-by-ID;
