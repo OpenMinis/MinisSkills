@@ -27,8 +27,9 @@ location; runtime help overrides this skill.
 
 Read [references/cli.md](references/cli.md) for flags, response fields, recurrence,
 geofences, dates, errors, and verification. Read
-[references/capture-recovery.md](references/capture-recovery.md) for meeting/photo
-capture, batches, cleanup, archive-list moves, deletion records, and recovery.
+[references/capture-recovery.md](references/capture-recovery.md) when composing
+reminders from supplied information, meetings, or photos, and for batches,
+cleanup, archive-list moves, deletion records, and recovery.
 
 ## Core truth contract
 
@@ -55,12 +56,13 @@ Do not judge success from exit 0 or `ok:true` alone:
   full list title, and disclose that pre-write uniqueness was not proven. Require
   acceptance of that limitation before a batch or any list move. Never use a fuzzy
   selector for destructive list scoping.
-- An unparseable `--due` is silently ignored. Resolve natural language to an
-  absolute local datetime. Create omits due, priority, and notes from its response,
-  so find the returned ID in a follow-up read and compare material fields. A
-  positive ID match verifies that item even when the broader read is truncated;
-  truncation weakens absence claims, not a returned match. A date-only value
-  becomes 00:00 local, not a typed all-day value.
+- An unparseable `--due` is silently ignored. Resolve a timed request to an
+  absolute local datetime. A date-only value becomes 00:00 local, not a typed
+  all-day value, so treat a missing time as a content decision rather than
+  silently inventing midnight. Create omits due, priority, and notes from its
+  response, so find the returned ID in a follow-up read and compare material
+  fields. A positive ID match verifies that item even when the broader read is
+  truncated; truncation weakens absence claims, not a returned match.
 - `--limit` defaults to 100 and result order is unspecified. A truncation warning
   means an arbitrary subset, not the earliest or most urgent reminders.
 - A reminder fetch can also time out after 10 seconds and return `ok:true`,
@@ -75,6 +77,33 @@ Do not judge success from exit 0 or `ok:true` alone:
   promise one or schedule a second notification automatically; it could duplicate
   alerts on a fixed build. A physical-device smoke test provides evidence only for
   that device, account, notification settings, and Focus state.
+
+## Compose the reminder card
+
+Shape sourced information for the compact card the user will scan in Reminders:
+
+1. **Action:** write a short title that says what to do. Dates, list names,
+   priorities, source labels, and URLs belong in their structured home rather than
+   in the scan line.
+2. **Trigger:** use due, recurrence, or location for the action's real trigger. A
+   referenced event date is context unless the user also wants a reminder for the
+   event itself.
+3. **Context:** keep only the details needed when acting. Give each fact one home;
+   the note should complement the title and trigger instead of restating them.
+4. **Link:** select one canonical action link, such as Register, Join, Pay, or
+   Review. The current command has no native reminder URL field, so store that link
+   once as a concise labelled note. Keep a secondary link only when it adds distinct
+   information the user will realistically need.
+5. **Mobile pass:** read title, note, and trigger together as one card. Remove
+   duplicate dates, repeated names, source prose, and fields that add no new
+   decision value.
+
+The current command cannot create a typed all-day due. When a date is the intended
+trigger but the user supplied no time, apply an established user preference. If
+none exists, ask one compact choice: use a real local time, or leave due unset and
+keep the date in the note. When the date is only context, keep it in the note and
+continue without a due. Read the composition examples and batch handling in the
+capture reference before creating from a document, meeting, or image.
 
 ## Normal workflow
 
@@ -157,11 +186,12 @@ Read the recurrence section in the CLI reference before acting.
 
 ## Capture, cleanup, and recovery
 
-For meeting notes or photos, read the capture reference first. Use Minis'
+For supplied information, meeting notes, or photos, read the capture reference
+first and run its reminder-card pass before creating anything. Use Minis'
 `read_image` when it is exposed: native-vision models receive pixels and a
-configured Vision Group returns a description/transcription. Use
-`apple-vision ocr` as an on-device deterministic fallback when `read_image` is
-unavailable or exact OCR is needed. OCR input is not a Reminder attachment.
+configured Vision Group returns a description/transcription. Use `apple-vision
+ocr` as an on-device deterministic fallback when `read_image` is unavailable or
+exact OCR is needed. OCR input is not a Reminder attachment.
 
 Use 25 items as the default reviewable batch chunk because creates are sequential
 and non-idempotent; report the chunk, then continue with another only when the user
@@ -193,9 +223,7 @@ Build groups from a complete-enough `--incomplete` read in the device timezone:
 
 Skip empty groups only after a trustworthy nonempty fetch or an explicitly scoped
 retry supports that conclusion. Present 00:00 as a date because native all-day and
-intentional midnight are indistinguishable. Keep notes private unless requested or
-needed for disambiguation. Do not show raw JSON, IDs, or local paths in a normal
-briefing.
+intentional midnight are indistinguishable.
 
 ## Capability boundary
 
@@ -206,10 +234,10 @@ success.
 |---|---|
 | Sections, native tags, flags, subtasks | Not exposed |
 | Image/file attachments | Not exposed; image reading/OCR is input only |
-| Reminder URL field or URL attachment | Not exposed by this command |
+| Reminder URL field or URL attachment | Not exposed; use one canonical labelled link in notes when needed |
 | Create, rename, delete, or enumerate empty lists | Not exposed |
 | Exact list/account selector | Not exposed; `--list` is fuzzy |
-| Typed all-day due, clear due, clear notes | Not exposed |
+| Typed all-day due, clear due, clear notes | Not exposed; resolve date-only intent before writing |
 | Reminder start date / recurring time anchor | Not exposed; due-only update cannot verify re-anchoring |
 | Message/contact triggers | Not exposed |
 | Search, sort, ranges, pagination, exact read-by-ID | Not exposed |
@@ -221,6 +249,14 @@ what changes.
 
 ## Output
 
-Reply in the user's language and lead with verified results. Use exact dates with
-weekdays and full returned list titles. Distinguish verified, accepted-but-
-unverified, failed-with-no-known-write, and uncertain-after-dispatch states.
+Reply in the user's language and lead with the result and item count. Project each
+verified reminder back as a phone-sized card: title first, followed by one compact
+line containing only the useful verified trigger, full list title, recurrence, or
+location. Use exact dates with weekdays, and omit a time when the source supplied
+none. Keep notes and raw URLs private unless the user asks to see them or they are
+needed to explain a material choice. Keep unresolved candidates in one separate
+sentence instead of mixing them with created items.
+
+Do not show raw JSON, IDs, local paths, command lines, or repeated note text in a
+normal response. Distinguish verified, accepted-but-unverified,
+failed-with-no-known-write, and uncertain-after-dispatch states.
