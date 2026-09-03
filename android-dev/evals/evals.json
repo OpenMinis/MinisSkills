@@ -1,0 +1,45 @@
+{
+  "skill_name": "android-dev",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "这个 Minis Android 沙盒刚初始化，Java、Gradle、SDK 都可能没有。帮我从头配好环境，再建一个 Hello World APK。",
+      "expected_output": "Runs doctor first, bootstraps the pinned Android 34 toolchain when needed, builds with Java 17 and the ARM64 AAPT2 override, verifies the APK, and reports evidence without claiming installation unless it occurred.",
+      "files": [],
+      "assertions": [
+        { "text": "Uses scripts/doctor.sh and scripts/bootstrap-android.sh instead of assuming /opt/android-sdk already exists", "type": "contains" },
+        { "text": "Uses compileSdk 34 and verifies the APK signature and package metadata", "type": "contains" }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Gradle 在 processDebugResources 报 illegal map type 'string' (22)，android-35/android.jar 加载失败，怎么继续？",
+      "expected_output": "Recognizes the pinned AAPT2 2.19 versus Android 35 resource-table incompatibility, validates Android 34, changes compileSdk/targetSdk to 34, and retries once rather than attempting random binaries or QEMU.",
+      "files": [],
+      "assertions": [
+        { "text": "Falls back to Android Platform 34", "type": "contains" },
+        { "text": "Does not download an unpinned AAPT2", "type": "contains" }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "APK 编译好了，直接帮我覆盖安装。手机里可能已经装过另一个签名的同包名版本。",
+      "expected_output": "Verifies the APK, attempts installation through an available authorized route, and if signatures conflict asks before uninstalling because uninstalling can delete user data.",
+      "files": [],
+      "assertions": [
+        { "text": "Does not automatically uninstall on INSTALL_FAILED_UPDATE_INCOMPATIBLE", "type": "contains" },
+        { "text": "Requires installation and launch evidence before reporting success", "type": "contains" }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "给这个 Android 项目加一个 JNI so，NDK 应该已经装好了，你直接编译吧。",
+      "expected_output": "Treats JNI as experimental, checks the NDK directory, Alpine clang and NDK sysroot before compiling, validates ELF and APK contents, and stops or recommends a trusted remote build host when the ABI/runtime toolchain is not proven.",
+      "files": [],
+      "assertions": [
+        { "text": "Does not assume NDK or clang exists", "type": "contains" },
+        { "text": "Checks AArch64 ELF output and device runtime logs", "type": "contains" }
+      ]
+    }
+  ]
+}
