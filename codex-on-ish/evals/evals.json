@@ -1,0 +1,24 @@
+{
+  "evals": [
+    {
+      "prompt": "Install codex CLI on this iPhone Minis terminal so I can use it as an AI coding agent",
+      "expected_behaviour": "Runs scripts/setup.sh (aarch64 + certs + v0.130 musl binary + proxy + wrapper), then explains the curl device-auth login step instead of running codex login directly."
+    },
+    {
+      "prompt": "codex keeps saying error sending request for url, curl works fine. what's wrong",
+      "expected_behaviour": "Explains iSH async-socket/rustls breakage, verifies the codex wrapper env (HTTPS_PROXY=127.0.0.1:8894, SSL_CERT_FILE), checks /tmp/codex-proxy/proxy.log for CONN/ERR entries rather than reinstalling."
+    },
+    {
+      "prompt": "codex login keeps dying after a minute, my device code never completes",
+      "expected_behaviour": "Attributes death to iOS background CPU-budget kills; switches to scripts/token_poller3.sh (curl-driven device auth) and tells the user to keep the app foregrounded while entering the code."
+    },
+    {
+      "prompt": "why can't I use gpt-5.6 in codex? it says requires a newer version",
+      "expected_behaviour": "Explains server-side min_client gating vs the iSH panic ceiling (v0.141+ unusable), confirms the proxy rewrites 0.130.0→0.151.0 (length-neutral) and transforms the models catalog; suggests -m gpt-5.6-sol."
+    },
+    {
+      "prompt": "the model picker only shows old models and there's an unknown variant max error",
+      "expected_behaviour": "Recognizes the catalog decode failure; checks pyproxy6 logs for 'models transform' (effort filter, prefer_websockets=false) and restarts the singleton proxy if the transform stopped firing."
+    }
+  ]
+}
