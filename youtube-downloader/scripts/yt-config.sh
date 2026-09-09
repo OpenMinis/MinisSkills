@@ -9,8 +9,8 @@
 # It also reports dependency and mount status so the agent can decide what
 # to do on first run (install packages, guide the user to mount a folder, etc.).
 #
-# No external dependencies (no jq). JSON field access is done with sed because
-# the config is simple flat key-value pairs, not nested structures.
+# Requires python3 for structured JSON updates and validation (no jq).
+# Writes use a same-directory temporary file and atomic replacement.
 #
 # Usage:
 #   yt-config.sh status           Print config + dependency + mount status
@@ -30,28 +30,155 @@ DEFAULT_CONFIG='{"onboarded": false, "quality": "1080p", "save_location": "", "s
 
 # --- Simple JSON field reader (no jq needed) ---
 get_field() {
-  echo "$1" | sed -nE "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"?([^\",}]*)\"?.*/\1/p"
+  JSON="$1" KEY="$2"
+  if printf '%s' "$JSON" | grep -qE "\"$KEY\"[[:space:]]*:[[:space:]]*\""; then
+    printf '%s' "$JSON" | sed -nE "s/.*\"$KEY\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\1/p"
+  else
+    printf '%s' "$JSON" | sed -nE "s/.*\"$KEY\"[[:space:]]*:[[:space:]]*([^,}[:space:]]+).*/\1/p"
+  fi
 }
 
-# --- Simple JSON field setter ---
+# --- Structured setter; output stays compatible with existing sed readers ---
+# Strings cannot contain controls, quotes or backslashes. Python decodes old
+# JSON before validating this domain and emits a single line with literal Unicode.
 set_field() {
   JSON="$1" KEY="$2" VAL="$3"
-  if echo "$JSON" | grep -q "\"$KEY\""; then
-    echo "$JSON" | sed -E "s/(\"$KEY\"[[:space:]]*:[[:space:]]*)(\"?[^\"]*\"?)([,}])/\1\"$VAL\"\3/"
-  else
-    echo "$JSON" | sed -E "s/}$/, \"$KEY\": \"$VAL\"}/" | sed -E 's/\{,/\{/'
+
+  # 1. Strict key whitelist to prevent schema injection
+  case "$KEY" in
+    onboarded|quality|save_location|save_mode) ;;
+    *)
+      echo "ERROR: Invalid config key '$KEY'. Allowed keys: onboarded, quality, save_location, save_mode" >&2
+      return 1
+      ;;
+  esac
+
+  # 1b. onboarded is a boolean field — accept only true or false
+  if [ "$KEY" = "onboarded" ] && { [ "$VAL" != "true" ] && [ "$VAL" != "false" ]; }; then
+    echo "ERROR: 'onboarded' only accepts true or false (got '$VAL')" >&2
+    return 1
   fi
+
+  # 2. Reject control characters, double quotes, and backslashes
+  case "$VAL" in
+    *[[:cntrl:]]*)
+      echo "ERROR: Value for '$KEY' contains invalid control characters" >&2
+      return 1
+      ;;
+    *\"* | *\\*)
+      echo "ERROR: Value for '$KEY' must not contain double quotes or backslashes" >&2
+      return 1
+      ;;
+  esac
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required for structured configuration updates" >&2
+    return 1
+  fi
+
+  RES=$(python3 -c '
+import json, sys
+raw_json = sys.argv[1]
+key = sys.argv[2]
+val = sys.argv[3]
+try:
+    def unique_object(pairs):
+        result = {}
+        for k, v in pairs:
+            if k in result:
+                raise ValueError("duplicate config key")
+            result[k] = v
+        return result
+    data = json.loads(raw_json, object_pairs_hook=unique_object)
+    if not isinstance(data, dict):
+        sys.exit(2)
+    allowed_keys = {"onboarded", "quality", "save_location", "save_mode"}
+    for k, v in data.items():
+        if k not in allowed_keys:
+            sys.exit(3)
+        if k == "onboarded":
+            if not isinstance(v, bool):
+                sys.exit(4)
+        else:
+            if not isinstance(v, str) or any(ord(c) < 32 or ord(c) == 127 for c in v) or "\"" in v or "\\" in v:
+                sys.exit(5)
+
+    if key == "onboarded":
+        data[key] = (val.lower() == "true")
+    else:
+        data[key] = val
+    print(json.dumps(data, ensure_ascii=False))
+except Exception:
+    sys.exit(1)
+' "$JSON" "$KEY" "$VAL")
+
+  if [ $? -ne 0 ] || [ -z "$RES" ]; then
+    echo "ERROR: Config transformation or validation failed for '$KEY'" >&2
+    return 1
+  fi
+
+  # 3. Confirm the update actually took effect
+  if [ "$(get_field "$RES" "$KEY")" != "$VAL" ]; then
+    echo "ERROR: Field '$KEY' was not updated (no match in config)" >&2
+    return 1
+  fi
+
+  printf '%s' "$RES"
+}
+
+# --- Safe atomic config persistence ---
+save_config() {
+  NEW_CONTENT="$1"
+
+  if [ -z "$NEW_CONTENT" ]; then
+    echo "ERROR: Refusing to write empty configuration" >&2
+    return 1
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required for config validation" >&2
+    return 1
+  fi
+
+  # Validate before creating the temporary file.
+  if ! printf '%s' "$NEW_CONTENT" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+    echo "ERROR: Generated config is not valid JSON, keeping existing config" >&2
+    return 1
+  fi
+
+  TMP_FILE=$(mktemp "${CONFIG_FILE}.XXXXXX") || {
+    echo "ERROR: Failed to create temporary config file" >&2
+    return 1
+  }
+
+  printf '%s\n' "$NEW_CONTENT" > "$TMP_FILE" || {
+    echo "ERROR: Failed to write temporary config file" >&2
+    rm -f "$TMP_FILE"
+    return 1
+  }
+
+  if [ ! -s "$TMP_FILE" ]; then
+    echo "ERROR: Generated config validation failed, keeping existing config" >&2
+    rm -f "$TMP_FILE"
+    return 1
+  fi
+
+  mv -f "$TMP_FILE" "$CONFIG_FILE" || {
+    echo "ERROR: Failed to atomically replace $CONFIG_FILE" >&2
+    rm -f "$TMP_FILE"
+    return 1
+  }
 }
 
 case "$1" in
   init)
-    echo "$DEFAULT_CONFIG" > "$CONFIG_FILE"
+    save_config "$DEFAULT_CONFIG" || exit 1
     echo "Config initialized at $CONFIG_FILE"
     ;;
 
   status)
-    [ ! -f "$CONFIG_FILE" ] && echo "$DEFAULT_CONFIG" > "$CONFIG_FILE"
-    CONFIG=$(cat "$CONFIG_FILE")
+    [ ! -f "$CONFIG_FILE" ] && { save_config "$DEFAULT_CONFIG" || exit 1; }
+    CONFIG=$(cat "$CONFIG_FILE") || { echo "ERROR: Failed to read $CONFIG_FILE" >&2; exit 1; }
 
     # --- Dependency checks ---
     # yt-dlp: the download engine. Alpine's package version is stale —
@@ -96,18 +223,19 @@ case "$1" in
     ;;
 
   set)
-    [ ! -f "$CONFIG_FILE" ] && echo "$DEFAULT_CONFIG" > "$CONFIG_FILE"
-    CONFIG=$(cat "$CONFIG_FILE")
-    NEW_CONFIG=$(set_field "$CONFIG" "$2" "$3")
-    echo "$NEW_CONFIG" > "$CONFIG_FILE"
+    [ "$#" -lt 3 ] && { echo "ERROR: set requires a value argument (use an explicit empty string for empty)" >&2; echo "Usage: yt-config.sh set <key> <val>" >&2; exit 1; }
+    if [ ! -f "$CONFIG_FILE" ]; then save_config "$DEFAULT_CONFIG" || exit 1; fi
+    CONFIG=$(cat "$CONFIG_FILE") || { echo "ERROR: Failed to read $CONFIG_FILE" >&2; exit 1; }
+    NEW_CONFIG=$(set_field "$CONFIG" "$2" "$3") || exit 1
+    save_config "$NEW_CONFIG" || exit 1
     echo "Set $2 = $3"
     ;;
 
   complete)
-    [ ! -f "$CONFIG_FILE" ] && echo "$DEFAULT_CONFIG" > "$CONFIG_FILE"
-    CONFIG=$(cat "$CONFIG_FILE")
-    NEW_CONFIG=$(set_field "$CONFIG" "onboarded" "true")
-    echo "$NEW_CONFIG" > "$CONFIG_FILE"
+    if [ ! -f "$CONFIG_FILE" ]; then save_config "$DEFAULT_CONFIG" || exit 1; fi
+    CONFIG=$(cat "$CONFIG_FILE") || { echo "ERROR: Failed to read $CONFIG_FILE" >&2; exit 1; }
+    NEW_CONFIG=$(set_field "$CONFIG" "onboarded" "true") || exit 1
+    save_config "$NEW_CONFIG" || exit 1
     echo "Onboarding marked complete"
     ;;
 
