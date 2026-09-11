@@ -944,6 +944,166 @@
           "type": "contains"
         }
       ]
+    },
+    {
+      "id": 43,
+      "prompt": "Add milk to my shopping list.",
+      "expected_output": "With no prior app context, the agent selects this skill for the implicit shopping-list write. It checks command availability and discovers the real destination before creating. It handles fuzzy or missing-list ambiguity under the existing list rules, creates at most one unscheduled milk item once the destination is resolved, and verifies the returned ID and full list title before reporting success.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Selects apple-reminders without requiring the user to name Reminders or restate the request",
+          "type": "contains"
+        },
+        {
+          "text": "Discovers the shopping list and applies the collision/missing-list rules before any create",
+          "type": "contains"
+        },
+        {
+          "text": "Invents no due date or time and creates at most one item",
+          "type": "contains"
+        },
+        {
+          "text": "Claims success only after positive ID-matched read-back and full list-title verification",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "prompt": "지금은 2026-09-10 목요일, 서울 시간이야. 금요일에 세탁물 찾으라고 알려줘.",
+      "expected_output": "The agent selects this skill without prior app context, resolves Friday to 2026-09-11 in Asia/Seoul, and treats the missing time as date-only intent. With no established storage preference, it explains the current all-day limitation and asks one compact choice of time or undated storage with the date in notes before writing. It does not invent midnight or claim a notification has been scheduled.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Selects apple-reminders for the implicit Korean reminder request",
+          "type": "contains"
+        },
+        {
+          "text": "Resolves Friday to 2026-09-11 in the supplied local timezone",
+          "type": "contains"
+        },
+        {
+          "text": "Asks one compact time/storage question before writing because no date-only preference is established",
+          "type": "contains"
+        },
+        {
+          "text": "Performs no invented midnight write and makes no notification-delivery promise",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "prompt": "It is Thursday, 2026-09-10 in Seoul. Remind me to call the dentist tomorrow, Friday, at 3 pm.",
+      "expected_output": "The agent selects this skill even though no app is named. It resolves the due to 2026-09-11 at 15:00 Seoul time, creates one item in the default list, and positively verifies the returned ID and due before reporting the stored task. It does not claim that storing due proves a notification will fire.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Selects apple-reminders without prior Reminders context",
+          "type": "contains"
+        },
+        {
+          "text": "Uses one create with the absolute local due 2026-09-11T15:00:00+09:00 or an equivalent supported local datetime",
+          "type": "contains"
+        },
+        {
+          "text": "Verifies the returned ID and stored due before claiming success",
+          "type": "contains"
+        },
+        {
+          "text": "Does not equate due storage with banner or sound delivery",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "prompt": "It is Thursday, 2026-09-10 in Seoul. We were discussing two to-dos, renewing my passport and sending the invoice, but have not selected either one. Push that to Friday at 3 pm.",
+      "expected_output": "The agent selects this skill for implicit rescheduling and resolves Friday to 2026-09-11 at 15:00 Seoul time. It asks which of the two tasks the user means and resolves the selected task to an exact live ID before updating. It performs no write while the antecedent is ambiguous.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Selects apple-reminders for implicit task rescheduling without an app name",
+          "type": "contains"
+        },
+        {
+          "text": "Asks which task that refers to instead of guessing or updating both",
+          "type": "contains"
+        },
+        {
+          "text": "Performs no mutation until one exact task ID is resolved",
+          "type": "contains"
+        },
+        {
+          "text": "Keeps the requested Friday 15:00 local intent without inventing other changes",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "prompt": "What's on my plate today?",
+      "expected_output": "With no prior app context, the agent selects this skill for a read-only task briefing. It checks command availability, reads incomplete tasks with a deliberate limit, and applies the existing truncation and empty-or-timed-out rules. It summarizes observed tasks in the device timezone without inventing a task list from generic productivity advice or writing reminders.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Selects apple-reminders even though the user never names an app",
+          "type": "contains"
+        },
+        {
+          "text": "Uses a bounded incomplete read and applies truncation and silent-empty safeguards",
+          "type": "contains"
+        },
+        {
+          "text": "Briefs only observed tasks in the device timezone or reports unavailable/uncertain access",
+          "type": "contains"
+        },
+        {
+          "text": "Performs no reminder mutation",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "prompt": "Help me think through how to balance study, exercise, and rest next semester. I only want planning advice, not a saved task list.",
+      "expected_output": "The agent answers the abstract planning question conversationally. It does not select apple-reminders, read personal reminders, or create tasks merely because the discussion contains possible actions.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Keeps the response within the requested planning advice",
+          "type": "contains"
+        },
+        {
+          "text": "Does not select apple-reminders or access stored reminders",
+          "type": "contains"
+        },
+        {
+          "text": "Creates no reminders or other saved tasks",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "prompt": "Add milk to my shopping list in Todoist.",
+      "expected_output": "The agent respects the explicitly selected app and routes the request to Todoist if available, or reports that access is unavailable. It does not select apple-reminders or silently store the item in Apple Reminders.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Preserves Todoist as the requested destination",
+          "type": "contains"
+        },
+        {
+          "text": "Does not select or invoke apple-reminders",
+          "type": "contains"
+        },
+        {
+          "text": "Does not create an Apple Reminders fallback when Todoist access is unavailable",
+          "type": "contains"
+        }
+      ]
     }
   ]
 }

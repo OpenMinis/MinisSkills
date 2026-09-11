@@ -1,14 +1,17 @@
 ---
 name: apple-reminders
 description: >
-  Manage native Apple Reminders on iPhone through Minis. Use when the user
-  explicitly asks about Reminders, 미리 알림, 提醒事项, or リマインダー, or the current
-  conversation already concerns them: read or brief tasks, capture from text,
-  meeting notes, or photos, create recurring or arrival/departure reminders,
-  reschedule, reprioritize, complete or undo, clean up, delete, or recover.
-  Trigger for overdue/today/unscheduled views, named lists, Recently Deleted, and
-  unsupported sections, tags, attachments, flags, or subtasks so limitations are
-  reported accurately. Do not take over unrelated generic task planning.
+  Manage native Apple Reminders on iPhone through Minis. Use for reminder, to-do,
+  shopping-list, or actionable-task requests even without naming an app or prior
+  Reminders context: "what's on my plate today?", "add milk to my shopping list",
+  "remind me on Friday", "push that to Friday", "오늘 할 일", "장보기 목록에 우유 추가",
+  "금요일에 알려줘", "待办", or "タスク". Also use for explicit Reminders, 미리 알림,
+  提醒事项, or リマインダー requests: brief, capture from text/meetings/photos, recur,
+  arrive/depart, reschedule, reprioritize, complete/undo, clean up, delete/recover,
+  overdue/today/unscheduled views, named lists, Recently Deleted, and unsupported
+  sections, tags, attachments, flags, or subtasks. Exclude purely abstract planning
+  with no request to read or manage stored tasks, and requests assigned to another
+  app or document.
 compatibility: >
   iOS only. Requires the built-in apple-reminders command and Reminders
   permission. No external packages. Core reminder operations are local; optional
