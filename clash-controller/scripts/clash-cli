@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""clash-cli — mihomo / Clash RESTful API CLI for Minis.
+
+通过 external-controller (默认 127.0.0.1:9090) 查询和控制 Clash/Mihomo。
+对标 surge-cli 常用操作。secret 从 CLASH_SECRET 环境变量读取（无则不认证）。
+"""
+import sys, os, json, time, socket, urllib.request, urllib.error, urllib.parse
+
+BASE = os.environ.get("CLASH_API", "http://127.0.0.1:9090")
+SECRET = os.environ.get("CLASH_SECRET", "")
+TIMEOUT = int(os.environ.get("CLASH_TIMEOUT", "8"))
+
+
+def _req(path, method="GET", data=None, timeout=TIMEOUT, raw=False):
+    """发请求，返回 parsed JSON 或 None(204)。失败 raise SystemExit。"""
+    url = BASE + path
+    headers = {}
+    if SECRET:
+        headers["Authorization"] = "Bearer " + SECRET
+    body = None
+    if data is not None:
+        body = json.dumps(data).encode()
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=body, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = resp.read()
+            if not payload or resp.status == 204:
+                return None
+            return payload if raw else json.loads(payload)
+    except urllib.error.HTTPError as e:
+        msg = e.read().decode(errors="replace")[:200]
+        sys.exit(f"HTTP {e.code} {e.reason}: {msg}")
+    except urllib.error.URLError as e:
+        sys.exit(f"连接失败 {BASE}（{e.reason}）——Clash/Mihomo 是否在运行？external-controller 是否开启？")
+    except Exception as e:
+        sys.exit(f"错误: {e}")
+
+
+def _sse(path, seconds=3, timeout=None):
+    """读 SSE 流 N 秒，yield parsed JSON 行。保证至少尝试读取第一帧。"""
+    if timeout is None:
+        timeout = seconds + 5
+    url = BASE + path
+    headers = {"Accept": "text/event-stream"}
+    if SECRET:
+        headers["Authorization"] = "Bearer " + SECRET
+    req = urllib.request.Request(url, headers=headers)
+    end = time.time() + seconds
+    buf = ""
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            while True:
+                try:
+                    chunk = resp.read(256)
+                except (urllib.error.URLError, OSError, socket.timeout):
+                    break
+                if not chunk:
+                    break
+                buf += chunk.decode(errors="replace")
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    line = line.strip()
+                    # mihomo 的 /traffic 和 /memory 是"类 SSE"：直接裸 JSON 行 + 空行，
+                    # 无标准 `data:` 前缀，但也兼容标准 SSE 格式
+                    if line.startswith("data:"):
+                        line = line[5:].strip()
+                    if not line:
+                        continue
+                    try:
+                        yield json.loads(line)
+                    except json.JSONDecodeError:
+                        yield line
+                # 处理完当前缓冲后再检查时间（确保超时前读到的帧都会被处理）
+                if time.time() > end:
+                    break
+    except Exception as e:
+        sys.exit(f"SSE 读取失败: {e}")
+
+
+# ── 子命令 ──
+
+def cmd_status(args):
+    """概览：版本 + 配置 + 内存 + 策略组当前选择。"""
+    ver = _req("/version")
+    cfg = _req("/configs")
+    # /memory 是 SSE 流式端点（持续推送），不能整体读取，只取一帧
+    mem = next(iter(_sse("/memory", seconds=3)), {})
+    px = _req("/proxies").get("proxies", {})
+    groups = [(k, v.get("now")) for k, v in px.items()
+              if v.get("type") in ("Selector", "URLTest", "Fallback", "LoadBalance")]
+    print(f"mihomo {'.'.join(str(x) for x in ver.get('version','').split('.'))}  meta={ver.get('meta')}")
+    tun = cfg.get("tun", {})
+    print(f"mode={cfg.get('mode')}  mixed-port={cfg.get('mixed-port')}  tun={tun.get('enable')} stack={tun.get('stack')}")
+    print(f"内存 {mem.get('footprint',0)//1024//1024}MB  inuse={mem.get('inuse',0)//1024}KB")
+    print(f"策略组 {len(groups)} 个：")
+    for name, now in groups:
+        print(f"  {name:20s} → {now}")
+
+
+def cmd_version(args):
+    v = _req("/version")
+    print(json.dumps(v, indent=2))
+
+
+def cmd_proxies(args):
+    """列出代理/策略组。可选参数：组名（查看该组详情/成员）。"""
+    px = _req("/proxies").get("proxies", {})
+    if args:
+        name = urllib.parse.quote(args[0])
+        d = _req(f"/proxies/{name}")
+        print(f"名称: {d.get('name')}  类型: {d.get('type')}  now: {d.get('now','-')}")
+        if d.get("all"):
+            print(f"成员 ({len(d['all'])}):")
+            for m in d["all"]:
+                print(f"  - {m}")
+    else:
+        groups, leaves = [], []
+        for k, v in px.items():
+            (groups if v.get("type") in ("Selector","URLTest","Fallback","LoadBalance") else leaves).append((k, v))
+        print(f"策略组 {len(groups)} 个：")
+        for k, v in groups:
+            print(f"  {k:20s} [{v.get('type')}] → {v.get('now','-')}")
+        print(f"\n节点 {len(leaves)} 个（名称/类型）：")
+        for k, v in leaves:
+            print(f"  {k}  ({v.get('type')})")
+
+
+def cmd_proxy(args):
+    """proxy get <组> | proxy set <组> <节点>"""
+    if len(args) < 2 or args[0] not in ("get", "set"):
+        sys.exit("用法: clash-cli proxy get <组> | clash-cli proxy set <组> <节点>")
+    op, group = args[0], args[1]
+    qgroup = urllib.parse.quote(group)
+    if op == "get":
+        d = _req(f"/proxies/{qgroup}")
+        print(f"{group} → {d.get('now','-')}  [{d.get('type')}]")
+        if d.get("all"):
+            print("可选:", ", ".join(d["all"]))
+    elif op == "set":
+        node = args[2]
+        _req(f"/proxies/{qgroup}", method="PUT", data={"name": node})
+        d = _req(f"/proxies/{qgroup}")
+        print(f"✓ {group} → {d.get('now')}")
+
+
+def cmd_test(args):
+    """测节点/组延迟。test <名称> [url] [timeout_ms]"""
+    if not args:
+        sys.exit("用法: clash-cli test <名称> [url] [timeout_ms]")
+    name = urllib.parse.quote(args[0])
+    url = args[1] if len(args) > 1 else "https://www.gstatic.com/generate_204"
+    tmo = args[2] if len(args) > 2 else "5000"
+    qs = urllib.parse.urlencode({"url": url, "timeout": int(tmo)})
+    try:
+        d = _req(f"/proxies/{name}/delay?{qs}", timeout=int(tmo)//1000 + 5)
+        print(f"✓ {args[0]} 延迟 {d.get('delay','-')}ms")
+    except SystemExit as e:
+        print(f"✗ {args[0]} 测试失败: {e}")
+
+
+def cmd_connections(args):
+    """实时连接。connections [N]。"""
+    n = int(args[0]) if args else 15
+    d = _req("/connections")
+    cs = d.get("connections", [])
+    print(f"活跃连接 {len(cs)} 个（总 ↓{d.get('downloadTotal',0)//1024}KB ↑{d.get('uploadTotal',0)//1024}KB）：")
+    for c in cs[:n]:
+        m = c.get("metadata", {})
+        host = m.get("host") or m.get("destinationIP") or m.get("processPath","?") or "?"
+        chain = c.get("chains", ["?"])
+        rule = c.get("rulePayload") or c.get("rule", "-")
+        print(f"  {host:35s} → {chain[-1]:15s} [{rule}]  ↓{c.get('download',0)}B ↑{c.get('upload',0)}B")
+
+
+def cmd_conn_close(args):
+    """conn close <id|all>"""
+    if not args:
+        sys.exit("用法: clash-cli conn close <id|all>")
+    if args[0] == "all":
+        _req("/connections", method="DELETE")
+        print("✓ 已关闭所有连接")
+    else:
+        _req(f"/connections/{urllib.parse.quote(args[0])}", method="DELETE")
+        print(f"✓ 已关闭连接 {args[0]}")
+
+
+def cmd_traffic(args):
+    """实时流量（SSE）。traffic [秒数]。"""
+    secs = int(args[0]) if args else 3
+    print(f"实时流量（{secs}秒）：")
+    for frame in _sse("/traffic", seconds=secs):
+        if isinstance(frame, dict):
+            up, down = frame.get("up",0), frame.get("down",0)
+            ut, dt = frame.get("upTotal",0), frame.get("downTotal",0)
+            print(f"  ↑ {up:>8}B/s  ↓ {down:>8}B/s  | 累计 ↑{ut//1024}KB ↓{dt//1024}KB")
+
+
+def cmd_rules(args):
+    """规则列表。rules [N]。"""
+    d = _req("/rules")
+    rules = d.get("rules", [])
+    n = int(args[0]) if args else 0
+    print(f"规则 {len(rules)} 条：")
+    for r in (rules if not n else rules[:n]):
+        print(f"  {r.get('type'):20s} {r.get('payload','-'):30s} → {r.get('proxy')}")
+
+
+def cmd_configs(args):
+    """当前运行配置。"""
+    d = _req("/configs")
+    print(json.dumps(d, indent=2, ensure_ascii=False))
+
+
+def cmd_reload(args):
+    """重载配置。reload [配置文件路径]。"""
+    if args:
+        path = args[0]
+        with open(path) as f:
+            payload = {"path": os.path.abspath(path)}
+        _req("/configs?force=true", method="PUT", data=payload)
+    else:
+        _req("/configs?force=false", method="PUT", data={})
+    print("✓ 配置已重载")
+
+
+def cmd_dns(args):
+    """dns query <域名> [type]。"""
+    if len(args) < 2 or args[0] != "query":
+        sys.exit("用法: clash-cli dns query <域名> [type]")
+    name, dtype = args[1], args[2] if len(args) > 2 else "A"
+    qs = urllib.parse.urlencode({"name": name, "type": dtype})
+    d = _req(f"/dns/query?{qs}")
+    print(json.dumps(d, indent=2, ensure_ascii=False))
+
+
+def cmd_logs(args):
+    """日志（SSE）。logs [秒数] [level]。"""
+    secs = int(args[0]) if args else 3
+    level = args[1] if len(args) > 1 else "info"
+    print(f"日志（{secs}秒，level={level}）：")
+    for frame in _sse(f"/logs?level={level}", seconds=secs):
+        if isinstance(frame, dict):
+            print(f"  [{frame.get('type','')}] {frame.get('payload','')}")
+        else:
+            print(f"  {frame}")
+
+
+def cmd_group_test(args):
+    """对组内所有节点测速。grouptest <组名> [url] [timeout_ms]。"""
+    if not args:
+        sys.exit("用法: clash-cli grouptest <组名> [url] [timeout_ms]")
+    group = args[0]
+    url = args[1] if len(args) > 1 else "https://www.gstatic.com/generate_204"
+    tmo = int(args[2]) if len(args) > 2 else 5000
+    qg = urllib.parse.quote(group)
+    d = _req(f"/proxies/{qg}")
+    members = d.get("all", [])
+    print(f"{group} 成员 {len(members)} 个，测速中...")
+    for m in members:
+        qm = urllib.parse.quote(m)
+        qs = urllib.parse.urlencode({"url": url, "timeout": tmo})
+        try:
+            r = _req(f"/proxies/{qm}/delay?{qs}", timeout=tmo//1000+5)
+            print(f"  {m:40s} {r.get('delay','-'):>6}ms")
+        except SystemExit:
+            print(f"  {m:40s}   超时/失败")
+
+
+COMMANDS = {
+    "status": cmd_status,
+    "version": cmd_version,
+    "proxies": cmd_proxies,
+    "proxy": cmd_proxy,
+    "test": cmd_test,
+    "connections": cmd_connections,
+    "conn": cmd_conn_close,  # conn close <id|all>
+    "traffic": cmd_traffic,
+    "rules": cmd_rules,
+    "configs": cmd_configs,
+    "reload": cmd_reload,
+    "dns": cmd_dns,
+    "logs": cmd_logs,
+    "grouptest": cmd_group_test,
+}
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__)
+        print("\n用法: clash-cli <命令> [参数...]")
+        print("\n命令:")
+        for cmd in sorted(COMMANDS):
+            doc = COMMANDS[cmd].__doc__ or ""
+            print(f"  {cmd:14s} {doc}")
+        print("\n环境变量: CLASH_API(默认 http://127.0.0.1:9090)  CLASH_SECRET  CLASH_TIMEOUT(默认8)")
+        return
+    cmd = sys.argv[1]
+    fn = COMMANDS.get(cmd)
+    if not fn:
+        sys.exit(f"未知命令: {cmd}（clash-cli --help 查看可用命令）")
+    fn(sys.argv[2:])
+
+
+if __name__ == "__main__":
+    main()
