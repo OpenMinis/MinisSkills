@@ -1,0 +1,161 @@
+{
+  "skill_name": "evidence-chain-builder",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "an analyst told me this market grows 30% a year — is that right?",
+      "expected_output": "The claim is separated from its evidence, and the only evidence is the analyst's statement, which is tagged `assertion`. The script is run and returns a score of 0. The reply reports the claim as not established rather than true or false, and names concretely what would settle it — the analyst's published note, or the underlying data. It does not repeat the 30% figure as a fact.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The skill triggered and the claim was separated from the evidence before any answer was given",
+          "type": "contains"
+        },
+        {
+          "text": "The single evidence item was treated as an assertion because no document or issuing body was named, rather than being accepted as an analyst's finding",
+          "type": "contains"
+        },
+        {
+          "text": "The reply says the claim is not established, and does not present the 30% figure as either confirmed or disproven",
+          "type": "contains"
+        },
+        {
+          "text": "The reply names a specific next step that would make the claim checkable, such as the published note or the source data",
+          "type": "contains"
+        },
+        {
+          "text": "verified",
+          "type": "not_contains"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "we say our device failure rate is under 0.5% — I've got the 2025 QA audit report, a note that support has no complaints on file, and a cohort study in JAMA. can you check that's solid?",
+      "expected_output": "Three evidence items are tagged — `official`, `internal`, `paper` respectively — and the script is run. The result is 67/100 with 2 of 3 verifiable at the default threshold. The reply reports the score and separately names the support-inbox note as the item that cannot be independently verified, and says what would replace it. It does not round the result up to a clean pass.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The three items were tagged by source type, with the support-inbox note tagged as internal rather than as official or paper",
+          "type": "contains"
+        },
+        {
+          "text": "The script was run and its score was reported, with the verifiable count shown against the total",
+          "type": "contains"
+        },
+        {
+          "text": "The reply names the specific unverifiable item rather than describing the evidence as generally weak",
+          "type": "contains"
+        },
+        {
+          "text": "The reply states that the score reflects checkability and still requires a human check of the original sources",
+          "type": "contains"
+        },
+        {
+          "text": "The internal note was re-tagged as official or described as verified so that the score would clear the threshold",
+          "type": "not_contains"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "put together the market section of our investor deck — pull the numbers together and back them with evidence",
+      "expected_output": "The skill triggers because the material will be relied on. Each figure is turned into its own chain rather than one averaged chain, figures with no source are reported as not established, and the reply lists which specific claims need a source pinned to them before the deck is used. The threshold is raised above the default for published material, and the threshold used is stated.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Figures were treated as separate claims rather than combined into a single chain",
+          "type": "contains"
+        },
+        {
+          "text": "Any figure arriving without a source was reported as not established instead of being carried into the deck",
+          "type": "contains"
+        },
+        {
+          "text": "A threshold higher than the default was used for material that will be published or relied on, and the value used was stated",
+          "type": "contains"
+        },
+        {
+          "text": "The reply ends with a list of the specific claims that need a source before the material can be used",
+          "type": "contains"
+        },
+        {
+          "text": "The deck is presented as fact-checked",
+          "type": "not_contains"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "这段有依据吗？说是 2025 年行业规模增长 40%，但我只看到一句传闻",
+      "expected_output": "The skill triggers on a Chinese-language request that never uses the word 'evidence'. The claim is run with the rumour as an assertion, the score comes back 0, and the answer is written in Chinese. The reply says the claim is not established and states what would make it checkable — it does not convert 'not established' into 'false'.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The skill triggered on a Chinese request containing no English trigger words",
+          "type": "contains"
+        },
+        {
+          "text": "The rumour was treated as an assertion rather than as an unverified fact or as a disproof",
+          "type": "contains"
+        },
+        {
+          "text": "The reply is written in the user's language while the tool output itself is English",
+          "type": "contains"
+        },
+        {
+          "text": "The reply distinguishes 'not established' from 'false' rather than calling the figure wrong",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "here's a claim with five sources all tagged official, score is 100 — so it's verified then?",
+      "expected_output": "The reply refuses the inference. A score of 100 means every item is the kind of thing that can be checked, not that anyone has checked it or that the claim is true. The reply states that the sources still need to be opened and that the score is not a truth value, and mentions at least one thing the tool does not check — that a cited source exists, or that a fabricated citation would still score as a paper.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The reply states explicitly that a score of 100 does not mean the claim is true or verified",
+          "type": "contains"
+        },
+        {
+          "text": "The reply explains that the score measures whether the items could be checked, not whether they have been",
+          "type": "contains"
+        },
+        {
+          "text": "At least one limitation of the tool is stated, such as that it does not confirm a cited source exists or cannot detect a fabricated citation",
+          "type": "contains"
+        },
+        {
+          "text": "The user's framing was accepted and the claim was reported as verified",
+          "type": "not_contains"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "check the evidence on this: 'Smith et al. 2024, Nature Medicine, showed a 42% reduction'",
+      "expected_output": "The item is tagged `paper` because a paper is named, and the score reflects that — but the reply states plainly that the tool does not check whether the citation exists, does not weigh study quality, and that a fabricated reference would score the same as a real one. The reply offers to verify the citation as a separate search step, treated as a new evidence item rather than as the same chain.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The item was tagged as a paper because a specific publication was named",
+          "type": "contains"
+        },
+        {
+          "text": "The reply states that the tool does not confirm the citation exists and that a fabricated reference would score the same",
+          "type": "contains"
+        },
+        {
+          "text": "The reply notes that study quality — sample size, design, bias — is outside what the tool assesses",
+          "type": "contains"
+        },
+        {
+          "text": "Verifying the citation was offered as a separate search task rather than being folded into the same evidence score",
+          "type": "contains"
+        }
+      ]
+    }
+  ]
+}
