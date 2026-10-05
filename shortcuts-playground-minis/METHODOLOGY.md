@@ -1,0 +1,243 @@
+# Methodology
+
+## Goal
+
+Provide a quick-reference 10-step methodology for building shortcuts, as the first entry point for every build task.
+
+This file is an index layer. It does not record defaults for any single app and is not tied to specific cases.
+
+---
+
+## Step 1: Decide the Route
+
+**Do not write XML as soon as a request arrives. First decide whether the task suits a shortcut and which route to take.**
+
+The decision outputs one of three labels:
+
+| Label | Meaning |
+|------|------|
+| `shortcut-native` | Can be done with pure native actions |
+| `shortcut-hybrid` | The shortcut is the entry point; complex logic is handed to something external |
+| `not-shortcut-first` | Not suitable to build as a shortcut |
+
+Basis for the decision: whether the input is simple, whether the output lands in a system app, and whether it depends on login state / web pages / long background runs.
+
+Detailed decision tree → [`CAPABILITY_DECISION.md`](CAPABILITY_DECISION.md)
+
+---
+
+## Step 2: Normalize the Task Spec
+
+Break the natural-language request into standard fields:
+
+- **input**: where it comes from (share, clipboard, manual input, no input)
+- **transform**: what happens in between (concatenate, judge, request, filter)
+- **output / destination**: where the result lands (Notes, Reminders, notification, file)
+- **trigger**: how it is triggered (share sheet, manual run, widget, automation)
+- **interaction**: fully automatic or needs user interaction
+
+Do not move on to action selection until these fields are clear.
+
+Full field list → [`ROUTING_FRAMEWORK.md`](ROUTING_FRAMEWORK.md)
+
+---
+
+## Step 3: Minimal Clarification
+
+**Ask first when unclear boundaries would change the implementation route; do not ask when a default can move things forward.**
+
+Rules:
+
+- Use fixed multiple-choice templates, not open-ended follow-ups
+- The number of questions is determined by the number of key ambiguities, not artificially capped at 1–3
+- The number of options per question is determined by the question itself, not forced to 3
+- After asking, attach a recommended flow + text the user can copy directly to confirm
+- Cover only ambiguities that would change the action-chain structure; do not turn defaultable information into questions
+
+Typical must-ask cases: input method unclear, write mode unclear (create / append / choose), whether third-party services are acceptable.
+
+Clarification templates → [`CLARIFICATION_TEMPLATES.md`](CLARIFICATION_TEMPLATES.md)
+
+---
+
+## Step 4: Build the Action-Chain Skeleton
+
+**First list the action sequence in natural language, then move to XML. If the skeleton is right, the parameters are fill-in-the-blank; if the skeleton is wrong, precise parameters are wasted.**
+
+The skeleton must make clear:
+
+- Which actions are needed and in what order
+- Whose output feeds whose input (data flow)
+- Whether there are branches (If), loops (Repeat), or menus (Menu)
+- Which parts are done inside Shortcuts and which are handed to external components
+
+Example output format:
+
+```
+share_input → detect_link → set_variable → if_exists → clipboard_fallback →
+find_note → format_date → text_template → append_note → notification
+```
+
+---
+
+## Step 5: Choose a Recipe and Patterns
+
+**Most shortcuts are permutations of a few atomic patterns. Prefer choosing from existing recipes rather than inventing from scratch.**
+
+Common atomic patterns:
+
+| Category | Typical patterns |
+|------|---------|
+| Input | `clipboard_in`, `share_input`, `ask_text`, `choose_menu` |
+| Control | `if_exists`, `if_string_match`, `menu_branch`, `repeat_each` |
+| Processing | `text_template_with_variables`, `replace_text`, `format_date`, `http_get` |
+| Destination | `append_note`, `find_note`, `create_reminder`, `save_file`, `notification` |
+
+Recipe skeletons → [`ACTION_RECIPES.md`](ACTION_RECIPES.md)
+Atomic pattern catalog → [`COMMON_PATTERNS.md`](COMMON_PATTERNS.md)
+
+Once the action chain is set, use `scripts/match-golden` to match the most relevant golden shortcut as a wiring reference.
+
+---
+
+## Step 6: Read Reference Docs On Demand
+
+**Do not load all reference files at once. Read on demand, according to the action types in the chain.**
+
+Reading order:
+
+1. **Check the quick-reference tables first**: [`ACTION_PARAM_INDEX.md`](ACTION_PARAM_INDEX.md) (required parameters + serialization) + [`KNOWN_PITFALLS.md`](KNOWN_PITFALLS.md) (known pitfalls)
+2. Read the environment profile first (`load-env-profile`)
+3. For high-frequency actions, take the minimal snippet skeleton from [`XML_SNIPPET_PATTERNS.md`](XML_SNIPPET_PATTERNS.md)
+4. For uncertain parameter structures, read [`ACTIONS.md`](ACTIONS.md), [`VARIABLES.md`](VARIABLES.md), [`PARAMETER_TYPES.md`](PARAMETER_TYPES.md)
+5. For control flow, read [`CONTROL_FLOW.md`](CONTROL_FLOW.md)
+6. For filters, read [`FILTERS.md`](FILTERS.md)
+7. For general rules, see [`BEST_PRACTICES.md`](BEST_PRACTICES.md)
+
+---
+
+## Step 7: Generate the XML Draft
+
+**UUIDs must be generated by a tool, and placeholder positions must be computed by a script; neither may be worked out by hand.**
+
+Core constraints:
+
+- UUID: generate with `python3 -c "import uuid; print(str(uuid.uuid4()).upper())"`; never reuse or fabricate
+- Placeholder positions: compute `{position, 1}` with `scripts/placeholder-range`; do not count by hand
+- Icon and color: generate with `scripts/resolve-icon --prompt "..."`
+- Output path: `/var/minis/attachments/shortcut/drafts/<name>.xml`
+- Must be a complete plist XML, not a fragment
+
+Variable reference essentials:
+
+- Display parameters (notification body, Alert message, Show Result) → must use `WFTextTokenString`
+- Data-flow parameters (WFInput, WFDate) → may use `WFTextTokenAttachment`
+- The `WFInput` of an If condition → must use the `Type=Variable` wrapper
+
+Detailed rules → [`VARIABLES.md`](VARIABLES.md), [`BEST_PRACTICES.md`](BEST_PRACTICES.md)
+
+---
+
+## Step 8: Validate and Apply Targeted Fixes
+
+**Always run validation after writing. "Written" and "verified" are two different things.**
+
+Before validating, auto-fix placeholder positions:
+
+```bash
+scripts/fix-positions "/path/to/draft.xml"
+scripts/validate-shortcut "/path/to/draft.xml"
+```
+
+Craig Loop rules:
+
+- At most 5 rounds of fix → validate loops
+- Each round makes only **targeted fixes**, never a whole-file rewrite — rewrites easily introduce new problems
+- If the same error persists for 2 consecutive rounds → stop, change approach or report to the user
+- Do not re-run validation when no actual change was made
+
+---
+
+## Step 9: Signing and Hard Acceptance
+
+**Before signing, state that the file will be uploaded to a third-party service. After signing, always run file-level acceptance checks.**
+
+Signing:
+
+```bash
+scripts/sign-shortcut "/path/to/draft.xml" --name "Shortcut Name"
+```
+
+All three acceptance checks are required:
+
+| Check | Standard |
+|--------|------|
+| File exists | The `.shortcut` file exists at the output path |
+| File size | > 0 bytes |
+| File header | The first 4 bytes are `AEA1` |
+
+If any check fails, do not claim completion.
+
+---
+
+## Step 10: Delivery and Prerequisites
+
+**When delivering the artifact, state the run prerequisites as well; do not hand over just the file.**
+
+Delivery checklist:
+
+- Path of the final `.shortcut` file (tappable to install)
+- Path of the draft `.xml` file (for tracing back and editing)
+- Route type (native / hybrid)
+- Prerequisites: what the user must prepare in advance (e.g. "first create a note named X")
+- Trigger method: manual run / share sheet / both
+- Third-party service disclosure: whether it was signed through an external service such as HubSign
+
+---
+
+## Quick Flowchart
+
+```
+Request → Step 1 Decide route
+         ↓
+     Step 2 Normalize spec
+         ↓
+     Step 3 Minimal clarification (can be skipped)
+         ↓
+     Step 4 Build skeleton
+         ↓
+     Step 5 Choose recipe/patterns
+         ↓
+     Step 6 Read references on demand
+         ↓
+     Step 7 Generate XML
+         ↓
+     Step 8 Validate and fix (≤5 rounds)
+         ↓
+     Step 9 Sign and accept
+         ↓
+     Step 10 Deliver + prerequisites
+```
+
+## Relationship to Existing Docs
+
+This file is the **methodology index layer**. It does not contain action parameter details, XML structure specs, or validator rules.
+
+| What you need | Where to find it |
+|----------|---------|
+| Whether a task suits a shortcut | `CAPABILITY_DECISION.md` |
+| Task spec fields and route priority | `ROUTING_FRAMEWORK.md` |
+| Clarification question templates | `CLARIFICATION_TEMPLATES.md` |
+| Recipe skeletons | `ACTION_RECIPES.md` |
+| Atomic pattern catalog | `COMMON_PATTERNS.md` |
+| Minimal XML snippets | `XML_SNIPPET_PATTERNS.md` |
+| **Quick reference for high-frequency action parameters** | **`ACTION_PARAM_INDEX.md`** |
+| **Known action pitfalls** | **`KNOWN_PITFALLS.md`** |
+| **Match the most relevant golden shortcut** | **`scripts/match-golden`** |
+| **Auto-fix placeholder positions** | **`scripts/fix-positions`** |
+| Action identifiers and parameters | `ACTIONS.md`, `PARAMETER_TYPES.md` |
+| Variable references and placeholders | `VARIABLES.md` |
+| Control-flow structure | `CONTROL_FLOW.md` |
+| Filter structure | `FILTERS.md` |
+| General hard rules | `BEST_PRACTICES.md` |
+| Pre-build checklist | `BUILD_CHECKLIST.md` |

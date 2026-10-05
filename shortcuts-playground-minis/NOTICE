@@ -1,0 +1,27 @@
+# NOTICE
+
+This skill bundle contains material derived from:
+
+- `viticci/shortcuts-playground-plugin`
+- <https://github.com/viticci/shortcuts-playground-plugin>
+- Author: Federico Viticci / MacStories
+- License: MIT
+
+This local directory is a Minis-focused adaptation and extension layer.
+It preserves upstream methods and bundled reference material while changing:
+
+- runtime assumptions
+- output paths
+- signing path
+- interaction model
+- routing and clarification framework
+
+When redistributing or adapting this bundle further, keep:
+
+- `LICENSE`
+- `UPSTREAM_ATTRIBUTION.md`
+- `LICENSE_COMPLIANCE.md`
+- this `NOTICE`
+
+Do not present the inherited method and bundled knowledge base as wholly original.
+Do not present this bundle as an official upstream release or imply endorsement by Federico Viticci / MacStories.

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Auto-fix WFTextTokenString placeholder positions in Shortcuts XML.
+# Usage:
+#   fix-positions /path/to/draft.xml              # fix in place
+#   fix-positions /path/to/draft.xml --dry-run     # report only
+#   fix-positions /path/to/draft.xml -o /out.xml   # fix to separate file
+exec python3 "$(dirname "$0")/fix_placeholder_positions.py" "$@"
