@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-DATA_DIR = Path('/var/minis/skills/shortcuts-playground-minis/data')
+DATA_DIR = Path('/var/minis/skills/shortcuts-builder/data')
 PRIMARY = DATA_DIR / 'user_profile.json'
 FALLBACK = DATA_DIR / 'user_profile.example.json'
 IMPORTANT_PATHS = [

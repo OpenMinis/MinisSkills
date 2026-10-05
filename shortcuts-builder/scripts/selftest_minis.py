@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Practical self-test for shortcuts-playground-minis.
+"""Practical self-test for shortcuts-builder.
 
 Checks:
 1. local validator works on a minimal generated draft
@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path("/var/minis/skills/shortcuts-playground-minis")
+ROOT = Path("/var/minis/skills/shortcuts-builder")
 OUT = Path("/var/minis/attachments/shortcut")
 DRAFTS = OUT / "drafts"
 TEST_XML = DRAFTS / "Selftest Hello.xml"

@@ -719,11 +719,11 @@ Keep it brief and include clothing recommendations.</string>
 2. **Save** it as an unsigned XML/plist draft (for example, `/var/minis/attachments/shortcut/drafts/HelloWorld.xml`)
 3. **Validate** it with the local validator:
    ```bash
-   /var/minis/skills/shortcuts-playground-minis/scripts/validate-shortcut /var/minis/attachments/shortcut/drafts/HelloWorld.xml
+   /var/minis/skills/shortcuts-builder/scripts/validate-shortcut /var/minis/attachments/shortcut/drafts/HelloWorld.xml
    ```
 4. **Sign** it with the Minis wrapper (choose a backend first, see `README.md`):
    ```bash
-   /var/minis/skills/shortcuts-playground-minis/scripts/sign-shortcut /var/minis/attachments/shortcut/drafts/HelloWorld.xml --name "HelloWorld"
+   /var/minis/skills/shortcuts-builder/scripts/sign-shortcut /var/minis/attachments/shortcut/drafts/HelloWorld.xml --name "HelloWorld"
    ```
 5. **Import** the generated `.shortcut` file from `/var/minis/attachments/shortcut/`
 

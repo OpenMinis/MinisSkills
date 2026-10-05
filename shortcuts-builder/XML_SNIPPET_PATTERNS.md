@@ -53,7 +53,7 @@ Provide a minimal-structure index for high-frequency actions, reducing the cost 
 - Always compute positions with:
 
 ```bash
-/var/minis/skills/shortcuts-playground-minis/scripts/placeholder-range 'text with ￼ placeholder'
+/var/minis/skills/shortcuts-builder/scripts/placeholder-range 'text with ￼ placeholder'
 ```
 
 ## Snippet Selection Rules

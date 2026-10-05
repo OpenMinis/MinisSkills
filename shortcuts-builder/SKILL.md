@@ -1,9 +1,9 @@
 ---
-name: shortcuts-playground-minis
+name: shortcuts-builder
 description: Build and remix Apple Shortcuts from natural-language automation requests in Minis — routing, clarification, action-chain planning, XML generation, local validation, and signing via a user-chosen backend; suited to system automation, notes, reminders, weather, share, URL, files, and hybrid shortcuts.
 ---
 
-# Shortcuts Playground Minis
+# Shortcuts Builder
 
 ## Language
 
@@ -173,8 +173,8 @@ If the spec is incomplete, do not proceed to generation.
 If the spec lacks key boundaries, use `CLARIFICATION_TEMPLATES.md`, or run directly:
 
 ```bash
-/var/minis/skills/shortcuts-playground-minis/scripts/preflight-request 'raw user request'
-/var/minis/skills/shortcuts-playground-minis/scripts/render-clarification 'raw user request'
+/var/minis/skills/shortcuts-builder/scripts/preflight-request 'raw user request'
+/var/minis/skills/shortcuts-builder/scripts/render-clarification 'raw user request'
 ```
 
 Requirements:
@@ -192,8 +192,8 @@ Requirements:
 Run first:
 
 ```bash
-/var/minis/skills/shortcuts-playground-minis/scripts/profile-summary
-/var/minis/skills/shortcuts-playground-minis/scripts/load-env-profile
+/var/minis/skills/shortcuts-builder/scripts/profile-summary
+/var/minis/skills/shortcuts-builder/scripts/load-env-profile
 ```
 
 Read the summary first, then decide whether the full profile is needed. If defaults exist, use them directly; if missing but the route is unaffected, state a default and continue.
@@ -210,7 +210,7 @@ Read first:
 Once the action chain is determined, run `scripts/match-golden` to match the most relevant golden shortcut as a wiring reference:
 
 ```bash
-/var/minis/skills/shortcuts-playground-minis/scripts/match-golden --actions "action1,action2" --patterns "pattern1,pattern2" --top 2
+/var/minis/skills/shortcuts-builder/scripts/match-golden --actions "action1,action2" --patterns "pattern1,pattern2" --top 2
 ```
 
 **If the task has been clearly decided to go through Minis (the user asked for it), also confirm in this step:**
@@ -291,13 +291,13 @@ Requirements:
 Run:
 
 ```bash
-/var/minis/skills/shortcuts-playground-minis/scripts/validate-shortcut /path/to/draft.xml
+/var/minis/skills/shortcuts-builder/scripts/validate-shortcut /path/to/draft.xml
 ```
 
 Before validating, automatically fix placeholder positions:
 
 ```bash
-/var/minis/skills/shortcuts-playground-minis/scripts/fix-positions /path/to/draft.xml
+/var/minis/skills/shortcuts-builder/scripts/fix-positions /path/to/draft.xml
 ```
 
 Rules:
@@ -321,7 +321,7 @@ For complex new tasks default to `build-and-validate`; use `full-delivery` when 
 Run only in `full-delivery` mode. First check the backend:
 
 ```bash
-/var/minis/skills/shortcuts-playground-minis/scripts/sign-shortcut --show-config
+/var/minis/skills/shortcuts-builder/scripts/sign-shortcut --show-config
 ```
 
 If `configured` is false (or signing exits with code 10), ask the user to pick one of the two:

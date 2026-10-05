@@ -1,4 +1,4 @@
-# Shortcuts Playground Minis
+# Shortcuts Builder
 
 An Apple Shortcuts generator skill for Minis. It turns natural-language automation requests into deliverable shortcut artifacts: a route decision, an action-chain plan, an unsigned XML draft, locally validated XML, and, on demand, a signed `.shortcut` file.
 
@@ -44,16 +44,16 @@ The goal of this skill is not to pile up examples around single cases, but to pr
 ## Core Commands
 
 ```bash
-/var/minis/skills/shortcuts-playground-minis/scripts/check-local-assets
-/var/minis/skills/shortcuts-playground-minis/scripts/profile-summary
-/var/minis/skills/shortcuts-playground-minis/scripts/load-env-profile
-/var/minis/skills/shortcuts-playground-minis/scripts/preflight-request 'I want to build a shortcut'
-/var/minis/skills/shortcuts-playground-minis/scripts/render-clarification 'I want to build a shortcut'
-/var/minis/skills/shortcuts-playground-minis/scripts/resolve-icon --prompt "Build a weather shortcut"
-/var/minis/skills/shortcuts-playground-minis/scripts/placeholder-range 'text with ￼ placeholder'
-/var/minis/skills/shortcuts-playground-minis/scripts/validate-shortcut /path/to/Shortcut.xml
-/var/minis/skills/shortcuts-playground-minis/scripts/sign-shortcut /path/to/Shortcut.xml --name "Shortcut Name"
-python3 /var/minis/skills/shortcuts-playground-minis/scripts/selftest_minis.py
+/var/minis/skills/shortcuts-builder/scripts/check-local-assets
+/var/minis/skills/shortcuts-builder/scripts/profile-summary
+/var/minis/skills/shortcuts-builder/scripts/load-env-profile
+/var/minis/skills/shortcuts-builder/scripts/preflight-request 'I want to build a shortcut'
+/var/minis/skills/shortcuts-builder/scripts/render-clarification 'I want to build a shortcut'
+/var/minis/skills/shortcuts-builder/scripts/resolve-icon --prompt "Build a weather shortcut"
+/var/minis/skills/shortcuts-builder/scripts/placeholder-range 'text with ￼ placeholder'
+/var/minis/skills/shortcuts-builder/scripts/validate-shortcut /path/to/Shortcut.xml
+/var/minis/skills/shortcuts-builder/scripts/sign-shortcut /path/to/Shortcut.xml --name "Shortcut Name"
+python3 /var/minis/skills/shortcuts-builder/scripts/selftest_minis.py
 ```
 
 ## Signing

@@ -2,14 +2,14 @@
 
 ## Conclusion
 
-The current `shortcuts-playground-minis` may be localized, modified, used, and redistributed in compliance with the **MIT license**, but you must retain:
+The current `shortcuts-builder` may be adapted, modified, used, and redistributed in compliance with the **MIT license**, but you must retain:
 
 1. The upstream copyright notice
 2. The MIT license text
 3. Source attribution
 4. A description of local modifications
 
-As long as these are done, localization itself does not infringe the upstream repository's license rights.
+As long as these are done, adapting the project does not infringe the upstream repository's license rights.
 
 ## Upstream Source
 
@@ -19,7 +19,7 @@ As long as these are done, localization itself does not infringe the upstream re
 - License: MIT
 - SPDX: `MIT`
 
-## What the MIT License Means for Localization
+## What the MIT License Means for This Adaptation
 
 MIT permits:
 
@@ -35,7 +35,7 @@ Provided that:
 
 - **All copies or substantial portions retain the copyright notice and license text**
 
-This means the local skill may:
+This means this skill may:
 
 - Copy upstream knowledge-base files
 - Rewrite `SKILL.md`
@@ -49,7 +49,7 @@ But it may not:
 - Present substantial methods and materials inherited from upstream as "entirely original"
 - Hide key sources when sharing, causing misleading attribution
 
-## Compliance Files the Local Skill Should Retain
+## Compliance Files This Skill Should Retain
 
 The following files are the minimum compliance set and should not be deleted:
 
@@ -63,9 +63,9 @@ The following files are the minimum compliance set and should not be deleted:
 
 Recommended wording:
 
-- "Localized adaptation based on `viticci/shortcuts-playground-plugin`"
+- "Adapted from `viticci/shortcuts-playground-plugin`"
 - "Draws on the upstream knowledge base, methods, and validation flow, with the runtime environment adapted for Minis"
-- "This directory is an adaptation and extension layer for Minis, not written entirely from scratch"
+- "This skill is an adaptation and extension layer for Minis, not written entirely from scratch"
 
 Not recommended:
 
@@ -81,7 +81,7 @@ If you later share this skill with others, migrate it to another device, or pack
 3. State the upstream repository URL explicitly in `README.md` or the documentation
 4. State which parts are local modifications
 5. Do not remove the original author's attribution
-6. Do not present the local skill as the official upstream version, a version authorized by the original author, or a version endorsed by MacStories
+6. Do not present this skill as the official upstream version, a version authorized by the original author, or a version endorsed by MacStories
 
 ## Parts That Are More Like "Upstream Inheritance"
 
@@ -115,7 +115,7 @@ When continuing to improve the skill, do these first to stay compliant:
 
 ## Current Assessment
 
-The current localization direction **may continue in compliance**.
+The current adaptation direction **may continue in compliance**.
 
 What needs further strengthening is not the license itself, but:
 

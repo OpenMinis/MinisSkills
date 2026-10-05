@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Validate availability of core local assets for shortcuts-playground-minis."""
+"""Validate availability of core local assets for shortcuts-builder."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-ROOT = Path('/var/minis/skills/shortcuts-playground-minis')
+ROOT = Path('/var/minis/skills/shortcuts-builder')
 REQUIRED = [
     'SKILL.md',
     'ROUTING_FRAMEWORK.md',

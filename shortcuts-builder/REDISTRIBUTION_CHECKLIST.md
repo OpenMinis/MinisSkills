@@ -1,6 +1,6 @@
 # REDISTRIBUTION_CHECKLIST
 
-Before sharing `shortcuts-playground-minis` with other devices, other users, or other repositories, check:
+Before sharing `shortcuts-builder` with other devices, other users, or other repositories, check:
 
 - [ ] Keep `LICENSE`
 - [ ] Keep `UPSTREAM_ATTRIBUTION.md`

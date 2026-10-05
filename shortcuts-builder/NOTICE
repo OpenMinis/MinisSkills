@@ -1,13 +1,13 @@
 # NOTICE
 
-This skill bundle contains material derived from:
+This skill bundle (`shortcuts-builder`) contains material derived from:
 
 - `viticci/shortcuts-playground-plugin`
 - <https://github.com/viticci/shortcuts-playground-plugin>
 - Author: Federico Viticci / MacStories
 - License: MIT
 
-This local directory is a Minis-focused adaptation and extension layer.
+This skill is a Minis-focused adaptation and extension layer. It was renamed from its working title and is not an official release of the upstream project.
 It preserves upstream methods and bundled reference material while changing:
 
 - runtime assumptions
