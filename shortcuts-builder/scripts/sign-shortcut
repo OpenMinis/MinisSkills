@@ -1,0 +1,5 @@
+#!/bin/sh
+# Minis wrapper: sign a Shortcuts draft with the user-chosen backend (Mac over SSH, or HubSign).
+PY="${SHORTCUTS_PLAYGROUND_PYTHON:-python3}"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$PY" "$SCRIPT_DIR/sign_shortcut.py" "$@"

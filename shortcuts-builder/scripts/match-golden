@@ -1,0 +1,6 @@
+#!/bin/sh
+# Match golden shortcuts by action/pattern similarity.
+# Usage:
+#   match-golden --actions "is.workflow.actions.ask,is.workflow.actions.text.replace"
+#   match-golden --patterns "ask_text,text_replace" --top 3
+exec python3 "$(dirname "$0")/match_golden.py" "$@"

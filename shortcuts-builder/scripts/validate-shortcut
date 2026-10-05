@@ -1,0 +1,7 @@
+#!/bin/sh
+# Minis wrapper: validate a Shortcuts XML/.shortcut draft.
+# Note: do NOT force --target-platform ios by default. The upstream iOS snapshot only lists iOS 27
+# identifiers, so basic actions (list/conditional/openurl...) would be flagged as "requires macOS 27+".
+PY="${SHORTCUTS_PLAYGROUND_PYTHON:-python3}"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$PY" "$SCRIPT_DIR/validate_shortcut.py" "$@"

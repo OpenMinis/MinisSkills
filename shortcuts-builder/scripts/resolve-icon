@@ -1,0 +1,5 @@
+#!/bin/sh
+# Minis wrapper: resolve icon glyph and color from natural language.
+PY="${SHORTCUTS_PLAYGROUND_PYTHON:-python3}"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$PY" "$SCRIPT_DIR/select_shortcut_icon_color.py" "$@"
