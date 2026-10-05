@@ -17,14 +17,52 @@
 
 ## 安装
 
-```sh
-# 从 GitHub 安装（让 Minis 助手粘贴本 SKILL.md 的 URL，或用 git）
-git clone https://github.com/openminis/MinisSkills ~/.config/minis-skills
-ln -s ~/.config/minis-skills/clash-controller ~/.minis/skills/clash-controller
+`clash-cli` 是独立 Python3 脚本（仅标准库依赖），但作为 Minis 技能使用时需放进技能目录才能被自动发现。任选一种：
 
-# 或仅取本技能目录后解压到技能库
+### ① Minis 内自动安装（推荐）
+
+把本技能的 SKILL.md GitHub URL 直接粘贴到 Minis 对话，智能体会自动拉取安装：
+
+```
+https://github.com/openminis/MinisSkills/blob/main/clash-controller/SKILL.md
+```
+
+### ② git 克隆 + 软链
+
+```sh
+git clone https://github.com/openminis/MinisSkills ~/.minis-skills
+ln -s ~/.minis-skills/clash-controller ~/.minis/skills/clash-controller
+```
+
+> 技能目录位置：iOS 上为 `/var/minis/skills`；其他平台以 Minis 设置中显示的技能目录为准。
+
+### ③ 手动解压
+
+下载技能目录压缩包后解压到技能目录：
+
+```sh
 unzip clash-controller.zip -d ~/.minis/skills/
 ```
+
+### ④ 仅用脚本（不装技能）
+
+`scripts/clash-cli` 可单独运行，只要本机 Clash 在运行且 `external-controller` 已开启（默认 `127.0.0.1:9090`）：
+
+```sh
+chmod +x clash-cli
+./clash-cli status
+# 远程实例 / 带 secret：
+# export CLASH_API=http://<IP>:9090 CLASH_SECRET=<你的secret>
+# ./clash-cli status
+```
+
+### 验证
+
+```sh
+clash-cli status
+```
+
+返回版本 / 模式 / 策略组即安装成功；若报「连接失败」，说明 Clash 未运行或 `external-controller` 未监听。
 
 ## 快速使用
 

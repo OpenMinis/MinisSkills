@@ -84,6 +84,44 @@ clash-cli status
   - Clash 未运行时控制端口无监听，mihomosh 报 `Connection refused`，属正常（开着才能用）。
   - 社区 CLI 本质仍是 HTTP API 客户端包装，**能力边界 = API 边界**（如内核禁止的端点，mihomosh 同样做不到）。
 
+## 7. 安装方式
+
+`clash-cli` 是独立 Python3 脚本（仅标准库），但作为 Minis 技能使用时需放进技能目录才能被自动发现。按环境选一种：
+
+**① Minis 内自动安装（推荐）**
+把本技能的 SKILL.md 的 GitHub URL 粘贴到 Minis 对话，智能体会自动拉取安装：
+```
+https://github.com/openminis/MinisSkills/blob/main/clash-controller/SKILL.md
+```
+
+**② git 克隆 + 软链（Minis 技能目录）**
+```sh
+git clone https://github.com/openminis/MinisSkills ~/.minis-skills
+ln -s ~/.minis-skills/clash-controller ~/.minis/skills/clash-controller
+```
+> iOS 上 Minis 技能目录实际为 `/var/minis/skills`；macOS/其他环境可能是 `~/.minis/skills` 或对应配置路径，以 Minis 设置中显示的技能目录为准。
+
+**③ 手动解压**
+下载本技能目录（zip）后解压到技能目录：
+```sh
+unzip clash-controller.zip -d ~/.minis/skills/
+```
+
+**④ 仅用脚本（不装技能，任何有 Python3 的机器）**
+`scripts/clash-cli` 可单独使用，只需本机运行着 Clash 且 `external-controller` 在监听：
+```sh
+chmod +x clash-cli
+./clash-cli status
+# 远程/带 secret：
+# export CLASH_API=http://<IP>:9090 CLASH_SECRET=<你的secret>
+# ./clash-cli status
+```
+
+**验证安装**
+```sh
+clash-cli status   # 返回版本/模式/策略组即成功；报「连接失败」说明 Clash 未运行或端口未开
+```
+
 ## 参考资料（来源）
 
 - mihomo（MetaCubeX）GitHub：https://github.com/MetaCubeX/mihomo
