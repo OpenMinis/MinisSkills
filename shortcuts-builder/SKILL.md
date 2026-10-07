@@ -22,13 +22,29 @@ Reliably turn natural-language automation requests into one or more of the follo
 
 This skill is an adaptation of the upstream [`viticci/shortcuts-playground-plugin`](https://github.com/viticci/shortcuts-playground-plugin) (MIT) for Minis on iPhone/iPad. It keeps the upstream knowledge base and methods, and adds Minis-oriented routing, clarification, an environment profile, build checks, and delivery logic. See `UPSTREAM_ATTRIBUTION.md`.
 
+## Quick Path (read this first)
+
+For a typical request, do these in order. Every item is detailed later; this is the map.
+
+1. **Decide the route** (`BUILD_CHECKLIST.md`, `CAPABILITY_DECISION.md`). If the request is not shortcut-first, stop.
+2. **Ask what is missing** with `user_ask` (section 4). Use the recommended default on timeout, except for signing and uploads.
+3. **Pick each action from the right source.** Look at the identifier prefix:
+   - `is.workflow.actions.*` -> first-party classic action -> `ACTION_PARAM_INDEX.md`
+   - `com.apple.*` -> first-party App Intent -> `APPINTENTS.md`
+   - anything else (`<bundle id>.<Intent>`) -> **third-party App Intent** -> `THIRD_PARTY_INTENTS.md` and `scripts/appintent_catalog.py`
+4. **Draft** unsigned XML in `/var/minis/attachments/shortcut/drafts/`, then **validate** (`scripts/validate-shortcut`) until it passes.
+5. **Sign only if the user wants a finished file**, after they have chosen a backend. Then verify the file header is `AEA1`.
+6. **Report** the route, the action chain, the paths, and anything left for the user (apps to install, parameters to pick in the editor).
+
 ## Hard Constraints
 
 - Always use `BUILD_CHECKLIST.md` first to decide whether the conditions to start work are met.
 - Always determine the task label first: `shortcut-native`, `shortcut-hybrid`, `not-shortcut-first`.
 - Always normalize the request into a task spec before choosing actions or writing XML.
 - Always clarify before generating when the request has a key ambiguity.
-- Always use the fixed option-style template when clarifying, and end with a recommended flow and copyable confirmation text. Ask the questions in the user's language.
+- Always ask the user's choices with the `user_ask` tool when it is available (see section 4: batches of at most 4, recommended option first and set as `default`). Use the fixed option-style text template only when `user_ask` is unavailable, and end it with a recommended flow and copyable confirmation text. Ask in the user's language.
+- Always proceed with the recommended (default) option when a `user_ask` card times out, and say which default was applied. Never apply a default for a `confirm`-type question; a timeout there means do not perform the action.
+- Never use a default to choose a signing backend, to approve an upload to a third party (HubSign), or to authorize anything irreversible. Those need an explicit answer.
 - Always prefer the most stable, shortest, and easiest-to-validate implementation route.
 - Always prefer reusing framework-layer docs, the environment profile, patterns, recipes, and the XML snippet index; do not assemble from scratch every time.
 - Always generate unsigned XML first, then run local validation, then decide whether to sign and deliver.
@@ -45,6 +61,8 @@ This skill is an adaptation of the upstream [`viticci/shortcuts-playground-plugi
 - Never treat "XML generated" as done; without a product or an explicit delivery status it is not complete.
 - Never hard-code one example as the default target; all examples are pattern references only.
 - Never invent action identifiers, UUIDs, icon color values, or parameter structures; when unsure, go back to the reference docs.
+- Never label a third-party App Intent parameter as verified unless `THIRD_PARTY_INTENTS.md` lists it as verified (text and bool). Other kinds may be written only through `appintent_catalog.py step` (experimental tier, variables for image/file/entity/array/date); name every experimental parameter in the report and ask the user to check it after import. Never invent a literal form for a refused kind.
+- Never write an enum whose `value` and `title` name different cases.
 - Never push tasks such as complex web scraping, browser login state, downloaders, or transcoders into a pure shortcut by default; switch to Hybrid when necessary.
 - Never present signing as a private, local-only step. With `hubsign`, drafts are uploaded to a third-party service: say so plainly and get the user's confirmation (`--i-understand-upload`).
 - Never write an SSH password into a file or onto the command line; reference an environment variable by name with `--password-env VARIABLE_NAME`, or use `--key`.
@@ -101,6 +119,8 @@ Does not apply to:
 - `ICONS_AND_COLORS.md`
 - `HEALTHKIT.md`
 - `THIRD_PARTY_ACTIONS.md`
+- `THIRD_PARTY_INTENTS.md` (**read before using any third-party app step**: step structure, which parameter kinds may be authored, chaining, what is unverified)
+- `EXTRACTING_APP_INTENTS.md` (maintainers only: how to extract a new app's intents from its package and refresh the catalog; **not needed to build a shortcut**, read it only when the user asks to add or update an app's intents)
 - `TOOLKIT_SNAPSHOT.md`
 - `golden-shortcuts/index.jsonl`
 
@@ -113,8 +133,9 @@ Does not apply to:
 - `scripts/render-clarification`
 - `scripts/resolve-icon`
 - `scripts/placeholder-range`
-- `scripts/validate-shortcut` (keep the upstream default target; do not add `--target-platform ios` by default, otherwise basic actions such as list/conditional will be falsely reported as requiring macOS 27; add `--target-macos 27 --target-platform ios` only when using iOS 27-specific AppIntents)
-- `scripts/lookup_action_grounding.py` (look up action parameters/enum values/platform compatibility: `python3 scripts/lookup_action_grounding.py --identifier openapp --target-platform ios`)
+- `scripts/validate-shortcut` (the default target is **iOS/iPadOS, OS 27**; no flag is needed for a normal iPhone shortcut. Add `--target-platform macos` only for a Mac-only shortcut, and `--target-os 26` only to check against the older OS)
+- `scripts/lookup_action_grounding.py` (look up action parameters/enum values/platform compatibility: `python3 scripts/lookup_action_grounding.py --identifier openapp`; same iOS default)
+- `scripts/appintent_catalog.py` (search/show/step over the third-party App Intents catalog: `python3 scripts/appintent_catalog.py search weather`; details in `THIRD_PARTY_INTENTS.md`)
 - `scripts/fix-positions`
 - `scripts/index-golden`
 - `scripts/match-golden`
@@ -181,11 +202,30 @@ Requirements:
 
 - Ask only questions that would change the route
 - The number of questions follows the number of key ambiguities
-- Use the fixed option-style template
 - The number of options follows the question itself; it is not fixed at 3
 - Ask in the user's language
-- Output a recommended flow
-- Output copyable confirmation text
+
+**Preferred: the `user_ask` tool.** Get the questions ready to send:
+
+```bash
+/var/minis/skills/shortcuts-builder/scripts/render-clarification --json 'raw user request'
+```
+
+The output has `batches`; each batch is a valid `questions` array for one `user_ask` call (at most 4 questions per call). The recommended option is first and `default` is `"0"`, so the card marks it as recommended. Translate the question and option text into the user's language before sending. Put every needed question in one call; start a second call only when a later question depends on an earlier answer.
+
+Answer handling:
+
+| Result | What to do |
+|---|---|
+| `answered` / `other` | Use it. `other` text is the user's own words: follow it. |
+| `delegated` ("You decide") | Use the recommended option and state that assumption. |
+| `timeout` | Proceed with the `default` option, say plainly which default was applied so the user can correct it, and keep the build easy to change. |
+| `dismissed` | Do not ask the same question again; if the user's next message answers it, take that as the answer. |
+| `unavailable` | Fall back to the text template below. |
+
+Defaults are the most reliable and least surprising route, never an irreversible one. Choose the default yourself when the tool output does not, using the same rule.
+
+**Fallback: text template.** Only when `user_ask` is not available, run `render-clarification` without `--json` and send the fixed option-style template, ending with a recommended flow and copyable confirmation text.
 
 ### 5. Read the Environment Profile
 
@@ -244,6 +284,7 @@ Determine:
 - `BEST_PRACTICES.md`
 - `ACTIONS.md`
 - `APPINTENTS.md`
+- `THIRD_PARTY_INTENTS.md` (when the flow uses a third-party app's Intent)
 - `VARIABLES.md`
 - `CONTROL_FLOW.md`
 - `FILTERS.md`
@@ -260,7 +301,8 @@ First write a short plan that states:
 - Which actions produce variables
 - Which actions consume the previous step's output
 - Whether Menu / If / Repeat / Dictionary / URL request is needed
-- Which parts are done inside Shortcuts, and which are delegated to URI, third-party actions, Minis, or external services
+- Which parts are done inside Shortcuts, and which are delegated to a URL scheme, a third-party app's App Intent, Minis, or an external web service
+- For each third-party app step: look it up with `scripts/appintent_catalog.py` (`search`, then `show`), note its authoring level (`full` / `partial` / `editor-only`), and generate the step with `appintent_catalog.py step`. Prefer a first-party action when one does the job. See `THIRD_PARTY_INTENTS.md`.
 
 ### 9. Snippet Skeleton Selection
 
@@ -324,7 +366,7 @@ Run only in `full-delivery` mode. First check the backend:
 /var/minis/skills/shortcuts-builder/scripts/sign-shortcut --show-config
 ```
 
-If `configured` is false (or signing exits with code 10), ask the user to pick one of the two:
+If `configured` is false (or signing exits with code 10), ask the user to pick one of the two with `user_ask` (an `options` question; put the Mac option first). **A timeout here is not consent: do not sign and do not fall back to HubSign.** Tell the user the build is ready unsigned and ask again later. The HubSign upload also needs its own explicit answer (`--i-understand-upload` only after the user chose it):
 
 | Option | Privacy | Prerequisites |
 |---|---|---|
@@ -372,7 +414,7 @@ Report contents:
 - Validation status
 - If signed, also the product path
 - Prerequisites before running
-- Which parts depend on the user's environment or third-party capabilities
+- Which parts depend on the user's environment (for example which third-party apps must be installed)
 
 ## Default Output Structure
 

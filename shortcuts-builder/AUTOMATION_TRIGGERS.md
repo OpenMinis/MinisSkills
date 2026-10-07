@@ -16,9 +16,9 @@ Use this only when the user explicitly asks for an OS 27 automation shortcut or 
 The lookup helper surfaces both ToolKit trigger parameters and exported plist samples:
 
 ```bash
-python3 scripts/lookup_action_grounding.py --python-name when_low_power_mode_changes --target-macos 27
-python3 scripts/lookup_action_grounding.py --identifier com.apple.shortcuts.WFTimeOfDayTrigger.at_time_on_recurring_day --target-macos 27 --json
-python3 scripts/lookup_action_grounding.py --query "wi-fi trigger" --target-macos 27 --json
+python3 scripts/lookup_action_grounding.py --python-name when_low_power_mode_changes --target-os 27
+python3 scripts/lookup_action_grounding.py --identifier com.apple.shortcuts.WFTimeOfDayTrigger.at_time_on_recurring_day --target-os 27 --json
+python3 scripts/lookup_action_grounding.py --query "wi-fi trigger" --target-os 27 --json
 ```
 
 ## Plist Shape
@@ -45,7 +45,7 @@ Add `WFWorkflowTriggers` as a root key beside `WFWorkflowActions`:
 Rules:
 
 - Always generate a fresh `WFTriggerUUID` with `uuidgen | tr '[:lower:]' '[:upper:]'`.
-- Validate and sign with `--target-macos 27`.
+- Validate with the default iOS 27 target (add `--target-os 27` only if you changed the default).
 - Do not ship catalog placeholders such as `$placeholder`; they mark redacted local picker values.
 - Raw exported automation XML can contain user-local contact, Mail, Messages, account, app, location, device, file, folder, and drive payloads. Sanitize those values before adding samples to the plugin.
 - Do not infer a trigger header from ToolKit metadata alone. Use `workflowTriggerSample` from the lookup helper or an exported shortcut from the user.

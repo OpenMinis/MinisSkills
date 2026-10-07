@@ -1862,6 +1862,29 @@ def make_health_invalid(case_name: str, idx: int) -> tuple[dict, str]:
     return root_plist(case_name, actions), expected
 
 
+def make_thirdparty_intent(case_name: str, mutate=None) -> dict:
+    """Minis QuickTaskIntent step in the shape verified on a device; ``mutate`` breaks it."""
+    params = {
+        "UUID": seeded_uuid(case_name + "-intent"),
+        "AppIntentDescriptor": {
+            "TeamIdentifier": "0000000000",
+            "BundleIdentifier": "com.openminis.app",
+            "Name": "Minis",
+            "AppIntentIdentifier": "QuickTaskIntent",
+        },
+        "task": {"value": "checkWeather", "title": {"key": "Check Weather"}, "subtitle": {"key": "Check Weather"}},
+        "waitForResult": False,
+        "sendCompletionNotification": False,
+    }
+    if mutate:
+        mutate(params)
+    return root_plist(
+        case_name,
+        base_actions(case_name, "Run a third-party App Intent from the catalog.")
+        + [{"WFWorkflowActionIdentifier": "com.openminis.app.QuickTaskIntent", "WFWorkflowActionParameters": params}],
+    )
+
+
 def build_cases() -> list[Case]:
     cases: list[Case] = []
 
@@ -2160,6 +2183,16 @@ def build_cases() -> list[Case]:
         )
     )
 
+    cases.append(Case("thirdparty-intents", "ZZ-ThirdParty-Intent-Valid", make_thirdparty_intent("ZZ-ThirdParty-Intent-Valid"), True))
+    cases.append(Case("thirdparty-intents", "ZZ-ThirdParty-Intent-BadEnum",
+                      make_thirdparty_intent("ZZ-ThirdParty-Intent-BadEnum", lambda q: q["task"].update(value="nope")),
+                      False, "not a case id"))
+    cases.append(Case("thirdparty-intents", "ZZ-ThirdParty-Intent-UnknownParam",
+                      make_thirdparty_intent("ZZ-ThirdParty-Intent-UnknownParam", lambda q: q.update(bogus=1)),
+                      False, "unknown parameter 'bogus'"))
+    cases.append(Case("thirdparty-intents", "ZZ-ThirdParty-Intent-BoolAsText",
+                      make_thirdparty_intent("ZZ-ThirdParty-Intent-BoolAsText", lambda q: q.update(waitForResult="yes")),
+                      False, "is boolean"))
     return cases
 
 

@@ -1,6 +1,6 @@
 # AppIntents Reference
 
-Complete catalog of all 1632 first-party AppIntent actions from macOS ToolKit v63 and backups.
+Catalog of first-party AppIntent actions for **iOS/iPadOS**. It started from the macOS ToolKit v63 catalog and backups; macOS-only entries (System Settings panes under `com.apple.systempreferences.*` and `com.apple.Desktop-Settings.*`) that are absent from the iOS 27 ToolKit snapshot were removed, since this skill targets iPhone/iPad by default. The full macOS catalog is kept outside the skill (see CHANGELOG, "iOS default").
 
 OS 27 ToolKit v78 snapshots add more AppIntent, Siri intent, and flow-tool identifiers to the packaged validator allowlist. Those v78 identifiers are validation coverage only unless their schemas are documented here, in another reference file, or in a golden/exported XML sample.
 
@@ -10,28 +10,28 @@ The packaged `data/toolkit-v78-first-party-parameter-keys.json` file adds a broa
 
 | Aspect | WF*Actions | AppIntents |
 |--------|-----------|------------|
-| Identifier format | `is.workflow.actions.*` | Full ID (e.g., `com.apple.systempreferences.OpenAboutSettingsStaticDeepLinks`) |
+| Identifier format | `is.workflow.actions.*` | Full ID (e.g., `com.apple.shortcuts.OpenShortcutsStaticDeepLinks`) |
 | Origin | Legacy Shortcuts (pre-iOS 16) | App Intents framework (iOS 16+) |
 | Invocation | Direct identifier in action | Direct identifier in `WFWorkflowActionIdentifier` (with AppIntentDescriptor) |
 | Scope | Core shortcut actions | System integrations, deep links, app extensions |
 
 ## Platform Availability
 
-**The AppIntents listed below come from the macOS ToolKit v63 snapshot, but platform support is NOT uniform.** An AppIntent that appears in this catalog may be:
+**Platform support is not uniform.** The default target of this skill is iOS/iPadOS. An AppIntent that appears in this catalog may be:
 
 - **Universal** — available on both iOS/iPadOS and macOS (most settings deep-links from apps that exist on both platforms).
-- **macOS-only** — system-preferences deep-links for panes that exist only in `System Settings.app` on the Mac.
-- **iOS-only** — deep-links that open destinations inside the iOS Shortcuts app, iOS Settings, or iOS-exclusive apps. These will silently fail or return errors at runtime on macOS even if the XML validates.
+- **macOS-only** — the ones that exist only on the Mac were removed from this file. If a request truly needs a Mac-only action, validate with `--target-platform macos` and say that the shortcut is Mac-only.
+- **iOS-only** — deep-links that open destinations inside the iOS Shortcuts app, iOS Settings, or iOS-exclusive apps. These fail on macOS even if the XML validates.
 
 **When a shortcut is intended to run on macOS, prefer the macOS-native equivalent or a universal Shortcuts action over a platform-specific AppIntent.** There is no compile-time check — the Shortcuts app accepts the plist on either platform and only reveals the mismatch at runtime.
 
 ### Known iOS-only AppIntents (non-exhaustive)
 
-Do **not** use these when targeting macOS:
+Do **not** use these when targeting macOS (the default target is iOS, so this is only a reminder):
 
 | Identifier | Title | Notes |
 |------------|-------|-------|
-| `com.apple.shortcuts.OpenShortcutsStaticDeepLinks` | Open Shortcuts Settings | iOS-only — the Shortcuts app has no "Settings" pane on macOS. Use `com.apple.systempreferences.*` for Mac system-settings deep-links instead. |
+| `com.apple.shortcuts.OpenShortcutsStaticDeepLinks` | Open Shortcuts Settings | iOS-only — the Shortcuts app has no "Settings" pane on macOS. |
 
 If you hit a runtime failure on macOS for an intent that validated cleanly, assume platform mismatch first. Add the failing identifier to the table above (with a short note) so the next build avoids it.
 
@@ -73,17 +73,8 @@ These entries document authoring metadata. They do not prove runtime availabilit
 | Delete Lists | `com.apple.reminders.DeleteListsAppIntent` | macOS 27 v78 | `entities` |
 | Delete Groups | `com.apple.reminders.DeleteRemindersListGroupsAppIntent` | macOS 27 v78 | `entities`, `deleteSublists` |
 | Delete Sections | `com.apple.reminders.DeleteSectionsAppIntent` | macOS 27 v78 | `entities` |
-| Open VPN Settings | `com.apple.systempreferences.OpenVPNDeepLink` | macOS 27 v78 | none |
-| Get Current VPN | `com.apple.systempreferences.CurrentlyConnectedVPN` | macOS 27 v78 | `WFContentItemFilter`, `WFContentItemSortProperty`, `WFContentItemSortOrder`, `WFContentItemLimitEnabled`, `WFContentItemLimitNumber`, `WFCompoundType`, `WFContentItemInputParameter` |
-| Update Current VPN | `com.apple.systempreferences.CurrentlyConnectedVPN-UpdatableEntity` | macOS 27 v78 | `entity`, `value` |
-| Update VPN Connect On Demand | `com.apple.systempreferences.VPNConfigurationEntity-UpdatableEntity` | macOS 27 v78 | `connectOnDemand`, `entity` |
-| Open Accessibility Switch Control Settings | `com.apple.systempreferences.OpenAccessibilitySwitchControlStaticDeepLinks` | macOS 27 v78 | `target`; `switchControlSwitches` opens the Switches pane |
 | Set Switch Control | `com.apple.UniversalAccess.UASettingsShortcuts.UAToggleSwitchControlIntent` | macOS 27 v78 | `operation`, `state`, `ShowWhenRun` |
-| Get Switch Control | `com.apple.systempreferences.AxFeatureSwitchcontrolEntity` | macOS 27 v78 | `WFContentItemFilter`, `WFContentItemSortProperty`, `WFContentItemSortOrder`, `WFContentItemLimitEnabled`, `WFContentItemLimitNumber`, `WFCompoundType`, `WFContentItemInputParameter` |
-| Update Switch Control | `com.apple.systempreferences.AxFeatureSwitchcontrolEntity-UpdatableEntity` | macOS 27 v78 | `entity`, `value` |
 | Set Motion Cues | `com.apple.UniversalAccess.UASettingsShortcuts.UAToggleMotionCuesIntent` | macOS 27 v78 | `operation`, `state`, `ShowWhenRun` |
-| Get Vehicle Motion Cues | `com.apple.systempreferences.AxMotionCuesEnabledEntity` | macOS 27 v78 | `WFContentItemFilter`, `WFContentItemSortProperty`, `WFContentItemSortOrder`, `WFContentItemLimitEnabled`, `WFContentItemLimitNumber`, `WFCompoundType`, `WFContentItemInputParameter` |
-| Update Vehicle Motion Cues | `com.apple.systempreferences.AxMotionCuesEnabledEntity-UpdatableEntity` | macOS 27 v78 | `entity`, `value` |
 | Adjust Hearing Device Volume | `com.apple.HearingApp.AdjustVolumeIntent` | iOS 27 runtime metadata + Simulator v78 | `direction` (`VolumeDirection`: Increase/Decrease), `ear` (`HearingEarSelection`: Left/Right/Both) |
 | Mute Hearing Device Volume | `com.apple.HearingApp.MuteVolumeIntent` | iOS 27 Simulator v78 | none |
 | Select Hearing Device Preset | `com.apple.HearingApp.SelectPresetIntent` | iOS 27 runtime metadata + Simulator v78 | `presetName`, `ear` (`HearingEarSelection`: Left/Right/Both) |
@@ -95,8 +86,6 @@ Photos uses platform-specific AppIntent namespaces in v78: prefer `com.apple.Pho
 Mail exposes both `com.apple.mail.MailMessage` and `com.apple.mail.MailMessageEntity` for **Find Message**. The older row sorts by `dateReceived` or `Random`; the entity row sorts by `subject`, `body`, `dateReceived`, `isRead`, or `Random`. Keep both as valid aliases until an exported shortcut shows one is deprecated.
 
 Reminders metadata notes: `Edit List` in ToolKit v78 exposes only `badge`, `color`, `entity`, and `parent` as top-level parameters, even though the Automators row describes a broader set of editable properties such as Auto-Categorize, Pinned, List Layout, Name, Sharing Participants, Show Completed, Sorting Style, and Type. Do not invent those missing keys until an exported shortcut proves their plist shape. `Delete Groups` also exposes `deleteSublists` as a boolean.
-
-For current VPN output, prefer the classic WF action `is.workflow.actions.vpn.get`; `com.apple.systempreferences.CurrentlyConnectedVPN` is an AppIntent entity/query row with filter-style metadata.
 
 ### Linked OS 18 to 26.1 ToolKit Deltas
 
@@ -120,23 +109,22 @@ The thread also reports **Set Switch Control Switch Set**. This is real in `/Sys
 ## How to Invoke AppIntents
 
 AppIntents use their full identifier in `WFWorkflowActionIdentifier` and include an `AppIntentDescriptor`:
-
 ```
 <dict>
     <key>WFWorkflowActionIdentifier</key>
-    <string>com.apple.systempreferences.OpenAboutSettingsStaticDeepLinks</string>
+    <string>com.apple.shortcuts.OpenShortcutsStaticDeepLinks</string>
     <key>WFWorkflowActionParameters</key>
     <dict>
         <key>AppIntentDescriptor</key>
         <dict>
             <key>BundleIdentifier</key>
-            <string>com.apple.systempreferences</string>
+            <string>com.apple.shortcuts</string>
             <key>Name</key>
-            <string>About</string>
+            <string>Open Shortcuts Settings</string>
             <key>TeamIdentifier</key>
             <string>0000000000</string>
             <key>AppIntentIdentifier</key>
-            <string>OpenAboutSettingsStaticDeepLinks</string>
+            <string>OpenShortcutsStaticDeepLinks</string>
         </dict>
         <!-- Additional parameters as needed -->
     </dict>
@@ -153,29 +141,10 @@ Open specific Settings panes:
 
 | Identifier | Title |
 |------------|-------|
-| `com.apple.Desktop-Settings.extension.OpenDesktopSettingsDeepLink` | Open Desktop & Dock Setting |
 | `com.apple.GameCenter.Settings.DeviceExpertExtension.OpenGameCenterSettingsDeepLinks` | Open Game Center Settings |
 | `com.apple.donotdisturb.DoNotDisturbAppIntents.OpenFocusSettingsDynamicDeepLinks` | Open Focus Settings |
 | `com.apple.news.NewsSettingsAutomaticDownloadDynamicDeepLinks` | Find News Automatic Download Settings |
 | `com.apple.news.NewsSettingsDynamicDeepLinks` | Find News Settings |
-| `com.apple.systempreferences.AppearanceSettingsDeepLink` | Find Mouse setting |
-| `com.apple.systempreferences.BatterySettingsPaneDynamicDeepLinks` | Find Battery Settings |
-| `com.apple.systempreferences.FamilySettingsDeepLink` | Find FamilySettingsDeepLink |
-| `com.apple.systempreferences.KeyboardSettingsDeepLink` | Find Keyboard Settings Deep Link |
-| `com.apple.systempreferences.OpenAboutSettingsStaticDeepLinks` | Open About |
-| `com.apple.systempreferences.OpenAppearanceSettingsDeepLink` | Open Appearance Settings |
-| `com.apple.systempreferences.OpenBatterySettingsPaneDynamicDeepLinks` | Open Battery Settings |
-| `com.apple.systempreferences.OpenBiometricsAndPasswordSettingsEntityDeepLinks` | OpenBiometricsAndPasswordSettingsEntityDeepLinks |
-| `com.apple.systempreferences.OpenBluetoothSettingsDeepLinks` | Open Bluetooth Settings |
-| `com.apple.systempreferences.OpenDesktopSettingsDeepLink` | Open Desktop & Dock Setting |
-| `com.apple.systempreferences.OpenDisplaysSettingsDeepLinks` | Open Displays |
-| `com.apple.systempreferences.OpenInternationalSettingsDeepLink` | Open Language & Region Settings |
-| `com.apple.systempreferences.OpenKeyboardSettingsDeepLink` | Open Keyboard Settings |
-| `com.apple.systempreferences.OpenNetworkSettingsDeepLinks` | Open Network |
-| `com.apple.systempreferences.OpenSoundSettingsDeepLinks` | Open Sound |
-| `com.apple.systempreferences.OpenSpotlightSettingsDeepLinks` | Open Search Settings |
-| `com.apple.systempreferences.OpenTimeMachineSettingsStaticDeepLinks` | Open Time Machine Settings |
-| `com.apple.systempreferences.SpotlightSettingsDeepLinks` | Find Search Settings |
 
 ### Accessibility (306 actions)
 
@@ -189,8 +158,6 @@ Accessibility settings and controls:
 | `ToggleAx*` | Toggle accessibility feature |
 
 Examples:
-- `com.apple.systempreferences.OpenAccessibilityAudioDescriptionsStaticDeepLinks` - Open Accessibility Audio Descriptions Settings
-- `com.apple.systempreferences.AxAdaptiveVoiceShortcutsEntity` - Get Vocal Shortcuts
 
 ### Clock & Alarms (18 actions)
 
@@ -615,29 +582,10 @@ Examples:
 - `com.apple.AddressBook.SearchInContactsIntent` - Search in Contacts App
 
 ------------|-------|
-| `com.apple.Desktop-Settings.extension.OpenDesktopSettingsDeepLink` | Open Desktop & Dock Setting |
 | `com.apple.GameCenter.Settings.DeviceExpertExtension.OpenGameCenterSettingsDeepLinks` | Open Game Center Settings |
 | `com.apple.donotdisturb.DoNotDisturbAppIntents.OpenFocusSettingsDynamicDeepLinks` | Open Focus Settings |
 | `com.apple.news.NewsSettingsAutomaticDownloadDynamicDeepLinks` | Find News Automatic Download Settings |
 | `com.apple.news.NewsSettingsDynamicDeepLinks` | Find News Settings |
-| `com.apple.systempreferences.AppearanceSettingsDeepLink` | Find Mouse setting |
-| `com.apple.systempreferences.BatterySettingsPaneDynamicDeepLinks` | Find Battery Settings |
-| `com.apple.systempreferences.FamilySettingsDeepLink` | Find FamilySettingsDeepLink |
-| `com.apple.systempreferences.KeyboardSettingsDeepLink` | Find Keyboard Settings Deep Link |
-| `com.apple.systempreferences.OpenAboutSettingsStaticDeepLinks` | Open About |
-| `com.apple.systempreferences.OpenAppearanceSettingsDeepLink` | Open Appearance Settings |
-| `com.apple.systempreferences.OpenBatterySettingsPaneDynamicDeepLinks` | Open Battery Settings |
-| `com.apple.systempreferences.OpenBiometricsAndPasswordSettingsEntityDeepLinks` | OpenBiometricsAndPasswordSettingsEntityDeepLinks |
-| `com.apple.systempreferences.OpenBluetoothSettingsDeepLinks` | Open Bluetooth Settings |
-| `com.apple.systempreferences.OpenDesktopSettingsDeepLink` | Open Desktop & Dock Setting |
-| `com.apple.systempreferences.OpenDisplaysSettingsDeepLinks` | Open Displays |
-| `com.apple.systempreferences.OpenInternationalSettingsDeepLink` | Open Language & Region Settings |
-| `com.apple.systempreferences.OpenKeyboardSettingsDeepLink` | Open Keyboard Settings |
-| `com.apple.systempreferences.OpenNetworkSettingsDeepLinks` | Open Network |
-| `com.apple.systempreferences.OpenSoundSettingsDeepLinks` | Open Sound |
-| `com.apple.systempreferences.OpenSpotlightSettingsDeepLinks` | Open Search Settings |
-| `com.apple.systempreferences.OpenTimeMachineSettingsStaticDeepLinks` | Open Time Machine Settings |
-| `com.apple.systempreferences.SpotlightSettingsDeepLinks` | Find Search Settings |
 
 ### Accessibility (306 actions)
 
@@ -651,11 +599,8 @@ Accessibility settings and controls:
 | `ToggleAx*` | Toggle accessibility feature |
 
 Examples:
-- `com.apple.systempreferences.OpenAccessibilityAudioDescriptionsStaticDeepLinks` - Open Accessibility Audio Descriptions Settings
-- `com.apple.systempreferences.AxAdaptiveVoiceShortcutsEntity` - Get Vocal Shortcuts
 
 ### Clock & Alarms (18 actions)
-
 
 
 | Identifier | Title |
@@ -680,7 +625,6 @@ Examples:
 | `com.apple.mobiletimer-framework.MobileTimerIntents.MTToggleAlarmIntent` | Toggle Alarm |
 
 ### Calendar (26 actions)
-
 
 
 | Identifier | Title |
@@ -713,7 +657,6 @@ Examples:
 | `com.apple.iCal.TransferableSourceEntity` | Find TransferableSourceEntity <no loc> |
 
 ### Reminders (36 actions)
-
 
 
 | Identifier | Title |
@@ -756,7 +699,6 @@ Examples:
 | `com.apple.reminders.UpdateSmartListIsHiddenAppIntent` | Show/Hide Reminders System Smart List |
 
 ### Notes (52 actions)
-
 
 
 | Identifier | Title |
@@ -817,7 +759,6 @@ Examples:
 ### Safari (31 actions)
 
 
-
 | Identifier | Title |
 |------------|-------|
 | `com.apple.Safari.BookmarkEntity` | Find Bookmarks |
@@ -853,7 +794,6 @@ Examples:
 | `com.apple.Safari.WindowEntity` | Find Window |
 
 ### Home (32 actions)
-
 
 
 | Identifier | Title |
@@ -892,7 +832,6 @@ Examples:
 | `com.apple.Home.ZoneEntity` | Find Zone |
 
 ### Photos (69 actions)
-
 
 
 | Identifier | Title |
@@ -970,13 +909,11 @@ Examples:
 ### Music (1 actions)
 
 
-
 | Identifier | Title |
 |------------|-------|
 | `com.apple.ShortcutsActions.PlayMusicTopHitAction` | Play Music |
 
 ### Writing Tools (3 actions)
-
 
 
 | Identifier | Title |
@@ -986,7 +923,6 @@ Examples:
 | `com.apple.AppKit.WritingToolsRewriteIntent` | Rewrite |
 
 ### Voice Memos (24 actions)
-
 
 
 | Identifier | Title |
@@ -1017,7 +953,6 @@ Examples:
 | `com.apple.VoiceMemos.WFAppSettingEntityUpdaterAction` | Change Voice Memos Settings |
 
 ### Shortcuts (23 actions)
-
 
 
 | Identifier | Title |
@@ -1270,7 +1205,7 @@ Examples:
 
 ## Complete AppIntent Identifier List
 
-All 1632 first-party AppIntent identifiers (full IDs):
+First-party AppIntent identifiers kept for iOS/iPadOS (full IDs):
 
 ### Open* (Settings Deep Links)
 ```
@@ -1280,7 +1215,7 @@ com.apple.Bridge.OpenCellularDeepLinks, com.apple.Bridge.OpenDisplayBrightnessDe
 com.apple.Bridge.OpenGeneralDeepLinks, com.apple.Bridge.OpenGesturesDeepLinks, com.apple.Bridge.OpenNotificationsDeepLinks
 com.apple.Bridge.OpenPasscodeDeepLinks, com.apple.Bridge.OpenPrivacyDeepLinks, com.apple.Bridge.OpenSiriDeepLinks
 com.apple.Bridge.OpenSmartStackDeepLinks, com.apple.Bridge.OpenSoundsAndHapticsDeepLinks, com.apple.Bridge.OpenVoiceOverDeepLinks
-com.apple.Bridge.OpenZoomDeepLinks, com.apple.ClassKit.ClassKitAppIntents.OpenClassKitAppIntentsDeepLinks, com.apple.Desktop-Settings.extension.OpenDesktopSettingsDeepLink
+com.apple.Bridge.OpenZoomDeepLinks, com.apple.ClassKit.ClassKitAppIntents.OpenClassKitAppIntentsDeepLinks
 com.apple.Fitness.OpenActivityRingIntent, com.apple.Fitness.OpenFitnessAppSettingsDeepLinksIntent, com.apple.Fitness.OpenFitnessPlusForYouIntent
 com.apple.Fitness.OpenMindfulnessSessionIntent, com.apple.Fitness.OpenUnifiedWorkoutIntent, com.apple.GameCenter.Settings.DeviceExpertExtension.OpenGameCenterSettingsDeepLinks
 com.apple.HealthStandaloneIntents.OpenHealthSettingsIntent, com.apple.Home.OpenURLInHomeIntent, com.apple.Maps.MapsSettingsAppIntents.OpenMapsSettingsDeepLink
@@ -1336,36 +1271,9 @@ com.apple.siri.AssistantSettingsControls.OpenVoiceFeedbackToggleEntity, com.appl
 com.apple.stocks.OpenBusinessNewsIntent, com.apple.stocks.OpenFeedIntent, com.apple.stocks.OpenHistoryIntent
 com.apple.stocks.OpenRecipeIntent, com.apple.stocks.OpenSavedIntent, com.apple.stocks.OpenSavedRecipesIntent
 com.apple.stocks.OpenStaticFeed, com.apple.stocks.OpenSymbolIntent, com.apple.stocks.OpenWatchlistIntent
-com.apple.systempreferences.OpenAboutSettingsStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityAudioDescriptionsStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityAudioStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityCaptionsStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityDisplayStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityHearingDevicesStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityHoverTextStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityKeyboardStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityLiveCaptionsStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityLiveSpeechStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityMotionStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityPersonalVoiceStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityPointerControlStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityRTTStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityRootStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityShortcutStaticDeepLinks, com.apple.systempreferences.OpenAccessibilitySiriStaticDeepLinks, com.apple.systempreferences.OpenAccessibilitySpokenContentStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilitySwitchControlStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityVocalShortcutsStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityVoiceControlStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityVoiceOverStaticDeepLinks, com.apple.systempreferences.OpenAccessibilityZoomStaticDeepLinks, com.apple.systempreferences.OpenAirDropHandoffDeepLinks
-com.apple.systempreferences.OpenAppearanceSettingsDeepLink, com.apple.systempreferences.OpenAppleAccountMainDeepLink, com.apple.systempreferences.OpenApplicationNotificationsSettings
-com.apple.systempreferences.OpenAutoBrightnessEntityDeepLink, com.apple.systempreferences.OpenAutomaticReconnectEntityDeepLink, com.apple.systempreferences.OpenAutomaticallySetDateTimeSetting
-com.apple.systempreferences.OpenAutomaticallySetTimeZoneSetting, com.apple.systempreferences.OpenBatteryHealthPaneDynamicDeepLinks, com.apple.systempreferences.OpenBatteryOptionsPaneDynamicDeepLinks
-com.apple.systempreferences.OpenBatterySettingsPaneDynamicDeepLinks, com.apple.systempreferences.OpenBiometricsAndPasswordSettingsEntityDeepLinks, com.apple.systempreferences.OpenBluetoothPowerDeepLink
-com.apple.systempreferences.OpenBluetoothSettingsDeepLinks, com.apple.systempreferences.OpenClassKitAppIntentsDeepLinks, com.apple.systempreferences.OpenClassroomDynamicDeepLinks
-com.apple.systempreferences.OpenClockOptionsEntity, com.apple.systempreferences.OpenConfiguredInternetAccountSettings, com.apple.systempreferences.OpenControlCenterModule
-com.apple.systempreferences.OpenCurrentTimeZoneSetting, com.apple.systempreferences.OpenDateTimeDeepLinks, com.apple.systempreferences.OpenDesktopSettingsDeepLink
-com.apple.systempreferences.OpenDesktopSettingsEntity, com.apple.systempreferences.OpenDeviceManagementStaticDeepLinks, com.apple.systempreferences.OpenDisplaysSettingsDeepLinks
-com.apple.systempreferences.OpenDockSettingsEntity, com.apple.systempreferences.OpenEnergySaverPaneDynamicDeepLinks, com.apple.systempreferences.OpenFamilyMemberSettings
-com.apple.systempreferences.OpenFamilySettings, com.apple.systempreferences.OpenFamilySetup, com.apple.systempreferences.OpenFamilySubscriptions
-com.apple.systempreferences.OpenInternationalSettingsDeepLink, com.apple.systempreferences.OpenInternetAccountsSettings, com.apple.systempreferences.OpenKeyboardSettingsDeepLink
-com.apple.systempreferences.OpenLockScreenDeepLinks, com.apple.systempreferences.OpenLoginItemsDeepLinks, com.apple.systempreferences.OpenMagicEdgeEntityDeepLink
-com.apple.systempreferences.OpenMissionControlSettingsEntity, com.apple.systempreferences.OpenMouseDeepLink, com.apple.systempreferences.OpenNetworkSettingsDeepLinks
-com.apple.systempreferences.OpenNewDeviceOutreachStaticDeepLinks, com.apple.systempreferences.OpenNotificationCenterEntity, com.apple.systempreferences.OpenNotificationSummarizationEntity
-com.apple.systempreferences.OpenPrinterScannerDeepLinks, com.apple.systempreferences.OpenPrivacySecurityDeepLinks, com.apple.systempreferences.OpenSUSDeepLinks
-com.apple.systempreferences.OpenShareKeyboardEntityDeepLink, com.apple.systempreferences.OpenSoundSettingsDeepLinks, com.apple.systempreferences.OpenSoundSettingsFeedbackSoundEntity
-com.apple.systempreferences.OpenSoundSettingsInterfaceEffectsEntity, com.apple.systempreferences.OpenSoundSettingsStartupSoundEntity, com.apple.systempreferences.OpenSpotlightSettingsDeepLinks
-com.apple.systempreferences.OpenStartupDiskStaticDeepLinks, com.apple.systempreferences.OpenStorageSettingsDeeplinks, com.apple.systempreferences.OpenTheCurrentDateTimeSetting
-com.apple.systempreferences.OpenTimeMachineSettingsStaticDeepLinks, com.apple.systempreferences.OpenTrackpadDeepLinks, com.apple.systempreferences.OpenTransferResetDeepLinks
-com.apple.systempreferences.OpenTrueToneEntityDeepLink, com.apple.systempreferences.OpenTwentyFourHourTimeSetting, com.apple.systempreferences.OpenUsersGroupsDeepLinks
-com.apple.systempreferences.OpenVPNDeepLink, com.apple.systempreferences.OpenWallpaperDeepLinks, com.apple.systempreferences.OpenWidgetSettingsEntity
-com.apple.systempreferences.OpenWindowsSettingsEntity, com.apple.systempreferences.SharingSettingsIntents.OpenSharingDeepLinks, com.apple.weather.OpenMoonIntent
+
+
+com.apple.weather.OpenMoonIntent
 com.apple.weather.OpenNotificationsConfigurationIntent, com.apple.weather.OpenSunriseSunsetIntent, com.apple.weather.OpenUnitsConfigurationIntent
 com.apple.weather.OpenWeatherAirQualityIntent, com.apple.weather.OpenWeatherSpecificConditionIntent
 ```
@@ -1388,8 +1296,7 @@ com.apple.shortcuts.CreateWorkflowAction
 ```
 com.apple.Home.ToggleAttributeIntent, com.apple.Home.ToggleControlConfigurationIntent, com.apple.Home.ToggleIntent
 com.apple.ShortcutsActions.ToggleCellularPlanAction, com.apple.Spotlight.ToggleSpotlightIntent, com.apple.VoiceMemos.ToggleRecording
-com.apple.news.ToggleAudioPlaybackIntent, com.apple.springboard.ToggleFlashlight, com.apple.systempreferences.ToggleHighPowerModeBatteryNoBatteryIntent
-com.apple.systempreferences.ToggleHighPowerModeOnBatteryIntent, com.apple.systempreferences.ToggleLowPowerModeIntent
+com.apple.news.ToggleAudioPlaybackIntent, com.apple.springboard.ToggleFlashlight
 ```
 
 ### Set* (Setting Actions)
@@ -1414,7 +1321,7 @@ com.apple.mobilecal.SettingsShowWeekNumbersEntity-UpdatableEntity, com.apple.mob
 com.apple.mobilecal.SettingsSyncDurationsEntity, com.apple.mobilecal.SettingsSyncDurationsEntity-UpdatableEntity, com.apple.mobilecal.SettingsTimeToLeaveEntity
 com.apple.mobilecal.SettingsTimeToLeaveEntity-UpdatableEntity, com.apple.mobilecal.SettingsWeekViewStartsOnTodayEntity, com.apple.mobilecal.SettingsWeekViewStartsOnTodayEntity-UpdatableEntity
 com.apple.shortcuts.SetShortcutAttributesAction, com.apple.springboard.SetAppearanceStyleIntent, com.apple.springboard.SetFlashlightIntent
-com.apple.springboard.SetSilentModeIntent, com.apple.systempreferences.SetupFamilyDeepLink, com.apple.wallpaper.agent.SetWallpaperIntent
+com.apple.springboard.SetSilentModeIntent, com.apple.wallpaper.agent.SetWallpaperIntent
 com.apple.wallpaper.agent.SetWallpaperPhotoIntent, com.apple.weather.SetDistanceUnitIntent, com.apple.weather.SetPrecipitationUnitIntent
 com.apple.weather.SetPressureUnitIntent, com.apple.weather.SetTemperatureUnitIntent, com.apple.weather.SetWindUnitIntent
 ```
@@ -1444,7 +1351,6 @@ com.apple.AppKit.WritingToolsComposeIntent
 com.apple.AppKit.WritingToolsProofreadIntent
 com.apple.AppKit.WritingToolsRewriteIntent
 com.apple.AppStore.SystemSearchIntent
-com.apple.Desktop-Settings.extension.OpenDesktopSettingsDeepLink
 com.apple.GameCenter.Settings.DeviceExpertExtension.OpenGameCenterSettingsDeepLinks
 com.apple.GenerativePlaygroundApp.GenerateImageIntent
 com.apple.Home.ActivateSceneIntent
@@ -2124,582 +2030,7 @@ com.apple.stocks.SymbolWidgetEntity
 com.apple.stocks.UnblockIntent
 com.apple.stocks.UnsaveArticleIntent
 com.apple.stocks.WatchlistEntity
-com.apple.systempreferences.AccentColorEntity
-com.apple.systempreferences.AccentColorEntity-UpdatableEntity
-com.apple.systempreferences.AirDropEntity
-com.apple.systempreferences.AirDropEntity-UpdatableEntity
-com.apple.systempreferences.AirPlayIntent
-com.apple.systempreferences.AirPlayReceiverIntent
-com.apple.systempreferences.AirPlayRequiresPasswordIntent
-com.apple.systempreferences.AllowWallPaperTintingEntity
-com.apple.systempreferences.AllowWallPaperTintingEntity-UpdatableEntity
-com.apple.systempreferences.AppearanceEntity
-com.apple.systempreferences.AppearanceEntity-UpdatableEntity
-com.apple.systempreferences.AppearanceSettingsDeepLink
-com.apple.systempreferences.AppleAccountMainDynamicDeepLinks
-com.apple.systempreferences.ApplicationNotificationsSettings
-com.apple.systempreferences.ApplicationNotificationsSettings-UpdatableEntity
-com.apple.systempreferences.AutoBrightnessEntity
-com.apple.systempreferences.AutoBrightnessEntity-UpdatableEntity
-com.apple.systempreferences.AutoDateTimeEntity
-com.apple.systempreferences.AutoHideMenuBarOptionEntity
-com.apple.systempreferences.AutoHideMenuBarOptionEntity-UpdatableEntity
-com.apple.systempreferences.AutoLoginIntent
-com.apple.systempreferences.AutoTimeZoneEntity
-com.apple.systempreferences.AutomaticReconnectEntity
-com.apple.systempreferences.AutomaticReconnectEntity-UpdatableEntity
-com.apple.systempreferences.AvailableDisplaysEntity
-com.apple.systempreferences.AxAdaptiveVoiceShortcutsEntity
-com.apple.systempreferences.AxAdaptiveVoiceShortcutsEntity-UpdatableEntity
-com.apple.systempreferences.AxAltMouseButtonsEntity
-com.apple.systempreferences.AxAltMouseButtonsEntity-UpdatableEntity
-com.apple.systempreferences.AxAltMouseEnableSoundsEntity
-com.apple.systempreferences.AxAltMouseEnableSoundsEntity-UpdatableEntity
-com.apple.systempreferences.AxAltMouseEnableVisualsEntity
-com.apple.systempreferences.AxAltMouseEnableVisualsEntity-UpdatableEntity
-com.apple.systempreferences.AxAnimatedImagesEntity
-com.apple.systempreferences.AxAnimatedImagesEntity-UpdatableEntity
-com.apple.systempreferences.AxBackgroundSoundsEntity
-com.apple.systempreferences.AxBackgroundSoundsEntity-UpdatableEntity
-com.apple.systempreferences.AxBackgroundSoundsLockScreenEntity
-com.apple.systempreferences.AxBackgroundSoundsLockScreenEntity-UpdatableEntity
-com.apple.systempreferences.AxCaptioningPreferSdhEntity
-com.apple.systempreferences.AxCaptioningPreferSdhEntity-UpdatableEntity
-com.apple.systempreferences.AxDifferentiateWithoutColorEntity
-com.apple.systempreferences.AxDifferentiateWithoutColorEntity-UpdatableEntity
-com.apple.systempreferences.AxDimFlashingEntity
-com.apple.systempreferences.AxDimFlashingEntity-UpdatableEntity
-com.apple.systempreferences.AxDisplayFilterEnabledEntity
-com.apple.systempreferences.AxDisplayFilterEnabledEntity-UpdatableEntity
-com.apple.systempreferences.AxDisplayFilterTypeEntity
-com.apple.systempreferences.AxDisplayFilterTypeEntity-UpdatableEntity
-com.apple.systempreferences.AxDwellActionEntity
-com.apple.systempreferences.AxDwellActionEntity-UpdatableEntity
-com.apple.systempreferences.AxDwellAutoRevertEntity
-com.apple.systempreferences.AxDwellAutoRevertEntity-UpdatableEntity
-com.apple.systempreferences.AxDwellCursorColorEntity
-com.apple.systempreferences.AxDwellCursorColorEntity-UpdatableEntity
-com.apple.systempreferences.AxDwellInMenuExtraEntity
-com.apple.systempreferences.AxDwellInMenuExtraEntity-UpdatableEntity
-com.apple.systempreferences.AxDwellInPanelsEntity
-com.apple.systempreferences.AxDwellInPanelsEntity-UpdatableEntity
-com.apple.systempreferences.AxDwellProgressIndicatorEntity
-com.apple.systempreferences.AxDwellProgressIndicatorEntity-UpdatableEntity
-com.apple.systempreferences.AxDwellZoomEntity
-com.apple.systempreferences.AxDwellZoomEntity-UpdatableEntity
-com.apple.systempreferences.AxFacetimeTranscriptionsEntity
-com.apple.systempreferences.AxFacetimeTranscriptionsEntity-UpdatableEntity
-com.apple.systempreferences.AxFeatureLivespeechEntity
-com.apple.systempreferences.AxFeatureLivespeechEntity-UpdatableEntity
-com.apple.systempreferences.AxFeatureSwitchcontrolEntity
-com.apple.systempreferences.AxFeatureSwitchcontrolEntity-UpdatableEntity
-com.apple.systempreferences.AxFeatureVoicecontrolEntity
-com.apple.systempreferences.AxFeatureVoicecontrolEntity-UpdatableEntity
-com.apple.systempreferences.AxFeatureVoiceoverEntity
-com.apple.systempreferences.AxFeatureVoiceoverEntity-UpdatableEntity
-com.apple.systempreferences.AxFeatureZoomEntity
-com.apple.systempreferences.AxFeatureZoomEntity-UpdatableEntity
-com.apple.systempreferences.AxFindCursorEntity
-com.apple.systempreferences.AxFindCursorEntity-UpdatableEntity
-com.apple.systempreferences.AxFkaAutoHideCheckboxEntity
-com.apple.systempreferences.AxFkaAutoHideCheckboxEntity-UpdatableEntity
-com.apple.systempreferences.AxFkaEnableCheckboxEntity
-com.apple.systempreferences.AxFkaEnableCheckboxEntity-UpdatableEntity
-com.apple.systempreferences.AxFkaHighContrastCheckboxEntity
-com.apple.systempreferences.AxFkaHighContrastCheckboxEntity-UpdatableEntity
-com.apple.systempreferences.AxFkaIncreaseSizeCheckboxEntity
-com.apple.systempreferences.AxFkaIncreaseSizeCheckboxEntity-UpdatableEntity
-com.apple.systempreferences.AxFlashScreenEntity
-com.apple.systempreferences.AxFlashScreenEntity-UpdatableEntity
-com.apple.systempreferences.AxHeadMouseEntity
-com.apple.systempreferences.AxHeadMouseEntity-UpdatableEntity
-com.apple.systempreferences.AxHomePanelDwellActionsEntity
-com.apple.systempreferences.AxHomePanelDwellActionsEntity-UpdatableEntity
-com.apple.systempreferences.AxHotCornerBottomLeftEntity
-com.apple.systempreferences.AxHotCornerBottomLeftEntity-UpdatableEntity
-com.apple.systempreferences.AxHotCornerBottomRightEntity
-com.apple.systempreferences.AxHotCornerBottomRightEntity-UpdatableEntity
-com.apple.systempreferences.AxHotCornerMoveHomePanelEntity
-com.apple.systempreferences.AxHotCornerMoveHomePanelEntity-UpdatableEntity
-com.apple.systempreferences.AxHotCornerTopLeftEntity
-com.apple.systempreferences.AxHotCornerTopLeftEntity-UpdatableEntity
-com.apple.systempreferences.AxHotCornerTopRightEntity
-com.apple.systempreferences.AxHotCornerTopRightEntity-UpdatableEntity
-com.apple.systempreferences.AxHoverTextActivationLockModeEntity
-com.apple.systempreferences.AxHoverTextActivationLockModeEntity-UpdatableEntity
-com.apple.systempreferences.AxHoverTextEnableEntity
-com.apple.systempreferences.AxHoverTextEnableEntity-UpdatableEntity
-com.apple.systempreferences.AxHoverTextModifierEntity
-com.apple.systempreferences.AxHoverTextModifierEntity-UpdatableEntity
-com.apple.systempreferences.AxHoverTypingEnableEntity
-com.apple.systempreferences.AxHoverTypingEnableEntity-UpdatableEntity
-com.apple.systempreferences.AxHoverTypingEntryLocationEntity
-com.apple.systempreferences.AxHoverTypingEntryLocationEntity-UpdatableEntity
-com.apple.systempreferences.AxIgnoreTrackpadEntity
-com.apple.systempreferences.AxIgnoreTrackpadEntity-UpdatableEntity
-com.apple.systempreferences.AxIncreaseContrastEntity
-com.apple.systempreferences.AxIncreaseContrastEntity-UpdatableEntity
-com.apple.systempreferences.AxInvertColorEntity
-com.apple.systempreferences.AxInvertColorEntity-UpdatableEntity
-com.apple.systempreferences.AxInvertColorModeEntity
-com.apple.systempreferences.AxInvertColorModeEntity-UpdatableEntity
-com.apple.systempreferences.AxKbAppearanceTypeEntity
-com.apple.systempreferences.AxKbAppearanceTypeEntity-UpdatableEntity
-com.apple.systempreferences.AxKbAutoCapitalizationEntity
-com.apple.systempreferences.AxKbAutoCapitalizationEntity-UpdatableEntity
-com.apple.systempreferences.AxKbAutoSpacingEntity
-com.apple.systempreferences.AxKbAutoSpacingEntity-UpdatableEntity
-com.apple.systempreferences.AxKbHideEntity
-com.apple.systempreferences.AxKbHideEntity-UpdatableEntity
-com.apple.systempreferences.AxKbKeyAcceptedMouseEntity
-com.apple.systempreferences.AxKbKeyAcceptedMouseEntity-UpdatableEntity
-com.apple.systempreferences.AxKbRightClickEntity
-com.apple.systempreferences.AxKbRightClickEntity-UpdatableEntity
-com.apple.systempreferences.AxKbUseClickSoundsEntity
-com.apple.systempreferences.AxKbUseClickSoundsEntity-UpdatableEntity
-com.apple.systempreferences.AxMenubarDwellActionsEntity
-com.apple.systempreferences.AxMenubarDwellActionsEntity-UpdatableEntity
-com.apple.systempreferences.AxMonoAudioEntity
-com.apple.systempreferences.AxMonoAudioEntity-UpdatableEntity
-com.apple.systempreferences.AxMotionCuesEnabledEntity
-com.apple.systempreferences.AxMotionCuesEnabledEntity-UpdatableEntity
-com.apple.systempreferences.AxMouseKeysEntity
-com.apple.systempreferences.AxMouseKeysEntity-UpdatableEntity
-com.apple.systempreferences.AxMouseKeysIgnoreTrackpadEntity
-com.apple.systempreferences.AxMouseKeysIgnoreTrackpadEntity-UpdatableEntity
-com.apple.systempreferences.AxMouseKeysShortcutEntity
-com.apple.systempreferences.AxMouseKeysShortcutEntity-UpdatableEntity
-com.apple.systempreferences.AxMouseScrollBehaviorEntity
-com.apple.systempreferences.AxMouseScrollBehaviorEntity-UpdatableEntity
-com.apple.systempreferences.AxMouseScrollEntity
-com.apple.systempreferences.AxMouseScrollEntity-UpdatableEntity
-com.apple.systempreferences.AxPrefersHorizTextLayoutEntity
-com.apple.systempreferences.AxPrefersHorizTextLayoutEntity-UpdatableEntity
-com.apple.systempreferences.AxReduceCursorModulationEntity
-com.apple.systempreferences.AxReduceCursorModulationEntity-UpdatableEntity
-com.apple.systempreferences.AxReduceMotionEntity
-com.apple.systempreferences.AxReduceMotionEntity-UpdatableEntity
-com.apple.systempreferences.AxReduceTransparencyEntity
-com.apple.systempreferences.AxReduceTransparencyEntity-UpdatableEntity
-com.apple.systempreferences.AxRttEnableEntity
-com.apple.systempreferences.AxRttEnableEntity-UpdatableEntity
-com.apple.systempreferences.AxRttSendImmediatelyEntity
-com.apple.systempreferences.AxRttSendImmediatelyEntity-UpdatableEntity
-com.apple.systempreferences.AxShowToolbarButtonShapesEntity
-com.apple.systempreferences.AxShowToolbarButtonShapesEntity-UpdatableEntity
-com.apple.systempreferences.AxShowWindowTitlebarIconsEntity
-com.apple.systempreferences.AxShowWindowTitlebarIconsEntity-UpdatableEntity
-com.apple.systempreferences.AxSiriAtypicalSpeechEntity
-com.apple.systempreferences.AxSiriAtypicalSpeechEntity-UpdatableEntity
-com.apple.systempreferences.AxSlowKeysEntity
-com.apple.systempreferences.AxSlowKeysEntity-UpdatableEntity
-com.apple.systempreferences.AxSlowKeysSoundEntity
-com.apple.systempreferences.AxSlowKeysSoundEntity-UpdatableEntity
-com.apple.systempreferences.AxSpatialAudioFollowsHeadEntity
-com.apple.systempreferences.AxSpatialAudioFollowsHeadEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenAlertsEntity
-com.apple.systempreferences.AxSpokenAlertsEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenDetectLanguagesEntity
-com.apple.systempreferences.AxSpokenDetectLanguagesEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenHotkeyEntity
-com.apple.systempreferences.AxSpokenHotkeyEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenPointerElementEntity
-com.apple.systempreferences.AxSpokenPointerElementEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenPointerElementModeEntity
-com.apple.systempreferences.AxSpokenPointerElementModeEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenPointerElementVerbosityEntity
-com.apple.systempreferences.AxSpokenPointerElementVerbosityEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenPronunciationsEntity
-com.apple.systempreferences.AxSpokenPronunciationsEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenSelectionHighlightContentEntity
-com.apple.systempreferences.AxSpokenSelectionHighlightContentEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenSelectionHighlightSentenceColorEntity
-com.apple.systempreferences.AxSpokenSelectionHighlightSentenceColorEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenSelectionHighlightSentenceStyleEntity
-com.apple.systempreferences.AxSpokenSelectionHighlightSentenceStyleEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenSelectionHighlightWordColorEntity
-com.apple.systempreferences.AxSpokenSelectionHighlightWordColorEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenSelectionShowControllerEntity
-com.apple.systempreferences.AxSpokenSelectionShowControllerEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenTypingEchoCharsEntity
-com.apple.systempreferences.AxSpokenTypingEchoCharsEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenTypingEchoEntity
-com.apple.systempreferences.AxSpokenTypingEchoEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenTypingEchoModifierKeysEntity
-com.apple.systempreferences.AxSpokenTypingEchoModifierKeysEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenTypingEchoSelectionEntity
-com.apple.systempreferences.AxSpokenTypingEchoSelectionEntity-UpdatableEntity
-com.apple.systempreferences.AxSpokenTypingEchoWordsEntity
-com.apple.systempreferences.AxSpokenTypingEchoWordsEntity-UpdatableEntity
-com.apple.systempreferences.AxSpringLoadingEntity
-com.apple.systempreferences.AxSpringLoadingEntity-UpdatableEntity
-com.apple.systempreferences.AxStickyKeysBeepEntity
-com.apple.systempreferences.AxStickyKeysBeepEntity-UpdatableEntity
-com.apple.systempreferences.AxStickyKeysDisplayEntity
-com.apple.systempreferences.AxStickyKeysDisplayEntity-UpdatableEntity
-com.apple.systempreferences.AxStickyKeysDisplayLocationEntity
-com.apple.systempreferences.AxStickyKeysDisplayLocationEntity-UpdatableEntity
-com.apple.systempreferences.AxStickyKeysEntity
-com.apple.systempreferences.AxStickyKeysEntity-UpdatableEntity
-com.apple.systempreferences.AxStickyKeysShortcutEntity
-com.apple.systempreferences.AxStickyKeysShortcutEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchAutoCapitalizationEntity
-com.apple.systempreferences.AxSwitchAutoCapitalizationEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchAutoSpacingEntity
-com.apple.systempreferences.AxSwitchAutoSpacingEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchAutoscanEntity
-com.apple.systempreferences.AxSwitchAutoscanEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchControlAppearanceTypeEntity
-com.apple.systempreferences.AxSwitchControlAppearanceTypeEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchCursorSizeEntity
-com.apple.systempreferences.AxSwitchCursorSizeEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchHideAfterDelayEntity
-com.apple.systempreferences.AxSwitchHideAfterDelayEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchHoverTextToolbarEntity
-com.apple.systempreferences.AxSwitchHoverTextToolbarEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchMouseCursorEdgeEntity
-com.apple.systempreferences.AxSwitchMouseCursorEdgeEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchMouseMoveStyleEntity
-com.apple.systempreferences.AxSwitchMouseMoveStyleEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchNavFeedbackEntity
-com.apple.systempreferences.AxSwitchNavFeedbackEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchResumeAutoScanningEntity
-com.apple.systempreferences.AxSwitchResumeAutoScanningEntity-UpdatableEntity
-com.apple.systempreferences.AxSwitchScanRestartEntity
-com.apple.systempreferences.AxSwitchScanRestartEntity-UpdatableEntity
-com.apple.systempreferences.AxSystemTranscriptionEnabledEntity
-com.apple.systempreferences.AxSystemTranscriptionEnabledEntity-UpdatableEntity
-com.apple.systempreferences.AxTouchBarZoomEnableEntity
-com.apple.systempreferences.AxTouchBarZoomEnableEntity-UpdatableEntity
-com.apple.systempreferences.AxTrackpadScrollBehaviorEntity
-com.apple.systempreferences.AxTrackpadScrollBehaviorEntity-UpdatableEntity
-com.apple.systempreferences.AxTrackpadScrollEntity
-com.apple.systempreferences.AxTrackpadScrollEntity-UpdatableEntity
-com.apple.systempreferences.AxTypeToSiriEnabledEntity
-com.apple.systempreferences.AxTypeToSiriEnabledEntity-UpdatableEntity
-com.apple.systempreferences.AxVideoDescriptionEntity
-com.apple.systempreferences.AxVideoDescriptionEntity-UpdatableEntity
-com.apple.systempreferences.AxVirtualKeyboardEntity
-com.apple.systempreferences.AxVirtualKeyboardEntity-UpdatableEntity
-com.apple.systempreferences.AxVoiceControlOverlayEntity
-com.apple.systempreferences.AxVoiceControlOverlayEntity-UpdatableEntity
-com.apple.systempreferences.AxVoiceControlOverlayFadingEnabledEntity
-com.apple.systempreferences.AxVoiceControlOverlayFadingEnabledEntity-UpdatableEntity
-com.apple.systempreferences.AxVoiceControlPlaySoundEnabledEntity
-com.apple.systempreferences.AxVoiceControlPlaySoundEnabledEntity-UpdatableEntity
-com.apple.systempreferences.AxVoiceControlShowHintsEnabledEntity
-com.apple.systempreferences.AxVoiceControlShowHintsEnabledEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomDisableUniversalControlEntity
-com.apple.systempreferences.AxZoomDisableUniversalControlEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomEnableGestureEntity
-com.apple.systempreferences.AxZoomEnableGestureEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomEnableHotkeysEntity
-com.apple.systempreferences.AxZoomEnableHotkeysEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomFlashEntity
-com.apple.systempreferences.AxZoomFlashEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomFocusMovementEntity
-com.apple.systempreferences.AxZoomFocusMovementEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomFollowFocusActivationEntity
-com.apple.systempreferences.AxZoomFollowFocusActivationEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomFollowFocusModeEntity
-com.apple.systempreferences.AxZoomFollowFocusModeEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomFreezePanningEntity
-com.apple.systempreferences.AxZoomFreezePanningEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomIndividualDisplaysEntity
-com.apple.systempreferences.AxZoomIndividualDisplaysEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomInvertEntity
-com.apple.systempreferences.AxZoomInvertEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomKeepStationaryEntity
-com.apple.systempreferences.AxZoomKeepStationaryEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomMonitorSelectionEntity
-com.apple.systempreferences.AxZoomMonitorSelectionEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomMonitorSelectionTrackpadEntity
-com.apple.systempreferences.AxZoomMonitorSelectionTrackpadEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomMoveEntity
-com.apple.systempreferences.AxZoomMoveEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomResizeShortcutsEntity
-com.apple.systempreferences.AxZoomResizeShortcutsEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomRestoreEntity
-com.apple.systempreferences.AxZoomRestoreEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomSmoothEntity
-com.apple.systempreferences.AxZoomSmoothEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomStylePopupEntity
-com.apple.systempreferences.AxZoomStylePopupEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomTempDetachEntity
-com.apple.systempreferences.AxZoomTempDetachEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomTempToggleEntity
-com.apple.systempreferences.AxZoomTempToggleEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomToggleFsAndPipEntity
-com.apple.systempreferences.AxZoomToggleFsAndPipEntity-UpdatableEntity
-com.apple.systempreferences.AxZoomTrackpadEntity
-com.apple.systempreferences.AxZoomTrackpadEntity-UpdatableEntity
-com.apple.systempreferences.BackgroundLoginItemsIntent
-com.apple.systempreferences.BatteryHealthPaneDynamicDeepLinks
-com.apple.systempreferences.BatteryOptionsPaneDynamicDeepLinks
-com.apple.systempreferences.BatterySettingsPaneDynamicDeepLinks
-com.apple.systempreferences.BluetoothPowerEntity
-com.apple.systempreferences.BluetoothPowerEntity-UpdatableEntity
-com.apple.systempreferences.ChangeMouseTrackingSpeedIntent
-com.apple.systempreferences.ChangeTrackpadTrackingSpeedIntent
-com.apple.systempreferences.CheckForUpdatesIntent
-com.apple.systempreferences.ClassroomDynamicDeepLinks
-com.apple.systempreferences.ClickScrollBarToEntity
-com.apple.systempreferences.ClickScrollBarToEntity-UpdatableEntity
-com.apple.systempreferences.ClockOptionsEntity
-com.apple.systempreferences.ClockOptionsEntity-UpdatableEntity
-com.apple.systempreferences.ComputerNameEntity
-com.apple.systempreferences.ControlCenterModule-UpdatableEntity
-com.apple.systempreferences.CurrentUserIntent
-com.apple.systempreferences.CurrentlyConnectedVPN
-com.apple.systempreferences.CurrentlyConnectedVPN-UpdatableEntity
-com.apple.systempreferences.DateTimeEntity
-com.apple.systempreferences.DesktopSettingsEntity
-com.apple.systempreferences.DesktopSettingsEntity-UpdatableEntity
-com.apple.systempreferences.DeviceGraphicsEntity
-com.apple.systempreferences.DeviceMemoryEntity
-com.apple.systempreferences.DeviceModelNameEntity
-com.apple.systempreferences.DeviceOSInfoEntity
-com.apple.systempreferences.DeviceProcessorEntity
-com.apple.systempreferences.DeviceSSOIntent
-com.apple.systempreferences.DeviceSerialNumberEntity
-com.apple.systempreferences.DeviceStorageEntity
-com.apple.systempreferences.DockSettingsEntity
-com.apple.systempreferences.DockSettingsEntity-UpdatableEntity
-com.apple.systempreferences.DownloadUpdatesPreferenceEntity
-com.apple.systempreferences.DownloadUpdatesPreferenceEntity-UpdatableEntity
-com.apple.systempreferences.EnergySaverPaneDynamicDeepLinks
-com.apple.systempreferences.FamilyMemberDetailsDeepLink
-com.apple.systempreferences.FamilySettingsDeepLink
-com.apple.systempreferences.FamilySubscriptionsDeepLink
-com.apple.systempreferences.FirewallAllowDownloadedSignedEntity
-com.apple.systempreferences.FirewallAllowSignedEntity
-com.apple.systempreferences.FirewallStateEntity
-com.apple.systempreferences.FirewallStealthModeEntity
-com.apple.systempreferences.FullScreenSwipeEntity
-com.apple.systempreferences.FullScreenSwipeEntity-UpdatableEntity
-com.apple.systempreferences.GetStartupDiskIntent
-com.apple.systempreferences.GroupMembershipIntent
-com.apple.systempreferences.GuestIntent
-com.apple.systempreferences.GuestParentalControlStatusIntent
-com.apple.systempreferences.GuestSharedAccessStatusIntent
-com.apple.systempreferences.GuestStatusIntent
-com.apple.systempreferences.HandoffIntent
-com.apple.systempreferences.HighlightColorEntity
-com.apple.systempreferences.HighlightColorEntity-UpdatableEntity
-com.apple.systempreferences.HourFormatEntity
-com.apple.systempreferences.HourFormatEntity-UpdatableEntity
-com.apple.systempreferences.IdentifierIntent
-com.apple.systempreferences.InstallMacUpdatesPreferenceEntity
-com.apple.systempreferences.InstallMacUpdatesPreferenceEntity-UpdatableEntity
-com.apple.systempreferences.InstallSecurityUpdatesPreferenceEntity
-com.apple.systempreferences.InstallSecurityUpdatesPreferenceEntity-UpdatableEntity
-com.apple.systempreferences.KeyboardSettingsDeepLink
-com.apple.systempreferences.ListOfAccountsIntent
-com.apple.systempreferences.ListOfNetworkServersIntent
-com.apple.systempreferences.LockMessageIntent
-com.apple.systempreferences.LoginItemEntity
-com.apple.systempreferences.LoginWindowModeIntent
-com.apple.systempreferences.LoginWindowShowsButtonsIntent
-com.apple.systempreferences.MagicEdgeEntity
-com.apple.systempreferences.MagicEdgeEntity-UpdatableEntity
-com.apple.systempreferences.MissionControlEntity
-com.apple.systempreferences.MissionControlEntity-UpdatableEntity
-com.apple.systempreferences.MissionControlSettingsEntity
-com.apple.systempreferences.MissionControlSettingsEntity-UpdatableEntity
-com.apple.systempreferences.MouseSettingDeepLink
-com.apple.systempreferences.MouseTrackingSpeedEntity
-com.apple.systempreferences.MouseTrackingSpeedEntity-UpdatableEntity
-com.apple.systempreferences.NotificationCenterEntity
-com.apple.systempreferences.NotificationCenterEntity-UpdatableEntity
-com.apple.systempreferences.NotificationSummarizationEntity
-com.apple.systempreferences.OpenAboutSettingsStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityAudioDescriptionsStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityAudioStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityCaptionsStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityDisplayStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityHearingDevicesStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityHoverTextStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityKeyboardStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityLiveCaptionsStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityLiveSpeechStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityMotionStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityPersonalVoiceStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityPointerControlStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityRTTStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityRootStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityShortcutStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilitySiriStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilitySpokenContentStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilitySwitchControlStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityVocalShortcutsStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityVoiceControlStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityVoiceOverStaticDeepLinks
-com.apple.systempreferences.OpenAccessibilityZoomStaticDeepLinks
-com.apple.systempreferences.OpenAirDropHandoffDeepLinks
-com.apple.systempreferences.OpenAppearanceSettingsDeepLink
-com.apple.systempreferences.OpenAppleAccountMainDeepLink
-com.apple.systempreferences.OpenApplicationNotificationsSettings
-com.apple.systempreferences.OpenAutoBrightnessEntityDeepLink
-com.apple.systempreferences.OpenAutomaticReconnectEntityDeepLink
-com.apple.systempreferences.OpenAutomaticallySetDateTimeSetting
-com.apple.systempreferences.OpenAutomaticallySetTimeZoneSetting
-com.apple.systempreferences.OpenBatteryHealthPaneDynamicDeepLinks
-com.apple.systempreferences.OpenBatteryOptionsPaneDynamicDeepLinks
-com.apple.systempreferences.OpenBatterySettingsPaneDynamicDeepLinks
-com.apple.systempreferences.OpenBiometricsAndPasswordSettingsEntityDeepLinks
-com.apple.systempreferences.OpenBluetoothPowerDeepLink
-com.apple.systempreferences.OpenBluetoothSettingsDeepLinks
-com.apple.systempreferences.OpenClassKitAppIntentsDeepLinks
-com.apple.systempreferences.OpenClassroomDynamicDeepLinks
-com.apple.systempreferences.OpenClockOptionsEntity
-com.apple.systempreferences.OpenConfiguredInternetAccountSettings
-com.apple.systempreferences.OpenControlCenterModule
-com.apple.systempreferences.OpenCurrentTimeZoneSetting
-com.apple.systempreferences.OpenDateTimeDeepLinks
-com.apple.systempreferences.OpenDesktopSettingsDeepLink
-com.apple.systempreferences.OpenDesktopSettingsEntity
-com.apple.systempreferences.OpenDeviceManagementStaticDeepLinks
-com.apple.systempreferences.OpenDisplaysSettingsDeepLinks
-com.apple.systempreferences.OpenDockSettingsEntity
-com.apple.systempreferences.OpenEnergySaverPaneDynamicDeepLinks
-com.apple.systempreferences.OpenFamilyMemberSettings
-com.apple.systempreferences.OpenFamilySettings
-com.apple.systempreferences.OpenFamilySetup
-com.apple.systempreferences.OpenFamilySubscriptions
-com.apple.systempreferences.OpenInternationalSettingsDeepLink
-com.apple.systempreferences.OpenInternetAccountsSettings
-com.apple.systempreferences.OpenKeyboardSettingsDeepLink
-com.apple.systempreferences.OpenLockScreenDeepLinks
-com.apple.systempreferences.OpenLoginItemsDeepLinks
-com.apple.systempreferences.OpenMagicEdgeEntityDeepLink
-com.apple.systempreferences.OpenMissionControlSettingsEntity
-com.apple.systempreferences.OpenMouseDeepLink
-com.apple.systempreferences.OpenNetworkSettingsDeepLinks
-com.apple.systempreferences.OpenNewDeviceOutreachStaticDeepLinks
-com.apple.systempreferences.OpenNotificationCenterEntity
-com.apple.systempreferences.OpenNotificationSummarizationEntity
-com.apple.systempreferences.OpenPrinterScannerDeepLinks
-com.apple.systempreferences.OpenPrivacySecurityDeepLinks
-com.apple.systempreferences.OpenSUSDeepLinks
-com.apple.systempreferences.OpenShareKeyboardEntityDeepLink
-com.apple.systempreferences.OpenSoundSettingsDeepLinks
-com.apple.systempreferences.OpenSoundSettingsFeedbackSoundEntity
-com.apple.systempreferences.OpenSoundSettingsInterfaceEffectsEntity
-com.apple.systempreferences.OpenSoundSettingsStartupSoundEntity
-com.apple.systempreferences.OpenSpotlightSettingsDeepLinks
-com.apple.systempreferences.OpenStartupDiskStaticDeepLinks
-com.apple.systempreferences.OpenStorageSettingsDeeplinks
-com.apple.systempreferences.OpenTheCurrentDateTimeSetting
-com.apple.systempreferences.OpenTimeMachineSettingsStaticDeepLinks
-com.apple.systempreferences.OpenTrackpadDeepLinks
-com.apple.systempreferences.OpenTransferResetDeepLinks
-com.apple.systempreferences.OpenTrueToneEntityDeepLink
-com.apple.systempreferences.OpenTwentyFourHourTimeSetting
-com.apple.systempreferences.OpenUsersGroupsDeepLinks
-com.apple.systempreferences.OpenVPNDeepLink
-com.apple.systempreferences.OpenWallpaperDeepLinks
-com.apple.systempreferences.OpenWidgetSettingsEntity
-com.apple.systempreferences.OpenWindowsSettingsEntity
-com.apple.systempreferences.PaperSizeEntity
-com.apple.systempreferences.PaperSizeEntity-UpdatableEntity
-com.apple.systempreferences.RecentDocumentsOptionEntity
-com.apple.systempreferences.RecentDocumentsOptionEntity-UpdatableEntity
-com.apple.systempreferences.RequirePasswordDelayIntent
-com.apple.systempreferences.ScreenSaverDelayEntity
-com.apple.systempreferences.ScreenSaverDelayEntity-UpdatableEntity
-com.apple.systempreferences.ScreenSaverNameIntent
-com.apple.systempreferences.ScrollDirectionEntity
-com.apple.systempreferences.ScrollDirectionEntity-UpdatableEntity
-com.apple.systempreferences.SecondaryClickEntity
-com.apple.systempreferences.SecondaryClickEntity-UpdatableEntity
-com.apple.systempreferences.SetupFamilyDeepLink
-com.apple.systempreferences.ShareKeyboardEntity
-com.apple.systempreferences.ShareKeyboardEntity-UpdatableEntity
-com.apple.systempreferences.SharingSettingsIntents.OpenSharingDeepLinks
-com.apple.systempreferences.SharingSettingsIntents.SharingIntents
-com.apple.systempreferences.ShowAsScreenSaverEntity
-com.apple.systempreferences.ShowAsScreenSaverEntity-UpdatableEntity
-com.apple.systempreferences.ShowAsWallpaperEntity
-com.apple.systempreferences.ShowAsWallpaperEntity-UpdatableEntity
-com.apple.systempreferences.ShowBatteryPercentageEntity
-com.apple.systempreferences.ShowBatteryPercentageEntity-UpdatableEntity
-com.apple.systempreferences.ShowLargeClockIntent
-com.apple.systempreferences.ShowMenuBarBackgroundEntity
-com.apple.systempreferences.ShowMenuBarBackgroundEntity-UpdatableEntity
-com.apple.systempreferences.ShowPasswordHintsIntent
-com.apple.systempreferences.ShowScreenSaverOnAllSpacesEntity
-com.apple.systempreferences.ShowScreenSaverOnAllSpacesEntity-UpdatableEntity
-com.apple.systempreferences.ShowScrollBarsEntity
-com.apple.systempreferences.ShowScrollBarsEntity-UpdatableEntity
-com.apple.systempreferences.ShowWallpaperOnAllSpacesEntity
-com.apple.systempreferences.ShowWallpaperOnAllSpacesEntity-UpdatableEntity
-com.apple.systempreferences.SidebarIconSizeEntity
-com.apple.systempreferences.SidebarIconSizeEntity-UpdatableEntity
-com.apple.systempreferences.SmartZoomEntity
-com.apple.systempreferences.SmartZoomEntity-UpdatableEntity
-com.apple.systempreferences.SoundSettingsFeedbackSoundEntity
-com.apple.systempreferences.SoundSettingsFeedbackSoundEntity-UpdatableEntity
-com.apple.systempreferences.SoundSettingsInterfaceEffectsEntity
-com.apple.systempreferences.SoundSettingsInterfaceEffectsEntity-UpdatableEntity
-com.apple.systempreferences.SoundSettingsStartupSoundEntity
-com.apple.systempreferences.SoundSettingsStartupSoundEntity-UpdatableEntity
-com.apple.systempreferences.SpotlightSettingsDeepLinks
-com.apple.systempreferences.StorageSettingsDeeplinks
-com.apple.systempreferences.SwipeBetweenPagesEntity
-com.apple.systempreferences.SwipeBetweenPagesEntity-UpdatableEntity
-com.apple.systempreferences.TimeZoneEntity
-com.apple.systempreferences.ToggleHighPowerModeBatteryNoBatteryIntent
-com.apple.systempreferences.ToggleHighPowerModeOnBatteryIntent
-com.apple.systempreferences.ToggleLowPowerModeIntent
-com.apple.systempreferences.TrackpadAppExposeEntity
-com.apple.systempreferences.TrackpadAppExposeEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadClickPressureEntity
-com.apple.systempreferences.TrackpadClickPressureEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadForceClickEntity
-com.apple.systempreferences.TrackpadForceClickEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadLaunchpadEntity
-com.apple.systempreferences.TrackpadLaunchpadEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadLookUpAndDataDetectorsEntity
-com.apple.systempreferences.TrackpadLookUpAndDataDetectorsEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadMissionControlEntity
-com.apple.systempreferences.TrackpadMissionControlEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadNotificiationCenterEntity
-com.apple.systempreferences.TrackpadNotificiationCenterEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadQuietClickEntity
-com.apple.systempreferences.TrackpadQuietClickEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadRotateEntity
-com.apple.systempreferences.TrackpadRotateEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadSecondaryClickEntity
-com.apple.systempreferences.TrackpadSecondaryClickEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadSettingDeepLink
-com.apple.systempreferences.TrackpadShowDesktopEntity
-com.apple.systempreferences.TrackpadShowDesktopEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadSmartZoomEntity
-com.apple.systempreferences.TrackpadSmartZoomEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadSwipeBetweenAppsEntity
-com.apple.systempreferences.TrackpadSwipeBetweenAppsEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadSwipeBetweenPagesEntity
-com.apple.systempreferences.TrackpadSwipeBetweenPagesEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadTapToClickEntity
-com.apple.systempreferences.TrackpadTapToClickEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadTrackingSpeedEntity
-com.apple.systempreferences.TrackpadTrackingSpeedEntity-UpdatableEntity
-com.apple.systempreferences.TrackpadZoomInOutEntity
-com.apple.systempreferences.TrackpadZoomInOutEntity-UpdatableEntity
-com.apple.systempreferences.TrueToneEntity
-com.apple.systempreferences.TrueToneEntity-UpdatableEntity
-com.apple.systempreferences.UserGroupIntent
-com.apple.systempreferences.UserHomeFolderIntent
-com.apple.systempreferences.UserIsAdminIntent
-com.apple.systempreferences.UserLoginItemsIntent
-com.apple.systempreferences.UserSSOIntent
-com.apple.systempreferences.UserSwitcherMenuStyleEntity
-com.apple.systempreferences.UserSwitcherMenuStyleEntity-UpdatableEntity
-com.apple.systempreferences.VPNConfigurationEntity-UpdatableEntity
-com.apple.systempreferences.WidgetSettingsEntity
-com.apple.systempreferences.WidgetSettingsEntity-UpdatableEntity
-com.apple.systempreferences.WindowsSettingsEntity
-com.apple.systempreferences.WindowsSettingsEntity-UpdatableEntity
+com.apple.shortcuts.OpenShortcutsStaticDeepLinks
 com.apple.wallpaper.agent.SetWallpaperIntent
 com.apple.wallpaper.agent.SetWallpaperPhotoIntent
 com.apple.wallpaper.agent.SkipShuffledContentAction
@@ -2730,7 +2061,6 @@ com.apple.weather.SetWindUnitIntent
 ## Invocation Template
 
 To invoke any AppIntent:
-
 ```
 <dict>
     <key>WFWorkflowActionIdentifier</key>
@@ -2752,7 +2082,6 @@ To invoke any AppIntent:
 ```
 
 Common Bundle Identifiers:
-- `com.apple.systempreferences` - System Settings
 - `com.apple.Safari` - Safari
 - `com.apple.Notes` - Notes
 - `com.apple.reminders` - Reminders

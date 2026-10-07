@@ -17,6 +17,15 @@ Enter clarification when any one of these holds:
 - The behavior after completion is unclear
 - Whether external dependencies are acceptable is unclear
 
+## How to Ask
+
+Prefer the `user_ask` tool; `scripts/render-clarification --json '<request>'` emits the questions in its shape (recommended option first, `default` set to it, at most 4 per call). The fixed text format below is the fallback when `user_ask` is unavailable.
+
+- On `timeout`, proceed with the `default` (recommended) option and say which one was applied.
+- On `delegated`, use the recommended option and state the assumption.
+- On `dismissed`, do not ask again.
+- Never let a timeout stand in for consent to sign, upload to a third party, or do anything irreversible: those questions have no default.
+
 ## Execution Rules
 
 - Each time, ask only questions that would change the implementation route

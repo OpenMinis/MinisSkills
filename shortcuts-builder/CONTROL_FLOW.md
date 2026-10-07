@@ -260,7 +260,7 @@ Execute different actions based on a condition.
 </dict>
 ```
 
-### Otherwise If (macOS 27+)
+### Otherwise If (OS 27+)
 
 `Otherwise If` is not a new action identifier and does not use a new control-flow mode. It is still `is.workflow.actions.conditional` with `WFControlFlowMode = 1`; the difference from plain Otherwise is that it also carries the same condition fields as an If start (`WFCondition`, `WFInput`, and the required literal field for that condition code).
 
@@ -310,7 +310,7 @@ Otherwise If:
 
 Place any `Otherwise If` actions after the initial mode 0 If branch and before a final plain Otherwise. Use the same `GroupingIdentifier` for every branch in the block.
 
-### macOS 27 List Contains Import Trap
+### OS 27 List Contains Import Trap
 
 When checking whether a list contains an item, avoid this pattern:
 
@@ -319,7 +319,7 @@ When checking whether a list contains an item, avoid this pattern:
 3. Set `Fruit List` again from the Add to List output.
 4. Run `If Fruit List contains "Orange"`.
 
-On macOS 27, imported shortcuts using that repeated-name list pattern can show a blank comparison chip even though the plist contains `WFConditionalActionString`. Use one of these safe shapes instead:
+Observed on macOS 27 (not separately checked on iOS 27, so treat it as applying there too): imported shortcuts using that repeated-name list pattern can show a blank comparison chip even though the plist contains `WFConditionalActionString`. Use one of these safe shapes instead:
 
 - Reference the final `List`/`Add to List` action output directly in the conditional `WFInput`.
 - Or use an intermediate name while mutating (for example `Working Fruit List`) and assign the final list once to a fresh name (`Fruit List`) immediately before the If.
@@ -774,4 +774,4 @@ Both need only `WFWorkflowActionIdentifier` and an empty `WFWorkflowActionParame
     - Code 1003 needs both `WFNumberValue` (lower bound, literal string) and `WFAnotherNumber` (upper bound, token attachment). Missing `WFAnotherNumber` imports as an empty upper-bound field.
 
 11. **Treating Otherwise If as a separate action**
-    - macOS 27 serializes Otherwise If as `is.workflow.actions.conditional` with `WFControlFlowMode = 1` plus condition fields. Plain Otherwise is the same mode with no condition fields.
+    - OS 27 serializes Otherwise If as `is.workflow.actions.conditional` with `WFControlFlowMode = 1` plus condition fields. Plain Otherwise is the same mode with no condition fields.

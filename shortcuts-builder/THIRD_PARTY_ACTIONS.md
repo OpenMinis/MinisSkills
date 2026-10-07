@@ -1,4 +1,7 @@
-# Third-Party Actions Reference
+# Third-Party Actions Reference (legacy ID list)
+
+> **Scope.** This is only an identifier allowlist harvested from one Mac's ToolKit and from backups, used so the validator does not reject those IDs. It does **not** say what parameters they take.
+> To author a third-party App Intent step, use `THIRD_PARTY_INTENTS.md` and `scripts/appintent_catalog.py` (about 1,700 intents with parameters).
 
 This file lists third-party actions discovered from:
 - macOS Shortcuts ToolKit database (installed apps)

@@ -101,7 +101,7 @@ For `Find VPNs`, ToolKit exposes VPN content item properties `Name`, `Server Add
 
 #### iOS Workout Controls
 
-`is.workflow.actions.workout.start` and `is.workflow.actions.workout.end` are present only in the iOS/iPadOS 27 Simulator ToolKit snapshot. Validate them with `--target-platform ios`; the default macOS target intentionally rejects them. Treat the listed ToolKit keys as metadata until an exported iPhone/iPad shortcut confirms picker value serialization for `workoutName` and `WorkoutGoal`.
+`is.workflow.actions.workout.start` and `is.workflow.actions.workout.end` are present only in the iOS/iPadOS 27 Simulator ToolKit snapshot. They validate with the default iOS target; `--target-platform macos` rejects them. Treat the listed ToolKit keys as metadata until an exported iPhone/iPad shortcut confirms picker value serialization for `workoutName` and `WorkoutGoal`.
 
 #### Get What's On Screen
 
@@ -116,7 +116,7 @@ Use the OS 27 ToolKit v78 parameterized row `is.workflow.actions.getonscreencont
 
 #### OS 26 to 27 Updated Parameters
 
-These parameter additions were cross-checked against the Automators OS 26 to 27 thread and local ToolKit v78 metadata. Treat AppIntent-style WF-namespace actions (`appendnote`, `scanbarcode`, `extracttextfromimage`) as ToolKit-backed AppIntents even though their identifiers begin with `is.workflow.actions.`. The validator rejects these parameter keys when targeting macOS 26 or older even if the action identifier itself is available on that target.
+These parameter additions were cross-checked against the Automators OS 26 to 27 thread and local ToolKit v78 metadata. Treat AppIntent-style WF-namespace actions (`appendnote`, `scanbarcode`, `extracttextfromimage`) as ToolKit-backed AppIntents even though their identifiers begin with `is.workflow.actions.`. The validator rejects these parameter keys when targeting OS 26 or older (`--target-os 26`) even if the action identifier itself is available on that target.
 
 | Identifier | Display Name | New/Updated Parameters | Notes |
 |------------|--------------|------------------------|-------|

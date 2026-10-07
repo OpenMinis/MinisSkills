@@ -443,6 +443,39 @@ When referencing action outputs, use these common `OutputName` values:
 | Repeat Each | `Repeat Item` |
 | Repeat Count | `Repeat Index` |
 
+### Output names seen in real exported shortcuts
+
+These come from the golden samples (`golden-shortcuts/`): each name was observed as the `OutputName` of a reference to that action. Use them as-is. An action not listed here has **no confirmed name**.
+
+| Action | OutputName seen |
+|---|---|
+| `format.date` | `Formatted Date` |
+| `getclipboard` | `Clipboard` |
+| `text.combine` | `Combined Text` |
+| `text.split` | `Split Text` |
+| `text.replace` | `Updated Text` |
+| `text.match` | `Matches` |
+| `text.match.getgroup` | `Group from Matched Text` |
+| `getvalueforkey` | `Dictionary Value` |
+| `detect.link` | `URLs` |
+| `detect.text` | `Text` |
+| `url.expand` | `Expanded URL` |
+| `urlencode` | `URL Encoded Text` |
+| `count` | `Count` |
+| `file.getfoldercontents` | `Contents of Folder` |
+| `choosefromlist` | `Chosen Item` (also seen: `Selected Item`) |
+| `getarticle` | `Article` |
+| `image.combine` | `Combined Image` |
+| `makezip` | `Archive` |
+| `gettraveltime` | `Travel Time` |
+| `searchappstore` | `App Store Apps` |
+
+Some actions return a name that depends on how they are used, so the same action shows different names across samples (for example `gettext` is usually `Text`, `getvalueforkey` is often `Dictionary Value`). If a sample used a custom name, it is not a default.
+
+### Actions whose output name is NOT confirmed
+
+No real sample or bundled metadata gives the output name of, for example, `takescreenshot`, `dictatetext`, `extracttextfromimage`, `getonscreencontent`, and third-party App Intents. **Do not guess it.** Give the producing step a `CustomOutputName` (any name you choose) and use that same string as `OutputName` in every reference. This is reliable because both sides are yours. Tell the user that the reference may need to be re-picked in the editor if the name does not resolve.
+
 ---
 
 ## Example: Chaining Three Actions

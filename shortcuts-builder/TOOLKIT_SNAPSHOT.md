@@ -21,11 +21,13 @@ Only the identifiers and compact parameter/enum metadata needed for validation a
 
 For macOS/iOS 27 targets, the validator also loads `data/toolkit-v78-first-party-parameter-keys.json` as a schema check for first-party `com.apple.*` AppIntent-style actions. If a known AppIntent carries a top-level parameter key that does not appear in the active target's ToolKit v78 schema, validation fails. The catalog is filtered at the parameter level, so a field observed only in the iOS 27 Simulator ToolKit is rejected for the default macOS target even if the action row itself exists on both platforms. The validator also loads `data/toolkit-v78-first-party-enum-cases.json` and rejects invalid simple literal enum values for single-enum AppIntent parameters. It intentionally skips dynamic token values and multi-type parameters, and it does not apply broad unknown-key checks to regular `is.workflow.actions.*` actions because legacy WF actions can include valid plist/UI state keys that are absent from ToolKit parameter metadata.
 
-The default OS target is `auto`: on macOS it reads `sw_vers -productVersion`; when the host cannot be detected it falls back to macOS 26 rather than latest. Override with `--target-macos 26`, `--target-macos 27`, or `--target-macos latest`. The same override is available via `SHORTCUTS_PLAYGROUND_TARGET_MACOS`.
+The default OS target is `auto`: on a Mac it reads `sw_vers -productVersion`; anywhere else (the normal case on iPhone/iPad, where Minis runs) it is **OS 27**. iOS and macOS use the same major numbers. Override with `--target-os 26`, `--target-os 27`, or `--target-os latest` (`--target-macos` is the older spelling of the same flag). The same override is available via `SHORTCUTS_PLAYGROUND_TARGET_MACOS`.
 
-The default platform target is `macos`. Override with `--target-platform ios` / `SHORTCUTS_PLAYGROUND_TARGET_PLATFORM=ios` for iPhone/iPad authoring, or `--target-platform all` only when intentionally validating every packaged platform.
+The default platform target is **`ios`** (iPhone/iPad). Override with `--target-platform macos` / `SHORTCUTS_PLAYGROUND_TARGET_PLATFORM=macos` for a Mac-only shortcut, or `--target-platform all` only when intentionally validating every packaged platform.
 
-This keeps validation portable and self-contained while avoiding false compatibility on machines that do not have macOS 27 installed.
+**Known gap in the iOS data.** The iOS snapshot comes from the iOS Simulator, which lacks some actions that exist on a real iPhone (the simulator has no Vision framework, for example). The validator keeps two lists in `validate_shortcut.py`: `IOS_UNCONFIRMED_ACTIONS` (allowed on iOS although the simulator lacks them: Extract from Image, Scan QR or Barcode, Find Notes, Open Note, Append to Note, Start Timer, Import Audio Files, Get Current Web Page from Safari) and `MACOS_ONLY_ACTIONS` (Finder, disks, windows, AppleScript, screen saver: still blocked on iOS). Unconfirmed means the action is believed to exist on iPhone but has not been checked on a device; say so in the report when you use one.
+
+This keeps validation portable and self-contained while avoiding false compatibility on devices that do not run OS 27.
 
 ## macOS 27 scope
 
@@ -44,9 +46,9 @@ The iOS 27 Simulator v78 snapshot adds iOS-only AppIntents that are not present 
 Use `scripts/lookup_action_grounding.py` to inspect it:
 
 ```bash
-python3 scripts/lookup_action_grounding.py --identifier additemtolist --target-macos 27
+python3 scripts/lookup_action_grounding.py --identifier additemtolist --target-os 27
 python3 scripts/lookup_action_grounding.py --python-name com_apple_shortcuts_add_item_to_list --json
-python3 scripts/lookup_action_grounding.py --identifier com.apple.HearingApp.MuteVolumeIntent --target-macos 27 --target-platform ios --json
+python3 scripts/lookup_action_grounding.py --identifier com.apple.HearingApp.MuteVolumeIntent --target-os 27 --json
 ```
 
 The grounding catalog can improve authoring confidence, but it does not override target availability. `lookup_action_grounding.py` reports the requested target macOS and target platform, including a target-platform availability note when an entry is only observed in the opposite platform's ToolKit rows. If `validate_shortcut.py --target-macos 26` rejects a v78-only identifier or parameter key, the static grounding entry is only a note that the action or parameter exists in OS 27-era ToolKit metadata.

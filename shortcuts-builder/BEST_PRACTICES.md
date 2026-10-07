@@ -80,10 +80,10 @@ These guidelines are mandatory for every shortcut built with this skill. If guid
     - Numeric "is between" code (`1003`) → set `WFNumberValue` (lower bound, literal string) AND `WFAnotherNumber` (upper bound, token attachment that can hold a literal or a variable reference).
     - Existence codes (`100`, `101`) → set neither `WFConditionalActionString` nor `WFNumberValue` — only `WFInput`. The validator rejects extras.
   - **Multi-condition If** (Any are true / All are true) uses `WFConditions` with `WFSerializationType = WFContentPredicateTableTemplate` instead of top-level `WFCondition` + `WFInput`. See CONTROL_FLOW.md "Multi-condition If" for the full template; `WFActionParameterFilterPrefix = 0` means Any (OR), `1` means All (AND). Each row inside `WFActionParameterFilterTemplates` carries its own `WFCondition`, `WFInput`, and per-code literal field. Do not mix the two patterns on the same If — the validator rejects an action that has both `WFConditions` and top-level `WFCondition`.
-  - **Otherwise If** on macOS 27+ is mode 1 with condition fields (`WFCondition`, `WFInput`, and the relevant literal field). Plain Otherwise is mode 1 with no condition fields. End If is mode 2.
+  - **Otherwise If** on OS 27+ is mode 1 with condition fields (`WFCondition`, `WFInput`, and the relevant literal field). Plain Otherwise is mode 1 with no condition fields. End If is mode 2.
 - For **If** actions, do not set `WFInput` to a bare `WFTextTokenAttachment`; that imports as a blank input chip on iOS. Always use the `Type=Variable` wrapper, even when wrapping an `ActionOutput`.
 - For **If** actions, wrapping an **ActionOutput** directly inside the `Type=Variable` wrapper is valid and matches Apple's own serialization in the reference sample. Set Variable hops are NOT required.
-- For **list `contains` If** checks on macOS 27, do not repeatedly assign the same named list variable and then test that name. Shortcuts 27 imports that shape with a blank comparison value even though `WFConditionalActionString` is present in SQLite. Reference the final **List/Add to List** action output directly, or assign the final list once to a fresh variable name (for example, mutate `Working Fruit List`, then set `Fruit List` once before the If).
+- For **list `contains` If** checks on OS 27 (seen on macOS 27; assume iOS 27 too), do not repeatedly assign the same named list variable and then test that name. Shortcuts 27 imports that shape with a blank comparison value even though `WFConditionalActionString` is present in SQLite. Reference the final **List/Add to List** action output directly, or assign the final list once to a fresh variable name (for example, mutate `Working Fruit List`, then set `Fruit List` once before the If).
 - Prefer integer `WFCondition` codes for conditionals (`100` for Has Any Value, `2` for Is Greater Than) instead of condition name strings; string names may import but degrade at runtime.
 - `is.workflow.actions.input` should not be emitted as a runtime action. Reference shortcut input via an `ExtensionInput` attachment instead.
 - For “Clipboard or Ask for Input” patterns, avoid numeric **Count → If**. Use a single **If** that checks whether the clipboard **has any value** (set `WFCondition` to integer `100` and point `WFInput` to the Clipboard variable).
@@ -350,7 +350,7 @@ This shortcut was created via the following user prompt:
 - For any shortcut longer than ~20 actions, add section headers as Comment blocks (e.g., `--- FETCH TASKS ---`, `--- BUILD LIST ---`, `--- UPDATE TASKS ---`).
 
 - Use variable names with spaces (e.g., `PDF Pages`).
-- Prefer actions that work on both iOS and macOS unless the user explicitly wants macOS-only behavior.
+- The default target is iOS/iPadOS: use actions that exist on iPhone. Avoid Mac-only actions (Finder, windows, disks, AppleScript, screen saver) unless the user explicitly wants a Mac-only shortcut, and then validate with `--target-platform macos`.
   - Example: Instead of **Get Parent Folder** (macOS-only), use **Get Details of File** and extract the path.
 - To get PDF pages, use **Split PDF Into Pages**, then **Count** the resulting items.
 - For selecting videos, default to **Select Photos** configured for videos. If both Photos and Files are requested, use **Choose from Menu** with both pickers.

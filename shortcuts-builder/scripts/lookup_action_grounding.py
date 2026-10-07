@@ -168,7 +168,7 @@ def resolve_target_macos(value: str | None) -> int | None:
                 break
     if raw is None or raw == "" or raw.lower() == "auto":
         detected = host_macos_major()
-        return detected if detected is not None else 26
+        return detected if detected is not None else 27
     if raw.lower() in {"latest", "all"}:
         return None
     if raw.isdigit():
@@ -184,11 +184,11 @@ def resolve_target_platform(value: str | None) -> str | None:
             if raw:
                 break
     if raw is None:
-        raw = "macos"
+        raw = "ios"
     normalized = raw.strip().lower().replace("_", "-")
-    if normalized in {"", "auto", "host", "mac", "macos", "mac-os"}:
+    if normalized in {"mac", "macos", "mac-os"}:
         return "macos"
-    if normalized in {"ios", "ipados", "iphone", "ipad"}:
+    if normalized in {"", "auto", "host", "ios", "ipados", "iphone", "ipad"}:
         return "ios"
     if normalized in {"latest", "all", "any"}:
         return None
@@ -964,11 +964,12 @@ def main() -> int:
     )
     group.add_argument("--python-name", help="Apple Shortpy function name, e.g. com_apple_shortcuts_add_item_to_list")
     group.add_argument("--query", help="Search names, summaries, keywords, parameters, and Python names")
-    parser.add_argument("--target-macos", default=None, help="Target macOS major version, auto, latest, or all")
+    parser.add_argument("--target-os", "--target-macos", dest="target_macos", default=None,
+                        help="Target OS major version (iOS and macOS share numbers), auto (27 off a Mac), latest, or all")
     parser.add_argument(
         "--target-platform",
         default=None,
-        help="Target platform: macos (default), ios/ipados, or all",
+        help="Target platform: ios/ipados (default), macos, or all",
     )
     parser.add_argument("--limit", type=int, default=10, help="Maximum search/list results")
     parser.add_argument("--list", action="store_true", help="List catalog entries")

@@ -1,5 +1,56 @@
 # Changelog
 
+## Date: October 7, 2026 - iOS is the default platform
+
+### Why
+The skill runs in Minis on iPhone/iPad, but the validator defaulted to macOS and, when the host was not a Mac, to OS 26. On a phone that made OS 27 actions fail with "requires macOS 27+" and pushed models into reading validator source to find the flag. A real session needed about 63 steps, with 7 of them spent reading `validate_shortcut.py`.
+
+### Changed
+- `validate_shortcut.py` and `lookup_action_grounding.py` now default to **platform `ios` and OS 27** (`auto` means 27 off a Mac). `--target-os` is the new name of `--target-macos` (the old flag still works). A normal iPhone shortcut needs no flag; use `--target-platform macos` for a Mac-only shortcut.
+- The validator keeps two lists. `IOS_UNCONFIRMED_ACTIONS` (Extract from Image, Scan QR or Barcode, Find Notes, Open Note, Append to Note, Start Timer, Import Audio Files, Get Current Web Page from Safari) is allowed on iOS although the iOS Simulator snapshot lacks it (the simulator has no Vision framework, so absence proves nothing). `MACOS_ONLY_ACTIONS` (Finder, disks, windows, AppleScript, screen saver) is still blocked and now says "macOS-only" instead of a version message.
+- Docs updated to match: `SKILL.md`, `TOOLKIT_SNAPSHOT.md`, `ACTIONS.md`, `AUTOMATION_TRIGGERS.md`, `BEST_PRACTICES.md`, `CONTROL_FLOW.md`. Removed the old rule "do not default to `--target-platform ios`": 30 common basic actions were checked and none is blocked by the iOS default.
+- `APPINTENTS.md`: removed the macOS-only System Settings catalogue (`com.apple.systempreferences.*`, `com.apple.Desktop-Settings.*`; 38 table rows, about 630 more references), fixed the counts and the invocation example, 164 KB to 118 KB.
+
+### Removed from the skill (archived, restorable)
+- `data/toolkit-v63-tool-ids.json`, `data/toolkit-v78-tool-ids.json`: macOS identifier lists. Deleting them lost no iOS action.
+- `data/toolkit-v78-first-party-parameter-keys.json` 2006 KB to 870 KB and `...enum-cases.json` 837 KB to 386 KB: only entries that exist on the iOS 27 Simulator are kept.
+- Archive: `/var/minis/workspace/macos-data-archive/` (byte-identical copies, md5 checked). Full pre-change backup of the whole skill: `/var/minis/workspace/spm-before-ios-default-20261007.tgz`.
+- Skill size 5136 KB to 3260 KB.
+
+### Verified
+- Regression suite passes. On 24 real samples (19 golden plus the drafts) validation output is identical before and after the data trim. The three validator tables (parameter keys, enum cases, boolean keys) are identical for the iOS target.
+
+### Known consequence
+- `--target-platform macos` has no macOS identifier lists any more, so Mac-only shortcuts cannot be validated until the archive is copied back.
+
+## Date: October 7, 2026 - Ask with `user_ask`, defaults on timeout
+
+### Changed
+- Clarification and choice questions now go through the `user_ask` tool when it is available. `scripts/render-clarification --json` emits ready `questions` batches (at most 4 per call, short labels, recommended option first, `default: "0"`). The text template stays as the fallback when the tool is unavailable.
+- On a `timeout` (or "You decide") proceed with the recommended default and say which one was applied. `dismissed` is never re-asked.
+- Defaults never stand in for consent: choosing a signing backend, approving the HubSign upload, and anything irreversible have no default; a timeout there means do not act.
+- `THIRD_PARTY_INTENTS.md`: choosing between several candidate apps uses `user_ask` too.
+
+### Added
+- `EXTRACTING_APP_INTENTS.md`: maintainer guide for extracting third-party App Intents (where the metadata lives, the HTTP Range method, safety rules, procedure, catalog build, pitfalls, and how to verify a new parameter kind).
+- Quick Path section at the top of `SKILL.md`; a first-party / third-party decision table in `THIRD_PARTY_INTENTS.md`; `THIRD_PARTY_ACTIONS.md` marked as a legacy ID list.
+- `scripts/test_clarification_user_ask.py`: the JSON output must stay a valid `user_ask` shape.
+
+## Date: October 7, 2026 - Third-party App Intent orchestration
+
+### Added
+- `data/thirdparty-appintents.json.gz`: slim catalog of 198 apps / about 1,700 discoverable intents, read from each app's own `Metadata.appintents/extract.actionsdata` (per parameter: name, title, kind, optional/input flags; enum cases; output type; summary).
+- `scripts/appintent_catalog.py` (`search`, `show`, `step`): find an app's intents and emit a ready `WFWorkflowActions` step. `step` authors only verified kinds (text, bool, enum case id) and refuses everything else.
+- `THIRD_PARTY_INTENTS.md`: step structure, parameter-kind verification table, authoring levels (`full` / `partial` / `editor-only`), first-party versus third-party choice, chaining, and an explicit list of what is not verified.
+- Validator: for catalogued apps, checks identifier = `Bundle.Intent`, parameter keys, boolean types and enum case ids. Apps outside the catalog keep the generic identifier check only.
+- `SKILL.md`: new hard constraints (author only verified kinds; never write a conflicting enum `value`/`title`) and a catalog lookup step in action chain design.
+
+### Verified on a device
+- `TeamIdentifier` `0000000000` is accepted. Text and boolean parameters are passed through. A case id in an enum `value` imports and runs.
+
+### Not verified (documented, not authored)
+- int, number, date, url, richtext, location, entity, array, file and variable-reference parameters; whether the system resolves an enum by `value` or `title`.
+
 ## Date: October 5, 2026 - Sync with upstream 1.2.1
 
 ### Summary
@@ -21,7 +72,7 @@ Synced with upstream `viticci/shortcuts-playground-plugin` 1.2.1 (2026-06-15) wh
 - `selftest_minis.py` no longer needs a local draft; it validates only by default, and `--sign` also tests the configured backend.
 
 ### Notes
-- Do not default the validator to `--target-platform ios`: the iOS snapshot only lists iOS 27 identifiers, so basic actions would be flagged as "requires macOS 27+".
+- ~~Do not default the validator to `--target-platform ios`~~ (superseded on 2026-10-07: iOS is now the default; basic actions are not flagged, see the entry above).
 
 ## Date: May 12, 2026 — Calendar date filters and Time Between Dates wiring
 

@@ -208,6 +208,27 @@ TOOLKIT_SNAPSHOT_MIN_MACOS_MAJOR = {
     # iOS-only identifiers do not validate for older target versions.
     "toolkit-v78-ios27": 27,
 }
+# Actions that exist in the macOS ToolKit snapshot but are absent from the iOS Simulator snapshot.
+# The simulator is an incomplete reference (it lacks Vision and some Apple-app actions), so absence
+# is NOT proof that an action is missing on a real iPhone.
+# * Genuinely macOS-only (Finder, disks, windows, AppleScript, screen saver ...): keep blocking.
+MACOS_ONLY_ACTIONS = {
+    "is.workflow.actions.connecttoservers", "is.workflow.actions.ejectdisk",
+    "is.workflow.actions.file.label", "is.workflow.actions.file.reveal",
+    "is.workflow.actions.finder.getselectedfiles", "is.workflow.actions.hide.app",
+    "is.workflow.actions.makediskimage", "is.workflow.actions.mountdiskimage",
+    "is.workflow.actions.movewindow", "is.workflow.actions.quit.app",
+    "is.workflow.actions.resizewindow", "is.workflow.actions.runapplescript",
+    "is.workflow.actions.runjavascriptforautomation", "is.workflow.actions.startscreensaver",
+    "is.workflow.actions.watchmedo", "is.workflow.actions.getparentdirectory",
+}
+# * Likely present on iPhone but missing from the simulator data: allow, with a warning.
+IOS_UNCONFIRMED_ACTIONS = {
+    "is.workflow.actions.appendnote", "is.workflow.actions.extracttextfromimage",
+    "is.workflow.actions.filter.notes", "is.workflow.actions.importaudiofiles",
+    "is.workflow.actions.safari.geturl", "is.workflow.actions.scanbarcode",
+    "is.workflow.actions.shownote", "is.workflow.actions.timer.start",
+}
 TARGET_MACOS_ENV_VARS = (
     "SHORTCUTS_PLAYGROUND_TARGET_MACOS",
     "CLAUDE_PLUGIN_OPTION_TARGET_MACOS",
@@ -779,6 +800,58 @@ def parse_actions_md(text: str) -> set[str]:
     return actions
 
 
+_THIRDPARTY_CATALOG_CACHE: Optional[dict] = None
+
+
+def load_thirdparty_catalog(skill_dir: Path) -> dict:
+    """Catalog of third-party App Intents (bundle id -> app); empty if the file is missing."""
+    global _THIRDPARTY_CATALOG_CACHE
+    if _THIRDPARTY_CATALOG_CACHE is None:
+        import gzip
+        path = skill_dir / "data" / "thirdparty-appintents.json.gz"
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                _THIRDPARTY_CATALOG_CACHE = json.load(fh).get("apps", {})
+        except (OSError, ValueError):
+            _THIRDPARTY_CATALOG_CACHE = {}
+    return _THIRDPARTY_CATALOG_CACHE
+
+
+def check_thirdparty_appintent(catalog: dict, ident: str, params: dict) -> list:
+    """Errors for a catalogued third-party AppIntent step. Unknown apps return no errors."""
+    descriptor = params.get("AppIntentDescriptor")
+    if not isinstance(descriptor, dict):
+        return []
+    bundle = descriptor.get("BundleIdentifier")
+    intent = descriptor.get("AppIntentIdentifier")
+    app = catalog.get(bundle) if isinstance(bundle, str) else None
+    if not app:
+        return []
+    errs = []
+    if ident != f"{bundle}.{intent}":
+        errs.append(f"action identifier {ident} does not equal BundleIdentifier.AppIntentIdentifier ({bundle}.{intent})")
+    act = app["actions"].get(intent)
+    if act is None:
+        return errs + [f"{bundle} has no intent {intent!r} in the catalog (known: {', '.join(sorted(app['actions'])[:8])})"]
+    known = {p["n"]: p for p in act["p"]}
+    for key, value in params.items():
+        if key in ("UUID", "AppIntentDescriptor", "CustomOutputName", "GroupingIdentifier", "ShowWhenRun"):
+            continue
+        p = known.get(key)
+        if p is None:
+            errs.append(f"unknown parameter {key!r} for {bundle}.{intent}; catalog has: {', '.join(known)}")
+            continue
+        k = p["k"]
+        if k == "bool" and not isinstance(value, (bool, dict)):
+            errs.append(f"parameter {key!r} is boolean but got {type(value).__name__}")
+        if k.startswith("enum:"):
+            cases = {c["id"] for c in app.get("enums", {}).get(k[5:], [])}
+            lit = value.get("value") if isinstance(value, dict) else None
+            if cases and isinstance(lit, str) and lit not in cases:
+                errs.append(f"enum parameter {key!r}: {lit!r} is not a case id; allowed: {', '.join(sorted(cases))}")
+    return errs
+
+
 def parse_appintents_md(text: str) -> set[str]:
     intents: set[str] = set()
 
@@ -834,8 +907,10 @@ def resolve_target_macos_major(raw: str | None = None) -> int | None:
     """Resolve CLI/env target macOS.
 
     Returns None for "latest"/"all" because that intentionally includes every
-    packaged snapshot. "auto" uses the host macOS version and falls back to the
-    conservative macOS 26 target when the host version cannot be detected.
+    packaged snapshot. "auto" uses the host macOS version when running on a Mac and
+    falls back to OS 27 when it cannot be detected (the normal case on iPhone/iPad,
+    where Minis runs). The number is an OS major version for every platform: iOS 27
+    and macOS 27 share the same ToolKit v78 snapshot generation.
     """
 
     value = raw
@@ -850,7 +925,7 @@ def resolve_target_macos_major(raw: str | None = None) -> int | None:
     normalized = value.strip().lower()
     if normalized in {"", "auto", "host"}:
         detected = detect_host_macos_major()
-        return detected if detected is not None else 26
+        return detected if detected is not None else 27
     if normalized in {"latest", "all", "any"}:
         return None
     if normalized.startswith("macos"):
@@ -866,8 +941,9 @@ def resolve_target_platform(raw: str | None = None) -> str | None:
 
     Returns "macos" or "ios" for platform-specific validation, and None for
     "all"/"any" when the caller intentionally wants every packaged platform.
-    The default is macOS because this plugin signs on macOS and most generated
-    shortcuts are Mac-imported unless the user explicitly targets iOS/iPadOS.
+    The default is iOS/iPadOS: this skill runs in Minis on iPhone/iPad and the shortcuts
+    it builds are imported on the phone. Signing happens elsewhere (a Mac or HubSign) and
+    does not change the target. Pass --target-platform macos for a Mac-only shortcut.
     """
 
     value = raw
@@ -878,15 +954,15 @@ def resolve_target_platform(raw: str | None = None) -> str | None:
                 value = env_value
                 break
     if value is None:
-        value = "macos"
+        value = "ios"
     normalized = value.strip().lower().replace("_", "-")
-    if normalized in {"", "auto", "host", "mac", "macos", "mac-os"}:
+    if normalized in {"mac", "macos", "mac-os"}:
         return "macos"
-    if normalized in {"ios", "ipados", "iphone", "ipad"}:
+    if normalized in {"", "auto", "host", "ios", "ipados", "iphone", "ipad"}:
         return "ios"
     if normalized in {"latest", "all", "any"}:
         return None
-    return "macos"
+    return "ios"
 
 
 def _toolkit_snapshot_min_macos_major(payload: dict, path: Path) -> int:
@@ -971,7 +1047,7 @@ def _load_packaged_toolkit_snapshots(skill_dir: Path) -> list[tuple[str, int, st
 def load_packaged_toolkit_ids(
     skill_dir: Path,
     target_macos_major: int | None = None,
-    target_platform: str | None = "macos",
+    target_platform: str | None = "ios",
 ) -> set[str]:
     """Load bundled ToolKit ID snapshots for the requested target macOS.
 
@@ -989,13 +1065,15 @@ def load_packaged_toolkit_ids(
         allowed |= ids
     allowed |= CONTROL_FLOW_TOOLKIT_EXCEPTIONS
     allowed |= HEALTH_IOS_ONLY_ACTIONS
+    if target_platform == "ios":
+        allowed |= IOS_UNCONFIRMED_ACTIONS
     return allowed
 
 
 def load_future_toolkit_id_reasons(
     skill_dir: Path,
     target_macos_major: int | None,
-    target_platform: str | None = "macos",
+    target_platform: str | None = "ios",
 ) -> dict[str, str]:
     """Return IDs excluded by target OS/platform, with a human-readable reason."""
 
@@ -1021,6 +1099,8 @@ def load_future_toolkit_id_reasons(
         else:
             continue
         for ident in ids - included:
+            if target_platform == "ios" and ident in IOS_UNCONFIRMED_ACTIONS:
+                continue  # allowed on iOS despite missing from the simulator snapshot
             future[ident] = reason
     return future
 
@@ -1071,7 +1151,7 @@ def _catalog_parameter_matches_target(
 def load_toolkit_parameter_schemas(
     skill_dir: Path,
     target_macos_major: int | None = None,
-    target_platform: str | None = "macos",
+    target_platform: str | None = "ios",
 ) -> dict[str, set[str]]:
     """Load target-gated v78 parameter schemas for first-party AppIntent IDs.
 
@@ -1144,7 +1224,7 @@ def _parameter_type_python_names(
 def load_toolkit_parameter_enum_cases(
     skill_dir: Path,
     target_macos_major: int | None = None,
-    target_platform: str | None = "macos",
+    target_platform: str | None = "ios",
 ) -> dict[str, dict[str, set[str]]]:
     """Load target-gated literal enum cases for simple first-party params.
 
@@ -1214,7 +1294,7 @@ def load_toolkit_parameter_enum_cases(
 def load_toolkit_parameter_boolean_keys(
     skill_dir: Path,
     target_macos_major: int | None = None,
-    target_platform: str | None = "macos",
+    target_platform: str | None = "ios",
 ) -> dict[str, set[str]]:
     """Load target-gated boolean parameter keys for first-party actions."""
 
@@ -1259,7 +1339,7 @@ def load_toolkit_parameter_boolean_keys(
 def load_workflow_trigger_catalog(
     skill_dir: Path,
     target_macos_major: int | None = None,
-    target_platform: str | None = "macos",
+    target_platform: str | None = "ios",
 ) -> dict[str, object]:
     """Load exported OS 27 WFWorkflowTriggers samples for structural validation."""
 
@@ -1310,7 +1390,7 @@ def load_workflow_trigger_catalog(
 def load_allowed_ids(
     skill_dir: Path,
     target_macos_major: int | None = None,
-    target_platform: str | None = "macos",
+    target_platform: str | None = "ios",
 ) -> set[str]:
     allowed = set()
     allowed |= load_packaged_toolkit_ids(skill_dir, target_macos_major, target_platform)
@@ -2764,8 +2844,14 @@ def validate(
                     if unavailable_reason:
                         errors.append(
                             f"Action identifier requires {unavailable_reason} at index {idx}: {ident}. "
-                            "Set --target-macos 27 only for Golden Gate-only IDs, or "
-                            "--target-platform ios/all only when intentionally targeting iOS/iPadOS metadata."
+                            "If this is an OS 27 action, check that the target OS is 27 (the default); "
+                            "if it only exists on the Mac, use --target-platform macos."
+                        )
+                    elif ident in MACOS_ONLY_ACTIONS:
+                        errors.append(
+                            f"Action identifier is macOS-only at index {idx}: {ident}. "
+                            "It does not exist on iPhone/iPad; choose an iOS action, or build a "
+                            "Mac-only shortcut with --target-platform macos."
                         )
                     else:
                         hint = ACTION_ALIAS_HINTS.get(ident)
@@ -2781,8 +2867,8 @@ def validate(
                     if unavailable_reason:
                         errors.append(
                             f"AppIntent identifier requires {unavailable_reason} at index {idx}: {ident}. "
-                            "Set --target-macos 27 only for Golden Gate-only IDs, or "
-                            "--target-platform ios/all only when intentionally targeting iOS/iPadOS metadata."
+                            "If this is an OS 27 action, check that the target OS is 27 (the default); "
+                            "if it only exists on the Mac, use --target-platform macos."
                         )
                     else:
                         errors.append(f"Unknown AppIntent identifier at index {idx}: {ident}")
@@ -2791,6 +2877,11 @@ def validate(
                 # skills remain usable without local ToolKit extraction.
                 if ident not in allowed_ids and not THIRD_PARTY_IDENTIFIER_RE.match(ident):
                     errors.append(f"Unknown third-party identifier at index {idx}: {ident}")
+                else:
+                    for msg in check_thirdparty_appintent(
+                        load_thirdparty_catalog(Path(__file__).resolve().parent.parent), ident, params
+                    ):
+                        errors.append(f"Third-party AppIntent at index {idx}: {msg}")
 
         if ident in NOTES_CREATE_ACTIONS:
             title_val = None
@@ -4412,11 +4503,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Validate Shortcuts output for empty params and unknown actions")
     parser.add_argument("shortcut", help="Path to .xml or .shortcut file")
     parser.add_argument(
-        "--target-macos",
+        "--target-os", "--target-macos", dest="target_macos",
         default=None,
         help=(
-            "Target macOS major version for bundled ToolKit availability. "
-            "Use 26, 27, auto (default), or latest/all to include every packaged snapshot."
+            "Target OS major version for bundled ToolKit availability (iOS and macOS use the same "
+            "numbers). Use 26, 27, auto (default: 27 when the host is not a Mac), or latest/all "
+            "to include every packaged snapshot. --target-macos is the old spelling of this flag."
         ),
     )
     parser.add_argument(
@@ -4424,7 +4516,7 @@ def main() -> int:
         default=None,
         help=(
             "Target platform for bundled ToolKit availability. "
-            "Use macos (default), ios/ipados, or all to include every packaged platform."
+            "Use ios/ipados (default), macos, or all to include every packaged platform."
         ),
     )
     args = parser.parse_args()
