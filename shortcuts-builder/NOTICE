@@ -15,6 +15,9 @@ It preserves upstream methods and bundled reference material while changing:
 - signing path
 - interaction model
 - routing and clarification framework
+- default target platform (iOS/iPadOS and OS 27 instead of macOS), with the macOS-only parts of the bundled data and `APPINTENTS.md` removed or trimmed
+
+It also adds material that is not from upstream: a catalog of third-party App Intents with its lookup script, validator checks and documentation, and clarification through the `user_ask` tool. See `UPSTREAM_ATTRIBUTION.md` for the file-by-file list. Files listed there as modified no longer match the upstream copies.
 
 When redistributing or adapting this bundle further, keep:
 
