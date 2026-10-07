@@ -1,0 +1,30 @@
+# NOTICE
+
+This skill bundle (`shortcuts-builder`) contains material derived from:
+
+- `viticci/shortcuts-playground-plugin`
+- <https://github.com/viticci/shortcuts-playground-plugin>
+- Author: Federico Viticci / MacStories
+- License: MIT
+
+This skill is a Minis-focused adaptation and extension layer. It was renamed from its working title and is not an official release of the upstream project.
+It preserves upstream methods and bundled reference material while changing:
+
+- runtime assumptions
+- output paths
+- signing path
+- interaction model
+- routing and clarification framework
+- default target platform (iOS/iPadOS and OS 27 instead of macOS), with the macOS-only parts of the bundled data and `APPINTENTS.md` removed or trimmed
+
+It also adds material that is not from upstream: a catalog of third-party App Intents with its lookup script, validator checks and documentation, and clarification through the `user_ask` tool. See `UPSTREAM_ATTRIBUTION.md` for the file-by-file list. Files listed there as modified no longer match the upstream copies.
+
+When redistributing or adapting this bundle further, keep:
+
+- `LICENSE`
+- `UPSTREAM_ATTRIBUTION.md`
+- `LICENSE_COMPLIANCE.md`
+- this `NOTICE`
+
+Do not present the inherited method and bundled knowledge base as wholly original.
+Do not present this bundle as an official upstream release or imply endorsement by Federico Viticci / MacStories.

@@ -1,0 +1,19 @@
+{
+  "system_targets": {
+    "default_note_folder": "",
+    "default_note_identifier": "",
+    "default_reminder_list": ""
+  },
+  "external_targets": {
+    "default_app": "",
+    "default_target_identifier": "",
+    "supports_uri_write": false,
+    "supports_action_extension": false
+  },
+  "permissions": {
+    "allow_third_party_signing": true,
+    "allow_network_requests": true,
+    "allow_open_url_schemes": true
+  },
+  "delivery_mode": "full-delivery"
+}

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Index/re-index golden shortcuts with enriched metadata.
+# Usage:
+#   index-golden          # print enriched index to stdout
+#   index-golden --update # overwrite index.jsonl in place
+exec python3 "$(dirname "$0")/index_golden.py" "$@"
