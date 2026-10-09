@@ -1,0 +1,35 @@
+{
+  "skill_name": "fxmacrodata",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "what was the last us cpi print and when did it come out",
+      "expected_output": "The latest USD inflation value from `history usd inflation`, with the reference month, the publication time from announcement_datetime_local, and the BLS source link. Mentions the free-tier delay notice if one was returned.",
+      "files": [],
+      "assertions": [
+        {"text": "Runs fxmd.py history usd inflation", "type": "contains"},
+        {"text": "States the publication time separately from the reference period", "type": "contains"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "anything big on the US calendar this week? need to know before I trade eurusd",
+      "expected_output": "A list of upcoming USD releases from `calendar usd` within the week, ordered by time, with high-importance or tier-1 releases called out.",
+      "files": [],
+      "assertions": [
+        {"text": "Runs fxmd.py calendar usd", "type": "contains"},
+        {"text": "Does not invent consensus forecasts", "type": "contains"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "show me the RBA cash rate decisions this year",
+      "expected_output": "If FXMACRODATA_API_KEY is set, the AUD policy_rate history for this year. If not, an explanation that AUD needs an API key and the link to set FXMACRODATA_API_KEY, without presenting USD data as AUD data.",
+      "files": [],
+      "assertions": [
+        {"text": "Uses the policy_rate slug for AUD", "type": "contains"},
+        {"text": "Handles a missing key with the settings link", "type": "contains"}
+      ]
+    }
+  ]
+}
