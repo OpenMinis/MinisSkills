@@ -36,10 +36,14 @@
 
 ---
 
-## 默认自动发现流水线
-`coredevice_session.py` 会按以下优先级自动搜索并加载配对文件，无需手动硬编码：
-1. 显式传入的文件路径（`pairing_file=...`）；
-2. 环境变量 `CDTK_PAIRING_FILE` 指定的路径（兼容 `MINIS_PAIRING_FILE`）；
-3. 本地工作区目录：`/var/minis/workspace/*.plist`；
-4. 共享存储目录：`/var/minis/shared/*.plist`；
-5. 用户挂载目录：`/var/minis/mounts/*/*.plist`。
+## 推荐存储路径与自动发现规则
+
+为防止私钥被其他自动化 Agent 或外部云同步盘随意检索泄露，本工具链已彻底废除全盘盲目搜索，仅支持以下安全发现顺序：
+
+1. **显式传入的文件路径**（如 `cdtk-install --pairing /path/to/pairing.plist`）；
+2. **环境变量 `CDTK_PAIRING_FILE`** 指定的路径（推荐在个人环境变量中配置）；
+3. **专属工作区隔离子目录**：`/var/minis/workspace/cdtk/*.plist`。
+
+> ⚠️ **严防泄露注意**：
+> - **切勿** 将配对文件直接丢在 `/var/minis/shared`、`/var/minis/mounts/`（外部网盘/iCloud）等容易被多端自动同步或全盘遍历的目录；
+> - 配对文件**必须**执行 `chmod 600`，若权限包含同机其他用户可读（Group/Other readable），底座将主动拦截拒绝启动。

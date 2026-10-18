@@ -5,6 +5,7 @@
  * Security:
  * - PSK is read securely from stdin (never passed via argv or logged).
  * - Unix domain socket is hosted inside an isolated 0700 private directory.
+ * - Auto-terminates when stdin closes (parent process exit).
  */
 
 const tls = require('tls');
@@ -20,6 +21,10 @@ if (!port || !unixSock) {
   console.error("Usage: node tls_psk_proxy.js <host> <port> <unix_sock>");
   process.exit(1);
 }
+
+// 监听 stdin 关闭事件：父进程退出时自动自尽，杜绝孤儿/僵尸进程
+process.stdin.on('end', () => { process.exit(0); });
+process.stdin.on('close', () => { process.exit(0); });
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -66,6 +71,10 @@ function startProxy(psk) {
   tlsSocket.on('error', (err) => {
     console.error('TLS Socket Error:', err.message);
     process.exit(1);
+  });
+
+  tlsSocket.on('close', () => {
+    process.exit(0);
   });
 
   const server = net.createServer((clientSocket) => {

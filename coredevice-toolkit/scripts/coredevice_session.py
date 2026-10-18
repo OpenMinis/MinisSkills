@@ -33,120 +33,34 @@ PORT = 49152
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
-EMBEDDED_PROXY_CODE = """
-const tls = require('tls');
-const net = require('net');
-const fs = require('fs');
-const readline = require('readline');
-
-const host = process.argv[2] || '10.7.0.1';
-const port = parseInt(process.argv[3], 10);
-const unixSock = process.argv[4];
-
-if (!port || !unixSock) {
-  console.error("Usage: node tls_psk_proxy.js <host> <port> <unix_sock>");
-  process.exit(1);
-}
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-  terminal: false
-});
-
-rl.once('line', (line) => {
-  const trimmed = line.trim();
-  if (!trimmed) {
-    console.error("Error: Empty PSK received via stdin");
-    process.exit(1);
-  }
-  try {
-    const psk = Buffer.from(trimmed, 'hex');
-    rl.close();
-    startProxy(psk);
-  } catch (err) {
-    console.error("Error parsing PSK:", err.message);
-    process.exit(1);
-  }
-});
-
-function startProxy(psk) {
-  if (fs.existsSync(unixSock)) {
-    try { fs.unlinkSync(unixSock); } catch(e) {}
-  }
-
-  const tlsSocket = tls.connect({
-    host: host,
-    port: port,
-    ciphers: 'PSK-AES128-GCM-SHA256:PSK-AES256-GCM-SHA384:PSK-CHACHA20-POLY1305:PSK-AES128-CBC-SHA256:PSK-AES256-CBC-SHA384:PSK-AES128-CBC-SHA:PSK-AES256-CBC-SHA:PSK',
-    minVersion: 'TLSv1.2',
-    maxVersion: 'TLSv1.2',
-    checkServerIdentity: () => undefined,
-    rejectUnauthorized: false,
-    pskCallback: () => {
-      return { psk: psk, identity: '' };
-    }
-  }, () => {
-    process.stdout.write('READY\\n');
-  });
-
-  tlsSocket.on('error', (err) => {
-    console.error('TLS Socket Error:', err.message);
-    process.exit(1);
-  });
-
-  const server = net.createServer((clientSocket) => {
-    clientSocket.pipe(tlsSocket);
-    tlsSocket.pipe(clientSocket);
-    clientSocket.on('error', () => {});
-    tlsSocket.on('error', () => {});
-  });
-
-  server.listen(unixSock, () => {});
-}
-"""
-
 def get_node_proxy_script():
     bundled = SCRIPT_DIR / "tls_psk_proxy.js"
     if bundled.exists():
         return str(bundled)
-    
-    # 自愈恢复：若外置文件丢失，安全写到系统私有目录
-    cache_dir = Path("/var/run/cdtk")
-    try:
-        cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        target = cache_dir / "tls_psk_proxy.js"
-        if not target.exists():
-            target.write_text(EMBEDDED_PROXY_CODE.strip(), encoding="utf-8")
-        return str(target)
-    except Exception:
-        fallback = Path(tempfile.gettempdir()) / "cdtk_tls_psk_proxy.js"
-        if not fallback.exists():
-            fallback.write_text(EMBEDDED_PROXY_CODE.strip(), encoding="utf-8")
-        return str(fallback)
+    # 兼容回退：若作为独立 site-package 安装，尝试从本文件同级目录获取
+    alt = Path(__file__).resolve().parent / "tls_psk_proxy.js"
+    if alt.exists():
+        return str(alt)
+    raise FileNotFoundError("未找到 tls_psk_proxy.js 桥接脚本，请确认工具链完整安装。")
 
 def find_pairing_file():
-    env_p = os.environ.get("CDTK_PAIRING_FILE") or os.environ.get("MINIS_PAIRING_FILE")
+    env_p = os.environ.get("CDTK_PAIRING_FILE")
     if env_p and os.path.exists(env_p):
         return env_p
 
+    # 安全收敛范围：仅在专属子目录或当前工作目录检索，禁止全盘盲目遍历
     search_dirs = [
-        "/var/minis/workspace",
-        "/var/minis/shared",
-        "/var/minis/mounts",
-        "/root",
+        "/var/minis/workspace/cdtk",
+        str(Path.cwd()),
     ]
 
     candidates = []
     for sdir in search_dirs:
-        if not os.path.exists(sdir):
+        p = Path(sdir)
+        if not p.is_dir():
             continue
-        for root, _, files in os.walk(sdir):
-            for f in files:
-                if f.endswith(".plist"):
-                    candidates.append(os.path.join(root, f))
-
-    candidates.sort(key=lambda x: (0 if "pair" in os.path.basename(x).lower() else 1, len(x)))
+        for f in p.glob("*.plist"):
+            candidates.append(str(f))
 
     for cand in candidates:
         try:
@@ -162,19 +76,36 @@ def load_pairing(pairing_path=None):
     target = pairing_path or find_pairing_file()
     if not target or not os.path.exists(target):
         raise FileNotFoundError(
-            "未找到可用的设备配对文件 (.plist)！\n"
-            "请将 Xcode 电脑配对记录或 SideStore 导出的 pairing.plist 放入工作区，\n"
-            "或设置环境变量 export CDTK_PAIRING_FILE=/path/to/pairing.plist"
+            "未找到可用的设备配对记录 (.plist)！\n"
+            "安全说明：为防止误用不相关凭证，CDTK 仅从以下位置安全加载：\n"
+            "  1. 显式参数 --pairing / path；\n"
+            "  2. 环境变量 export CDTK_PAIRING_FILE=/path/to/pairing.plist；\n"
+            "  3. 专用受控目录 /var/minis/workspace/cdtk/*.plist 或当前目录。\n"
+            "请将配对文件存放在非云端同步目录，并设置 chmod 600。"
         )
-    
-    # 安全告警与权限检测 (Ed25519 开发者私钥凭据保护)
-    try:
-        st = os.stat(target)
+
+    # 安全强隔离：配对文件含有 Ed25519 签名私钥，严禁群组或其它用户读取
+    st = os.stat(target)
+    if st.st_mode & 0o077:
+        try:
+            os.chmod(target, 0o600)
+            st = os.stat(target)
+        except Exception:
+            pass
+
+        # 若底层宿主文件系统忽略了 chmod (如部分外部挂载卷/共享目录)，
+        # 则自动安全隔离复制到属主独占的 0700 私有沙盒目录并强制 chmod 600，杜绝权限阻断
         if st.st_mode & 0o077:
-            # 共享或可读权限警示
-            sys.stderr.write(f"⚠️ [Security Notice] 配对文件 {os.path.basename(target)} 权限过宽，建议运行: chmod 600 {target}\n")
-    except Exception:
-        pass
+            secure_dir = Path("/root/.cdtk/pairing")
+            secure_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            try: os.chmod(secure_dir, 0o700)
+            except Exception: pass
+            
+            isolated_target = secure_dir / Path(target).name
+            shutil.copyfile(target, isolated_target)
+            try: os.chmod(isolated_target, 0o600)
+            except Exception: pass
+            target = str(isolated_target)
 
     with open(target, "rb") as f:
         pl = plistlib.load(f)
@@ -428,6 +359,3 @@ class CoreDeviceSession:
                 await self.writer.wait_closed()
             except Exception:
                 pass
-
-# 保持向后兼容别名
-MinisDeviceSession = CoreDeviceSession

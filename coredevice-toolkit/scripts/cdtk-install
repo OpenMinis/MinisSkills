@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-cdtk-install: iOS 本机免电脑、免越狱原生应用管理与侧载安装器
-基于 Surge 10.7.0.1 本地回环反射 + CoreDevice RSD + com.apple.mobile.installation_proxy
+cdtk-install: iOS 极客侧载与安装中枢 (基于 CoreDevice RSD & installation_proxy)
+支持应用查询 (list)、IPA 原生直装 (install)、一键干净卸载 (uninstall) 以及本地自签名集成
 """
 
 import argparse
@@ -17,42 +17,51 @@ from pathlib import Path
 from coredevice_session import CoreDeviceSession
 from pymobiledevice3.services.installation_proxy import InstallationProxyService
 
-def find_signing_assets():
-    env_p12 = os.environ.get("CDTK_SIGN_P12") or os.environ.get("MINIS_SIGN_P12")
-    env_prov = os.environ.get("CDTK_SIGN_PROVISION") or os.environ.get("MINIS_SIGN_PROVISION")
-    env_pwd = os.environ.get("CDTK_SIGN_PASSWORD") or os.environ.get("MINIS_SIGN_PASSWORD", "1")
-    if env_p12 and env_prov and os.path.exists(env_p12) and os.path.exists(env_prov):
-        return env_p12, env_prov, env_pwd
+def find_signing_assets(cert_arg=None, prov_arg=None, pass_arg=None):
+    """
+    定位签名资产 (P12 证书、Provisioning Profile 与密码)。
+    按优先级安全解析：
+    1. 显式 CLI 参数 (--cert, --prov, --password)
+    2. 环境变量 (CDTK_SIGN_CERT, CDTK_SIGN_PROV, CDTK_SIGN_PASS)
+    3. 专用技能受控目录 /var/minis/workspace/cdtk/
+    拒绝盲目全盘扫描，拒绝默认密码。
+    """
+    p12 = cert_arg or os.environ.get("CDTK_SIGN_CERT")
+    prov = prov_arg or os.environ.get("CDTK_SIGN_PROV")
+    pwd = pass_arg or os.environ.get("CDTK_SIGN_PASS")
 
-    search_dirs = [
-        "/var/minis/workspace",
-        "/var/minis/shared",
-        "/var/minis/mounts",
-    ]
-
-    for base in search_dirs:
-        if not os.path.exists(base):
-            continue
-        p12 = None
-        prov = None
-        pwd = "1"
-        for root, _, files in os.walk(base):
-            for f in files:
-                if f.endswith(".p12") and not p12:
-                    p12 = os.path.join(root, f)
-                elif f.endswith(".mobileprovision") and not prov:
-                    prov = os.path.join(root, f)
-                elif ("密码" in f or "pwd" in f.lower() or "password" in f.lower()) and f.endswith(".txt"):
+    if not p12 or not prov:
+        cdtk_dir = Path("/var/minis/workspace/cdtk")
+        if cdtk_dir.is_dir():
+            p12_files = list(cdtk_dir.glob("*.p12"))
+            prov_files = list(cdtk_dir.glob("*.mobileprovision"))
+            if p12_files and not p12:
+                p12 = str(p12_files[0])
+            if prov_files and not prov:
+                prov = str(prov_files[0])
+            if not pwd:
+                pwd_files = list(cdtk_dir.glob("*pwd*.txt")) + list(cdtk_dir.glob("*pass*.txt"))
+                if pwd_files:
                     try:
-                        with open(os.path.join(root, f), "rb") as pf:
-                            raw = pf.read().decode("utf-8", errors="ignore").strip()
-                        if "：" in raw: pwd = raw.split("：")[-1].strip()
-                        elif ":" in raw: pwd = raw.split(":")[-1].strip()
-                        else: pwd = raw
+                        pwd = pwd_files[0].read_text(encoding="utf-8").strip()
                     except Exception:
                         pass
-        if p12 and prov:
-            return p12, prov, pwd
+
+    if p12 and not Path(p12).is_file():
+        raise FileNotFoundError(f"指定的 P12 证书文件不存在: {p12}")
+    if prov and not Path(prov).is_file():
+        raise FileNotFoundError(f"指定的描述文件不存在: {prov}")
+    
+    if p12 and prov:
+        if pwd is None:
+            raise ValueError(
+                "检测到签名证书，但未提供证书密码！\n"
+                "为防止密钥错误，CDTK 拒绝使用不可靠的默认密码。\n"
+                "请通过 --password 参数或环境变量 export CDTK_SIGN_PASS=xxx 提供密码。"
+            )
+        print(f"🔑 使用签名资产: 证书={p12}, 描述文件={prov}")
+        return p12, prov, pwd
+
     return None, None, None
 
 def inspect_ipa(ipa_path):
@@ -107,109 +116,128 @@ async def cmd_list(args):
         installer = InstallationProxyService(sess.rsd)
         print(f"📱 设备就绪: iOS {sess.rsd.product_version} ({sess.rsd.product_build_version})")
         app_type = "User" if not args.all else "Any"
-        apps = await installer.get_apps(application_type=app_type)
-        print(f"📦 共查询到 {len(apps)} 个{'全部' if args.all else '第三方'}已安装应用:\n")
-        print(f"{'应用名称':<25} {'版本':<12} {'Bundle Identifier'}")
+        apps = await installer.get_apps(app_type=app_type, calculate_sizes=False)
+        
+        filtered = {}
+        for bid, meta in apps.items():
+            name = meta.get("CFBundleDisplayName") or meta.get("CFBundleName", "")
+            ver = meta.get("CFBundleShortVersionString", "")
+            if args.filter:
+                f = args.filter.lower()
+                if f not in bid.lower() and f not in name.lower():
+                    continue
+            filtered[bid] = (name, ver)
+
+        print(f"📦 共查询到 {len(filtered)} 个已安装应用:")
+        print(f"{'应用名称':<25} {'版本':<14} {'Bundle Identifier'}")
         print("-" * 65)
-        for b_id, info in sorted(apps.items(), key=lambda x: (x[1].get('CFBundleDisplayName') or x[1].get('CFBundleName') or '')):
-            name = info.get("CFBundleDisplayName") or info.get("CFBundleName") or "Unknown"
-            ver = info.get("CFBundleShortVersionString") or "-"
-            print(f"{name[:23]:<25} {ver[:10]:<12} {b_id}")
+        for bid, (name, ver) in sorted(filtered.items(), key=lambda x: x[1][0]):
+            print(f"{name:<25} {ver:<14} {bid}")
 
 async def cmd_install(args):
-    ipa_path = os.path.abspath(args.ipa)
-    if not os.path.exists(ipa_path):
-        print(f"❌ 找不到 IPA 文件: {ipa_path}", file=sys.stderr)
+    # 强制二次确认阻断检查 (Reviewer Blocking 1)
+    if not args.yes:
+        print(f"🛑 [安全阻断] 准备向系统推送安装应用: {args.ipa}")
+        print("   警告：安装应用可能覆盖已有应用沙盒数据或引入外部二进制！")
+        print("   为确保安全，此高危操作必须显式追加 -y / --yes 参数方可执行。")
         sys.exit(1)
 
-    orig_bid, orig_name, has_signature = inspect_ipa(ipa_path)
-    final_ipa_path = ipa_path
-    temp_signed_ipa = None
+    ipa_path = os.path.abspath(args.ipa)
+    if not os.path.exists(ipa_path):
+        print(f"❌ 找不到安装包: {ipa_path}", file=sys.stderr)
+        sys.exit(1)
 
-    need_sign = args.sign or (not args.no_sign and not has_signature) or args.bundle_id or args.name
+    orig_bid, orig_name, has_sig = inspect_ipa(ipa_path)
+    print(f"📦 目标安装包: {os.path.basename(ipa_path)} (原BundleID: {orig_bid or '未知'})")
+
+    final_ipa = ipa_path
+    tmp_signed = None
+
+    need_sign = args.sign
+    if not args.no_sign and not has_sig:
+        need_sign = True
+
     if need_sign:
-        p12 = args.p12
-        prov = args.provision
-        pwd = args.password
-        if not (p12 and prov):
-            auto_p12, auto_prov, auto_pwd = find_signing_assets()
-            p12 = p12 or auto_p12
-            prov = prov or auto_prov
-            pwd = pwd or auto_pwd
+        p12, prov, pwd = find_signing_assets(args.cert, args.prov, args.password)
+        if not p12 or not prov:
+            print("❌ 错误：需要签名但未找到有效的 P12 证书与 Provision 描述文件！", file=sys.stderr)
+            print("   请指定 --cert / --prov / --password 参数，或设置 CDTK_SIGN_* 环境变量。", file=sys.stderr)
+            sys.exit(1)
 
-        if not (p12 and prov and os.path.exists(p12) and os.path.exists(prov)):
-            print(f"⚠️  未找到本地有效证书，将尝试直接向系统推送原始包...")
-        else:
-            temp_fd, temp_signed_ipa = tempfile.mkstemp(suffix=".ipa", prefix="cdtk_signed_")
-            os.close(temp_fd)
-            target_bid = args.bundle_id or orig_bid
-            target_name = args.name or orig_name
-            try:
-                sign_ipa(
-                    src_ipa=ipa_path,
-                    dest_ipa=temp_signed_ipa,
-                    p12=p12,
-                    prov=prov,
-                    pwd=pwd,
-                    bundle_id=target_bid,
-                    app_name=target_name
-                )
-                final_ipa_path = temp_signed_ipa
-            except Exception as e:
-                if os.path.exists(temp_signed_ipa):
-                    os.unlink(temp_signed_ipa)
-                print(f"❌ 签名失败: {e}", file=sys.stderr)
-                sys.exit(1)
+        fd, tmp_signed = tempfile.mkstemp(suffix=".ipa", prefix="cdtk_signed_")
+        os.close(fd)
+        try:
+            sign_ipa(
+                ipa_path,
+                tmp_signed,
+                p12,
+                prov,
+                pwd,
+                bundle_id=args.bundle_id,
+                app_name=args.name
+            )
+            final_ipa = tmp_signed
+        except Exception as e:
+            if tmp_signed and os.path.exists(tmp_signed): os.unlink(tmp_signed)
+            print(f"❌ 签名失败: {e}", file=sys.stderr)
+            sys.exit(1)
 
-    print(f"🚀 准备向系统推送安装: {os.path.basename(final_ipa_path)} ({os.path.getsize(final_ipa_path)/(1024*1024):.1f} MB)")
     try:
+        print(f"🚀 正在通过 CoreDevice RSD 隧道建立 installation_proxy 会话...")
         async with CoreDeviceSession() as sess:
             installer = InstallationProxyService(sess.rsd)
-            print(f"📱 目标设备: iOS {sess.rsd.product_version}")
-
-            def on_progress(p, *extra):
-                bar_len = 30
-                filled = int(bar_len * (p / 100.0))
-                bar = "█" * filled + "░" * (bar_len - filled)
-                sys.stdout.write(f"\r  [安装进度] [{bar}] {p}%")
-                sys.stdout.flush()
-
-            print("⚡ 正在通过 com.apple.mobile.installation_proxy 发送安装请求...")
-            await installer.install_from_local(final_ipa_path, handler=on_progress, developer=True)
-            print("\n🎉 安装成功！应用已出现在桌面。")
+            print(f"⚡ 正在向系统发送安装指令 (Stream: {os.path.basename(final_ipa)})...")
+            res = await installer.install(final_ipa)
+            print(f"🎉 安装指令执行完成！返回状态: {res}")
+            print(f"✨ 应用已成功部署至 iOS 系统桌面。")
     finally:
-        if temp_signed_ipa and os.path.exists(temp_signed_ipa):
-            os.unlink(temp_signed_ipa)
+        if tmp_signed and os.path.exists(tmp_signed):
+            try: os.unlink(tmp_signed)
+            except Exception: pass
 
 async def cmd_uninstall(args):
-    bundle_id = args.bundle_id
-    print(f"🗑️ 正在请求卸载: {bundle_id}")
+    # 强制二次确认阻断检查 (Reviewer Blocking 1)
+    if not args.yes:
+        print(f"🛑 [安全阻断] 准备从系统彻底卸载应用: {args.bundle_id}")
+        print("   警告：卸载应用将彻底清除其沙盒内的全部本地数据且不可逆！")
+        print("   为确保安全，此高危操作必须显式追加 -y / --yes 参数方可执行。")
+        sys.exit(1)
+
+    print(f"🗑️  准备卸载应用: {args.bundle_id}")
     async with CoreDeviceSession() as sess:
         installer = InstallationProxyService(sess.rsd)
-        await installer.uninstall(bundle_id)
-        print(f"🎉 卸载指令已成功执行: {bundle_id}")
+        print(f"⚡ 正在向系统发送卸载请求...")
+        await installer.uninstall(args.bundle_id)
+        print(f"✅ 卸载完成！应用 {args.bundle_id} 及其沙盒容器已从设备移除。")
 
 def main():
-    parser = argparse.ArgumentParser(description="cdtk-install: iOS 本机免电脑应用管理与侧载安装器")
+    parser = argparse.ArgumentParser(
+        prog="cdtk-install",
+        description="iOS 极客侧载与应用安装中枢 (CoreDevice RSD)"
+    )
     subparsers = parser.add_subparsers(dest="cmd", required=True)
 
-    p_list = subparsers.add_parser("list", help="列出本机已安装应用")
+    # list
+    p_list = subparsers.add_parser("list", help="枚举设备已安装的应用")
+    p_list.add_argument("-f", "--filter", help="按应用名称或 BundleID 过滤")
     p_list.add_argument("-a", "--all", action="store_true", help="包含系统内置应用")
 
-    p_install = subparsers.add_parser("install", help="向系统安装指定 IPA (支持自动签名)")
+    # install
+    p_install = subparsers.add_parser("install", help="向设备推送安装 IPA 文件")
     p_install.add_argument("ipa", help="IPA 文件本地路径")
-    p_install.add_argument("-s", "--sign", action="store_true", help="强制调用本地 P12 证书签名后再安装")
-    p_install.add_argument("--no-sign", action="store_true", help="禁用自动签名检测，直接推安装包")
-    p_install.add_argument("-b", "--bundle-id", help="自定义安装的 Bundle Identifier")
-    p_install.add_argument("-n", "--name", help="自定义应用安装后的显示名称")
-    p_install.add_argument("-k", "--p12", help="指定 P12 证书路径")
-    p_install.add_argument("-m", "--provision", help="指定 mobileprovision 路径")
-    p_install.add_argument("-p", "--password", help="指定 P12 密码")
-    p_install.add_argument("-y", "--yes", action="store_true", help="确认安装（防误触确认）")
+    p_install.add_argument("-y", "--yes", action="store_true", help="确认执行安装（必需参数）")
+    p_install.add_argument("-s", "--sign", action="store_true", help="显式要求使用本地证书签名")
+    p_install.add_argument("--no-sign", action="store_true", help="禁止自动签名，直接推送原始包")
+    p_install.add_argument("-b", "--bundle-id", help="自定义新 Bundle ID (分身/多开)")
+    p_install.add_argument("-n", "--name", help="自定义应用桌面显示名称")
+    p_install.add_argument("--cert", help="指定 P12 证书路径")
+    p_install.add_argument("--prov", help="指定 mobileprovision 描述文件路径")
+    p_install.add_argument("-p", "--password", help="指定证书密码")
 
-    p_uninst = subparsers.add_parser("uninstall", help="从系统卸载应用")
-    p_uninst.add_argument("bundle_id", help="应用的 Bundle Identifier")
-    p_uninst.add_argument("-y", "--yes", action="store_true", help="确认卸载（防误触确认）")
+    # uninstall
+    p_un = subparsers.add_parser("uninstall", help="从设备卸载指定应用")
+    p_un.add_argument("bundle_id", help="应用 Bundle Identifier (如 com.demo.app)")
+    p_un.add_argument("-y", "--yes", action="store_true", help="确认执行卸载（必需参数）")
 
     args = parser.parse_args()
     if args.cmd == "list":

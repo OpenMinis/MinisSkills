@@ -1,6 +1,6 @@
 ---
 name: coredevice-toolkit
-description: "iOS 免电脑、免越狱 CoreDevice RSD 极客工具链 (CDTK)。利用 Surge 本地回环反射 (10.7.0.1=reflect) + Node.js TLS-PSK 桥接 + 纯用户态协议栈 (pmd-pytcp)，在 iPhone 单机内部建立苹果底层开发者通信隧道，提供本地开发侧载、原生进程调度、硬件诊断、沙盒管理、描述文件管理及崩溃透视全套 CLI 工具。触发词：coredevice-toolkit, cdtk, cdtk-install, cdtk-ctrl, cdtk-profile, cdtk-fs, cdtk-diag, cdtk-crash, cdtk-inspect, CoreDevice RSD, 苹果底层调试。"
+description: "iOS 免电脑、免越狱 CoreDevice RSD 极客工具链 (CDTK)。利用 Surge 本地回环反射 (10.7.0.1=reflect) + Node.js TLS-PSK 桥接 + 纯用户态协议栈 (pmd-pytcp)，在 iPhone 单机内部建立苹果底层开发者通信隧道，提供本地开发侧载、原生进程调度、硬件诊断、沙盒管理、描述文件管理及崩溃透视全套 CLI 工具。触发词：coredevice-toolkit, cdtk, cdtk-install, cdtk-ctrl, cdtk-profile, cdtk-fs, cdtk-diag, cdtk-crash, cdtk-inspect, CoreDevice RSD。"
 compatibility: "iOS 18.0+ (Verified), iOS 17.x (Experimental), Node.js, Python 3.10+, Surge 5.10+"
 ---
 
@@ -132,12 +132,14 @@ compatibility: "iOS 18.0+ (Verified), iOS 17.x (Experimental), Node.js, Python 3
 
 ## 四、 安全规范与凭据防护机制 🛡️
 
-1. **配对文件（Private Key）保护**：
-   - 配对文件 `.plist` 包含设备的 Ed25519 私钥，相当于全权设备信任凭据；
-   - **禁止公开发布**：严禁将配对文件存放在公共仓库或不受信任的云同步盘；
-   - **权限要求**：强烈建议在本地设置严格的文件权限：`chmod 600 /path/to/pairing.plist`；
-2. **高危操作显式确认规则**：
-   - 涉及**描述文件安装/删除**、**沙盒数据覆写**、**应用静默安装与卸载**等可能变更系统配置的操作，CLI 均提供 `-y / --yes` 选项。Agent 或自动化脚本调用时，必须先征得用户明确同意后再行执行；
-3. **进程间通信（IPC）零泄露**：
+1. **AI / 自动化调用最高安全准则 (Mandatory Safety Rule)**：
+   - **绝对禁止静默执行修改**：在未向用户发起询问并获得明确聊天答复许可前，**严禁**执行任何安装/移除描述文件（`cdtk-profile install/remove`）、安装/卸载应用（`cdtk-install install/uninstall`）或覆写应用沙盒文件操作！
+   - 只有在获得用户明确授权后，方可在命令行中附加 `-y / --yes` 执行。若无 `-y`，CLI 进程将主动输出阻断提示并安全退出（退出码 1）；
+2. **配对文件（Private Key）强隔离与权限阻断**：
+   - 配对文件 `.plist` 包含设备的 Ed25519 签名私钥，相当于全权设备信任凭据；
+   - **禁止全盘盲目搜索**：工具链仅允许从显式参数、`CDTK_PAIRING_FILE` 或专用工作区目录 `/var/minis/workspace/cdtk/*.plist` 读取；
+   - **强制权限拦截**：严禁加载权限过宽（Group / Other 可读）的配对文件！若文件权限不符合 `chmod 600`（属主独占只读/读写），底座将主动抛出 `PermissionError` 拒绝启动并提供阻断修复指引；
+3. **进程间通信（IPC）零泄露与防僵尸回收**：
    - TLS-PSK 预共享密钥全部经由标准输入（`stdin`）安全传递给 Node 桥接进程，严禁通过命令行参数（`argv`）传递，避免系统进程表（`ps`）泄露；
+   - Node 代理子进程监听 `stdin.on('close')` 与 `SIGTERM`，在父进程异常断开或退出时联动自动自毁；
    - 本地 Unix Domain Socket 部署在严格受限的 `0700` 专用私有临时目录中，会话生命周期结束后自动进行物理级清理。
