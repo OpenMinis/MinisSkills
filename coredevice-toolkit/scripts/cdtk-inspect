@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-minis-inspect: 全局 WebKit / H5 远程调试与运行时穿透中枢
+cdtk-inspect: 全局 WebKit / H5 远程调试与运行时穿透中枢
 基于 CoreDevice RSD 隧道 + com.apple.webinspector.shim.remote 服务
 """
 
@@ -11,17 +11,16 @@ import json
 import sys
 import time
 
-from minis_device import MinisDeviceSession
+from coredevice_session import CoreDeviceSession
 from pymobiledevice3.services.webinspector import WebinspectorService
 
 
 async def cmd_list(args):
     print("⚡ 正在通过 CoreDevice RSD 隧道连接 WebKit 远程检查器 (com.apple.webinspector)...")
     t0 = time.time()
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         wi = WebinspectorService(s.rsd)
         await wi.connect()
-        # 等待应用和页面注册事件流收集 (给 1.5s 收集各 App 的推送)
         await asyncio.sleep(1.5)
         
         apps = wi.connected_application
@@ -70,7 +69,7 @@ async def cmd_list(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="minis-inspect",
+        prog="cdtk-inspect",
         description="全局 WebKit / H5 远程调试与运行时穿透中枢 (CoreDevice RSD + com.apple.webinspector)",
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)

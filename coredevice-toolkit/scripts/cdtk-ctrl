@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-minis-ctrl: 基于 CoreDevice RSD 底层通道的 iOS 原生硬件级自动化控制中枢
+cdtk-ctrl: 基于 CoreDevice RSD 底层通道的 iOS 原生硬件级自动化控制中枢
 免电脑、免越狱、零第三方 App 依赖，直接与 iOS 硬件输入总线 (dtuhidd) 与应用调度 (appservice) 交互
 """
 
@@ -11,7 +11,7 @@ import os
 import sys
 import time
 
-from minis_device import MinisDeviceSession
+from coredevice_session import CoreDeviceSession
 from pymobiledevice3.remote.core_device.app_service import AppServiceService
 from pymobiledevice3.remote.core_device.hid_service import (
     touch_session,
@@ -23,7 +23,7 @@ from pymobiledevice3.remote.core_device.hid_service import (
 
 async def cmd_launch(args):
     print(f"⚡ 正在通过 CoreDevice RSD 拉起应用: {args.bundle_id}...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         async with AppServiceService(s.rsd) as app_svc:
             res = await app_svc.launch_application(
                 args.bundle_id,
@@ -33,7 +33,7 @@ async def cmd_launch(args):
 
 async def cmd_procs(args):
     print("⚡ 正在通过 CoreDevice RSD 查询系统进程列表...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         async with AppServiceService(s.rsd) as app_svc:
             procs = await app_svc.list_processes()
             print(f"\n📱 当前系统共运行 {len(procs)} 个进程:\n" + "-" * 65)
@@ -60,7 +60,7 @@ async def cmd_procs(args):
 
 async def cmd_hid_list(args):
     print("⚡ 正在通过 CoreDevice RSD 枚举底层硬件输入设备 (HID)...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         async with UniversalHIDServiceService(s.rsd) as hid:
             devices = await hid.list_connected_services()
             items = devices.get("connectedServices", []) if isinstance(devices, dict) else devices
@@ -75,19 +75,17 @@ async def cmd_hid_list(args):
 
 async def cmd_tap(args):
     print(f"⚡ 正在向物理屏幕注入真实硬件触控点击: ({args.x}, {args.y})...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         async with touch_session(s.rsd) as hid:
             tsid = args.service_id or DIGITIZER_SURFACE_MAIN_TOUCHSCREEN
-            # CONTACT
             await hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, args.x, args.y, service_id=tsid)
             await asyncio.sleep(0.06)
-            # RELEASE
             await hid.send_touchscreen(TOUCHSCREEN_STATE_RELEASE, args.x, args.y, service_id=tsid)
             print(f"✅ 触控点击已注入完成！坐标: ({args.x}, {args.y})")
 
 async def cmd_swipe(args):
     print(f"⚡ 正在向物理屏幕注入真实硬件滑动: ({args.x1}, {args.y1}) -> ({args.x2}, {args.y2})...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         async with touch_session(s.rsd) as hid:
             tsid = args.service_id or DIGITIZER_SURFACE_MAIN_TOUCHSCREEN
             steps = max(args.steps, 5)
@@ -106,7 +104,7 @@ async def cmd_swipe(args):
             print(f"✅ 硬件滑动已执行完成！耗时: {duration:.2f}s, 步数: {steps}")
 
 def main():
-    parser = argparse.ArgumentParser(description="minis-ctrl: iOS 原生硬件级自动化控制中枢")
+    parser = argparse.ArgumentParser(description="cdtk-ctrl: iOS 原生硬件级自动化控制中枢")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
     # launch

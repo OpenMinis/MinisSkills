@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-minis_device: iOS CoreDevice RSD 本地回环隧道会话核心库
+coredevice_session: iOS CoreDevice RSD 本地回环隧道会话核心库 (cdtk)
 基于 Surge 10.7.0.1 本地回环反射 + Node.js TLS-PSK + pmd-pytcp 纯用户态协议栈
 """
 
@@ -9,9 +9,12 @@ import base64
 import json
 import os
 import plistlib
+import shutil
 import struct
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
@@ -28,66 +31,102 @@ from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscove
 HOST = "10.7.0.1"
 PORT = 49152
 
-NODE_TLS_PROXY_CODE = """
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+EMBEDDED_PROXY_CODE = """
 const tls = require('tls');
 const net = require('net');
 const fs = require('fs');
+const readline = require('readline');
 
 const host = process.argv[2] || '10.7.0.1';
 const port = parseInt(process.argv[3], 10);
-const pskHex = process.argv[4];
-const unixSock = process.argv[5] || '/tmp/tls_relay.sock';
+const unixSock = process.argv[4];
 
-if (!port || !pskHex) {
-  console.error("Usage: node tls_psk_proxy.js <host> <port> <psk_hex> [unix_sock]");
+if (!port || !unixSock) {
+  console.error("Usage: node tls_psk_proxy.js <host> <port> <unix_sock>");
   process.exit(1);
 }
 
-const psk = Buffer.from(pskHex, 'hex');
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+  terminal: false
+});
 
-if (fs.existsSync(unixSock)) {
-  try { fs.unlinkSync(unixSock); } catch(e) {}
-}
-
-const tlsSocket = tls.connect({
-  host: host,
-  port: port,
-  ciphers: 'PSK-AES128-GCM-SHA256:PSK-AES256-GCM-SHA384:PSK-CHACHA20-POLY1305:PSK-AES128-CBC-SHA256:PSK-AES256-CBC-SHA384:PSK-AES128-CBC-SHA:PSK-AES256-CBC-SHA:PSK',
-  minVersion: 'TLSv1.2',
-  maxVersion: 'TLSv1.2',
-  checkServerIdentity: () => undefined,
-  rejectUnauthorized: false,
-  pskCallback: (hint) => {
-    return { psk: psk, identity: '' };
+rl.once('line', (line) => {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    console.error("Error: Empty PSK received via stdin");
+    process.exit(1);
   }
-}, () => {
-  console.log('READY');
+  try {
+    const psk = Buffer.from(trimmed, 'hex');
+    rl.close();
+    startProxy(psk);
+  } catch (err) {
+    console.error("Error parsing PSK:", err.message);
+    process.exit(1);
+  }
 });
 
-tlsSocket.on('error', (err) => {
-  console.error('TLS Socket Error:', err.message);
-  process.exit(1);
-});
+function startProxy(psk) {
+  if (fs.existsSync(unixSock)) {
+    try { fs.unlinkSync(unixSock); } catch(e) {}
+  }
 
-const server = net.createServer((clientSocket) => {
-  clientSocket.pipe(tlsSocket);
-  tlsSocket.pipe(clientSocket);
-  clientSocket.on('error', () => {});
-  tlsSocket.on('error', () => {});
-});
+  const tlsSocket = tls.connect({
+    host: host,
+    port: port,
+    ciphers: 'PSK-AES128-GCM-SHA256:PSK-AES256-GCM-SHA384:PSK-CHACHA20-POLY1305:PSK-AES128-CBC-SHA256:PSK-AES256-CBC-SHA384:PSK-AES128-CBC-SHA:PSK-AES256-CBC-SHA:PSK',
+    minVersion: 'TLSv1.2',
+    maxVersion: 'TLSv1.2',
+    checkServerIdentity: () => undefined,
+    rejectUnauthorized: false,
+    pskCallback: () => {
+      return { psk: psk, identity: '' };
+    }
+  }, () => {
+    process.stdout.write('READY\\n');
+  });
 
-server.listen(unixSock, () => {});
+  tlsSocket.on('error', (err) => {
+    console.error('TLS Socket Error:', err.message);
+    process.exit(1);
+  });
+
+  const server = net.createServer((clientSocket) => {
+    clientSocket.pipe(tlsSocket);
+    tlsSocket.pipe(clientSocket);
+    clientSocket.on('error', () => {});
+    tlsSocket.on('error', () => {});
+  });
+
+  server.listen(unixSock, () => {});
+}
 """
 
-def ensure_node_proxy_script():
-    proxy_path = "/tmp/tls_psk_proxy.js"
-    if not os.path.exists(proxy_path):
-        with open(proxy_path, "w", encoding="utf-8") as f:
-            f.write(NODE_TLS_PROXY_CODE.strip())
-    return proxy_path
+def get_node_proxy_script():
+    bundled = SCRIPT_DIR / "tls_psk_proxy.js"
+    if bundled.exists():
+        return str(bundled)
+    
+    # 自愈恢复：若外置文件丢失，安全写到系统私有目录
+    cache_dir = Path("/var/run/cdtk")
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target = cache_dir / "tls_psk_proxy.js"
+        if not target.exists():
+            target.write_text(EMBEDDED_PROXY_CODE.strip(), encoding="utf-8")
+        return str(target)
+    except Exception:
+        fallback = Path(tempfile.gettempdir()) / "cdtk_tls_psk_proxy.js"
+        if not fallback.exists():
+            fallback.write_text(EMBEDDED_PROXY_CODE.strip(), encoding="utf-8")
+        return str(fallback)
 
 def find_pairing_file():
-    env_p = os.environ.get("MINIS_PAIRING_FILE")
+    env_p = os.environ.get("CDTK_PAIRING_FILE") or os.environ.get("MINIS_PAIRING_FILE")
     if env_p and os.path.exists(env_p):
         return env_p
 
@@ -124,9 +163,19 @@ def load_pairing(pairing_path=None):
     if not target or not os.path.exists(target):
         raise FileNotFoundError(
             "未找到可用的设备配对文件 (.plist)！\n"
-            "请将电脑配对文件或 SideStore 导出的 pairing.plist 放入 /var/minis/workspace/ 或挂载目录，\n"
-            "或设置环境变量 export MINIS_PAIRING_FILE=/path/to/pairing.plist"
+            "请将 Xcode 电脑配对记录或 SideStore 导出的 pairing.plist 放入工作区，\n"
+            "或设置环境变量 export CDTK_PAIRING_FILE=/path/to/pairing.plist"
         )
+    
+    # 安全告警与权限检测 (Ed25519 开发者私钥凭据保护)
+    try:
+        st = os.stat(target)
+        if st.st_mode & 0o077:
+            # 共享或可读权限警示
+            sys.stderr.write(f"⚠️ [Security Notice] 配对文件 {os.path.basename(target)} 权限过宽，建议运行: chmod 600 {target}\n")
+    except Exception:
+        pass
+
     with open(target, "rb") as f:
         pl = plistlib.load(f)
     return {
@@ -238,41 +287,80 @@ async def create_listener(reader, writer, psk, client_key, server_key):
     res_obj = json.loads(plain_resp.decode())
     return res_obj["response"]["_1"]["createListener"]["port"]
 
-class MinisDeviceSession:
+class CoreDeviceSession:
     """
-    CoreDevice RSD 异步会话上下文管理器
+    CoreDevice RSD 异步会话上下文管理器 (cdtk)
     
     用法：
-        async with MinisDeviceSession() as s:
+        async with CoreDeviceSession() as s:
             print("连接成功:", s.rsd.name)
     """
     def __init__(self, pairing_file=None):
         self.pairing_file = pairing_file
         self.node_proc = None
-        self.sock_path = f"/tmp/tls_relay_{os.getpid()}.sock"
+        self.tmp_dir = None
+        self.sock_path = None
+        self.userspace_tun = None
+        self.dial_plane = None
+        self.read_task = None
+        self.tun_read_task = None
+        self.writer = None
 
     async def __aenter__(self):
         record = load_pairing(self.pairing_file)
-        self.reader, self.writer = await asyncio.open_connection(HOST, PORT)
+        try:
+            self.reader, self.writer = await asyncio.wait_for(
+                asyncio.open_connection(HOST, PORT), timeout=5.0
+            )
+        except Exception as e:
+            raise ConnectionError(
+                f"无法连接到 CoreDevice RSD 本地回环 ({HOST}:{PORT}): {e}\n"
+                "常见排查要点:\n"
+                "1. 请确认 Surge 本地回环已生效 (配置中包含 10.7.0.1 = reflect 与 tun-included-routes = 10.7.0.1/32)；\n"
+                "2. 请确认系统【设置 ➡️ 隐私与安全性】已开启「开发者模式」；\n"
+                "3. 系统兼容性注意：本功能已在 iOS 18+ 真机实测通过。部分 iOS 17.x 早期系统 remoted 守护进程可能仅监听纯 IPv6 或端口发生漂移。"
+            ) from e
+
         psk, c_key, s_key = await do_pair_verify(self.reader, self.writer, record)
         port = await create_listener(self.reader, self.writer, psk, c_key, s_key)
 
-        proxy_script = ensure_node_proxy_script()
-        if os.path.exists(self.sock_path):
-            try: os.unlink(self.sock_path)
-            except Exception: pass
+        proxy_script = get_node_proxy_script()
+        
+        # 安全加固：创建 0700 权限的隔离专属临时目录
+        self.tmp_dir = tempfile.mkdtemp(prefix="cdtk_")
+        os.chmod(self.tmp_dir, 0o700)
+        self.sock_path = os.path.join(self.tmp_dir, "relay.sock")
 
+        # 安全加固：PSK 绝不通过 argv 传递 (ps 可见)，改由 stdin 安全管道直接输入
         self.node_proc = subprocess.Popen(
-            ["node", proxy_script, HOST, str(port), psk.hex(), self.sock_path],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            ["node", proxy_script, HOST, str(port), self.sock_path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
 
-        while True:
+        try:
+            self.node_proc.stdin.write(psk.hex() + "\n")
+            self.node_proc.stdin.flush()
+        except Exception as e:
+            raise RuntimeError(f"向 Node.js 代理发送握手凭据失败: {e}")
+
+        # 健壮性：带 10 秒超时判定，杜绝无限阻塞死锁
+        start_t = time.time()
+        ready = False
+        while time.time() - start_t < 10.0:
+            if self.node_proc.poll() is not None:
+                err_msg = self.node_proc.stderr.read() if self.node_proc.stderr else ""
+                raise RuntimeError(f"Node.js TLS PSK 桥接进程异常退出: {err_msg.strip()}")
             line = self.node_proc.stdout.readline()
             if "READY" in line:
+                ready = True
                 break
-            if not line and self.node_proc.poll() is not None:
-                raise RuntimeError("Node.js TLS PSK 桥接进程异常退出")
+            await asyncio.sleep(0.05)
+
+        if not ready:
+            raise TimeoutError("等待 Node.js TLS PSK 桥接就绪超时 (10s)")
 
         self.r_sock, self.w_sock = await asyncio.open_unix_connection(self.sock_path)
         self.tcp_tunnel = RemotePairingTcpTunnel(self.r_sock, self.w_sock)
@@ -301,17 +389,45 @@ class MinisDeviceSession:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        try:
-            await self.dial_plane.__aexit__(None, None, None)
-            self.read_task.cancel()
-            self.tun_read_task.cancel()
-            await self.userspace_tun.close()
-            if self.node_proc:
+        # 严谨防御性资源回收：避免单个异常导致子进程与 Socket 泄漏
+        if self.dial_plane:
+            try:
+                await self.dial_plane.__aexit__(None, None, None)
+            except Exception:
+                pass
+
+        for task in [self.read_task, self.tun_read_task]:
+            if task and not task.done():
+                task.cancel()
+
+        if self.userspace_tun:
+            try:
+                await self.userspace_tun.close()
+            except Exception:
+                pass
+
+        if self.node_proc:
+            try:
                 self.node_proc.terminate()
-            if os.path.exists(self.sock_path):
-                try: os.unlink(self.sock_path)
-                except Exception: pass
-            self.writer.close()
-            await self.writer.wait_closed()
-        except Exception:
-            pass
+                try:
+                    self.node_proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.node_proc.kill()
+            except Exception:
+                pass
+
+        if self.tmp_dir and os.path.exists(self.tmp_dir):
+            try:
+                shutil.rmtree(self.tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        if self.writer:
+            try:
+                self.writer.close()
+                await self.writer.wait_closed()
+            except Exception:
+                pass
+
+# 保持向后兼容别名
+MinisDeviceSession = CoreDeviceSession

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-minis-crash: 原生系统崩溃与闪退日志透视器 (Crash Reports Analyzer)
+cdtk-crash: 原生系统崩溃与闪退日志透视器 (Crash Reports Analyzer)
 基于 CoreDevice RSD + com.apple.crashreportcopymobile 协议
 """
 
@@ -11,7 +11,7 @@ import json
 import os
 import posixpath
 import sys
-from minis_device import MinisDeviceSession
+from coredevice_session import CoreDeviceSession
 from pymobiledevice3.services.crash_reports import CrashReportsManager
 
 BUG_TYPES = {
@@ -24,11 +24,10 @@ BUG_TYPES = {
 
 async def cmd_list(args):
     print("⚡ 正在通过 CoreDevice RSD 扫描系统崩溃与诊断日志...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         cm = CrashReportsManager(s.rsd)
         entries = await cm.ls("/")
         
-        # 筛选 .ips 文件
         ips_files = [f for f in entries if f.endswith(".ips") or f.endswith(".synced") or ".ips" in f]
         ips_files.sort(reverse=True)
         
@@ -54,7 +53,7 @@ async def cmd_list(args):
                 t = "Crash(崩溃)"
             print(f" {i:<4} {t:<16} {name}")
         print("─" * 76)
-        print("💡 查看详情: minis-crash view <文件名>  或  导出: minis-crash pull <文件名>\n")
+        print("💡 查看详情: cdtk-crash view <文件名>  或  导出: cdtk-crash pull <文件名>\n")
 
 async def cmd_view(args):
     target = args.filename
@@ -62,7 +61,7 @@ async def cmd_view(args):
         target = "/" + target
         
     print(f"⚡ 正在拉取并解析崩溃日志: {target}...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         cm = CrashReportsManager(s.rsd)
         try:
             content = await cm.afc.get_file_contents(target)
@@ -73,7 +72,6 @@ async def cmd_view(args):
         text = content.decode("utf-8", errors="ignore")
         lines = text.splitlines()
         
-        # 尝试提取 JSON 头部与主体
         header = {}
         body = {}
         try:
@@ -97,7 +95,6 @@ async def cmd_view(args):
         if body.get("bundleInfo", {}).get("CFBundleIdentifier"):
             print(f" • Bundle ID:    {body['bundleInfo']['CFBundleIdentifier']}")
         
-        # 崩溃原因与异常码
         ex = body.get("exception", {})
         if ex:
             print(f" • 异常代码:     \033[31m{ex.get('type')} ({ex.get('signal')})\033[0m")
@@ -109,7 +106,6 @@ async def cmd_view(args):
             if tr.get("details"):
                 print(f" • 终止详情:     {tr.get('details')}")
                 
-        # 崩溃线程栈
         threads = body.get("threads", [])
         crashed_idx = -1
         for i, th in enumerate(threads):
@@ -142,7 +138,7 @@ async def cmd_pull(args):
         out_path = "/var/minis/workspace/" + posixpath.basename(target)
         
     print(f"⚡ 正在导出崩溃日志: {target} -> {out_path}...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         cm = CrashReportsManager(s.rsd)
         content = await cm.afc.get_file_contents(target)
         
@@ -154,7 +150,7 @@ async def cmd_pull(args):
         print(f"📄 本地预览: [点击查看](minis://{out_path.replace('/var/minis/', '')})")
 
 async def cmd_latest(args):
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         cm = CrashReportsManager(s.rsd)
         entries = await cm.ls("/")
         ips = [f for f in entries if f.endswith(".ips")]
@@ -169,7 +165,7 @@ async def cmd_latest(args):
         await cmd_view(args)
 
 def main():
-    p = argparse.ArgumentParser(prog="minis-crash", description="系统崩溃与闪退日志透视器 (CoreDevice RSD)")
+    p = argparse.ArgumentParser(prog="cdtk-crash", description="系统崩溃与闪退日志透视器 (CoreDevice RSD)")
     sub = p.add_subparsers(dest="subcommand", required=True)
     
     p_ls = sub.add_parser("list", help="列出全量崩溃日志")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-minis-fs: 基于 CoreDevice RSD 底层通道的 iOS 原生沙盒穿透与媒体文件管理工具
+cdtk-fs: 基于 CoreDevice RSD 底层通道的 iOS 原生沙盒穿透与媒体文件管理工具
 免电脑、免越狱，直接与 iOS 沙盒软禁服务 (house_arrest) 及媒体传输 (afc) 交互
 """
 
@@ -10,12 +10,11 @@ import os
 import sys
 from pathlib import Path
 
-from minis_device import MinisDeviceSession
+from coredevice_session import CoreDeviceSession
 from pymobiledevice3.services.afc import AfcService
 from pymobiledevice3.services.house_arrest import HouseArrestService
 
 async def get_app_service(rsd, bundle_id):
-    # 先尝试 VendContainer (完整容器)
     try:
         h = HouseArrestService(rsd, documents_only=False)
         await h.send_command(bundle_id, "VendContainer")
@@ -23,7 +22,6 @@ async def get_app_service(rsd, bundle_id):
     except Exception:
         pass
     
-    # 再尝试 VendDocuments (文档子树)
     try:
         h = HouseArrestService(rsd, documents_only=True)
         await h.send_command(bundle_id, "VendDocuments")
@@ -33,7 +31,7 @@ async def get_app_service(rsd, bundle_id):
 
 async def cmd_media_ls(args):
     print("⚡ 正在通过 CoreDevice RSD 连接 iOS 原生媒体分区 (AFC)...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         afc = AfcService(s.rsd)
         target_path = args.path or "/"
         items = await afc.listdir(target_path)
@@ -51,14 +49,14 @@ async def cmd_media_ls(args):
         print("-" * 55)
 
 async def cmd_media_cat(args):
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         afc = AfcService(s.rsd)
         data = await afc.get_file_contents(args.path)
         sys.stdout.buffer.write(data)
 
 async def cmd_media_pull(args):
     print(f"⚡ 正在从媒体分区导出文件: {args.remote_path} -> {args.local_path}...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         afc = AfcService(s.rsd)
         data = await afc.get_file_contents(args.remote_path)
         os.makedirs(os.path.dirname(os.path.abspath(args.local_path)), exist_ok=True)
@@ -68,7 +66,7 @@ async def cmd_media_pull(args):
 
 async def cmd_app_ls(args):
     print(f"⚡ 正在穿透应用沙盒: {args.bundle_id}...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         h, mode = await get_app_service(s.rsd, args.bundle_id)
         target_path = args.path or ("/" if mode == "container" else "/Documents")
         items = await h.listdir(target_path)
@@ -87,7 +85,7 @@ async def cmd_app_ls(args):
 
 async def cmd_app_pull(args):
     print(f"⚡ 正在从应用沙盒导出: {args.bundle_id}:{args.remote_path} -> {args.local_path}...")
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         h, _ = await get_app_service(s.rsd, args.bundle_id)
         data = await h.get_file_contents(args.remote_path)
         os.makedirs(os.path.dirname(os.path.abspath(args.local_path)), exist_ok=True)
@@ -96,13 +94,13 @@ async def cmd_app_pull(args):
         print(f"✅ 导出成功！保存至本地: {args.local_path} ({len(data)} 字节)")
 
 async def cmd_app_cat(args):
-    async with MinisDeviceSession() as s:
+    async with CoreDeviceSession() as s:
         h, _ = await get_app_service(s.rsd, args.bundle_id)
         data = await h.get_file_contents(args.remote_path)
         sys.stdout.buffer.write(data)
 
 def main():
-    parser = argparse.ArgumentParser(description="minis-fs: iOS 原生沙盒穿透与媒体分区文件管理工具")
+    parser = argparse.ArgumentParser(description="cdtk-fs: iOS 原生沙盒穿透与媒体分区文件管理工具")
     subparsers = parser.add_subparsers(dest="target", required=True)
 
     # media group

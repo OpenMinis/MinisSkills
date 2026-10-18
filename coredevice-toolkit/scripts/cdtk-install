@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-minis-install: iOS 本机免电脑、免越狱原生应用管理与侧载安装器
+cdtk-install: iOS 本机免电脑、免越狱原生应用管理与侧载安装器
 基于 Surge 10.7.0.1 本地回环反射 + CoreDevice RSD + com.apple.mobile.installation_proxy
 """
 
@@ -14,13 +14,13 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from minis_device import MinisDeviceSession
+from coredevice_session import CoreDeviceSession
 from pymobiledevice3.services.installation_proxy import InstallationProxyService
 
 def find_signing_assets():
-    env_p12 = os.environ.get("MINIS_SIGN_P12")
-    env_prov = os.environ.get("MINIS_SIGN_PROVISION")
-    env_pwd = os.environ.get("MINIS_SIGN_PASSWORD", "1")
+    env_p12 = os.environ.get("CDTK_SIGN_P12") or os.environ.get("MINIS_SIGN_P12")
+    env_prov = os.environ.get("CDTK_SIGN_PROVISION") or os.environ.get("MINIS_SIGN_PROVISION")
+    env_pwd = os.environ.get("CDTK_SIGN_PASSWORD") or os.environ.get("MINIS_SIGN_PASSWORD", "1")
     if env_p12 and env_prov and os.path.exists(env_p12) and os.path.exists(env_prov):
         return env_p12, env_prov, env_pwd
 
@@ -79,7 +79,7 @@ def inspect_ipa(ipa_path):
 def sign_ipa(src_ipa, dest_ipa, p12, prov, pwd, bundle_id=None, app_name=None):
     zsign_bin = "/usr/local/bin/zsign"
     if not os.path.exists(zsign_bin):
-        which_z = shutil_which = subprocess.run(["which", "zsign"], stdout=subprocess.PIPE, text=True).stdout.strip()
+        which_z = subprocess.run(["which", "zsign"], stdout=subprocess.PIPE, text=True).stdout.strip()
         zsign_bin = which_z if which_z else "zsign"
 
     cmd = [
@@ -103,7 +103,7 @@ def sign_ipa(src_ipa, dest_ipa, p12, prov, pwd, bundle_id=None, app_name=None):
     print(f"✅ 签名成功！生成合规安装包: {os.path.basename(dest_ipa)}")
 
 async def cmd_list(args):
-    async with MinisDeviceSession() as sess:
+    async with CoreDeviceSession() as sess:
         installer = InstallationProxyService(sess.rsd)
         print(f"📱 设备就绪: iOS {sess.rsd.product_version} ({sess.rsd.product_build_version})")
         app_type = "User" if not args.all else "Any"
@@ -140,7 +140,7 @@ async def cmd_install(args):
         if not (p12 and prov and os.path.exists(p12) and os.path.exists(prov)):
             print(f"⚠️  未找到本地有效证书，将尝试直接向系统推送原始包...")
         else:
-            temp_fd, temp_signed_ipa = tempfile.mkstemp(suffix=".ipa", prefix="minis_signed_")
+            temp_fd, temp_signed_ipa = tempfile.mkstemp(suffix=".ipa", prefix="cdtk_signed_")
             os.close(temp_fd)
             target_bid = args.bundle_id or orig_bid
             target_name = args.name or orig_name
@@ -163,7 +163,7 @@ async def cmd_install(args):
 
     print(f"🚀 准备向系统推送安装: {os.path.basename(final_ipa_path)} ({os.path.getsize(final_ipa_path)/(1024*1024):.1f} MB)")
     try:
-        async with MinisDeviceSession() as sess:
+        async with CoreDeviceSession() as sess:
             installer = InstallationProxyService(sess.rsd)
             print(f"📱 目标设备: iOS {sess.rsd.product_version}")
 
@@ -184,13 +184,13 @@ async def cmd_install(args):
 async def cmd_uninstall(args):
     bundle_id = args.bundle_id
     print(f"🗑️ 正在请求卸载: {bundle_id}")
-    async with MinisDeviceSession() as sess:
+    async with CoreDeviceSession() as sess:
         installer = InstallationProxyService(sess.rsd)
         await installer.uninstall(bundle_id)
         print(f"🎉 卸载指令已成功执行: {bundle_id}")
 
 def main():
-    parser = argparse.ArgumentParser(description="minis-install: iOS 本机免电脑应用管理与侧载安装器")
+    parser = argparse.ArgumentParser(description="cdtk-install: iOS 本机免电脑应用管理与侧载安装器")
     subparsers = parser.add_subparsers(dest="cmd", required=True)
 
     p_list = subparsers.add_parser("list", help="列出本机已安装应用")
@@ -205,9 +205,11 @@ def main():
     p_install.add_argument("-k", "--p12", help="指定 P12 证书路径")
     p_install.add_argument("-m", "--provision", help="指定 mobileprovision 路径")
     p_install.add_argument("-p", "--password", help="指定 P12 密码")
+    p_install.add_argument("-y", "--yes", action="store_true", help="确认安装（防误触确认）")
 
     p_uninst = subparsers.add_parser("uninstall", help="从系统卸载应用")
     p_uninst.add_argument("bundle_id", help="应用的 Bundle Identifier")
+    p_uninst.add_argument("-y", "--yes", action="store_true", help="确认卸载（防误触确认）")
 
     args = parser.parse_args()
     if args.cmd == "list":
