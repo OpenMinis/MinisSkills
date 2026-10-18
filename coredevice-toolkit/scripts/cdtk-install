@@ -116,7 +116,7 @@ async def cmd_list(args):
         installer = InstallationProxyService(sess.rsd)
         print(f"📱 设备就绪: iOS {sess.rsd.product_version} ({sess.rsd.product_build_version})")
         app_type = "User" if not args.all else "Any"
-        apps = await installer.get_apps(app_type=app_type, calculate_sizes=False)
+        apps = await installer.get_apps(application_type=app_type, calculate_sizes=False)
         
         filtered = {}
         for bid, meta in apps.items():
