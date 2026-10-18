@@ -24,27 +24,118 @@ import pymobiledevice3.remote.tunnel_service as tunnel_service
 from pymobiledevice3.remote.tunnel_service import RemotePairingTcpTunnel
 from pymobiledevice3.remote.userspace_tunnel import UserspaceTun, UserspaceDialPlane
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
-from pymobiledevice3.services.installation_proxy import InstallationProxyService
 
-PAIRING_CANDIDATES = [
-    "/var/minis/mounts/我的iPhone/rp_pairing_file.plist",
-    "/var/minis/mounts/我的iPhone/wloc-pairing.plist",
-]
 HOST = "10.7.0.1"
 PORT = 49152
 
-def load_pairing():
-    for p in PAIRING_CANDIDATES:
-        if os.path.exists(p):
-            with open(p, "rb") as f:
-                pl = plistlib.load(f)
-            return {
-                "identifier": pl["identifier"],
-                "private_key": pl["private_key"][:32],
-                "public_key": pl["public_key"][:32],
-                "alt_irk": pl.get("alt_irk", b"")
-            }
-    raise FileNotFoundError("未找到可用的设备配对文件！请检查 /var/minis/mounts/我的iPhone/")
+NODE_TLS_PROXY_CODE = """
+const tls = require('tls');
+const net = require('net');
+const fs = require('fs');
+
+const host = process.argv[2] || '10.7.0.1';
+const port = parseInt(process.argv[3], 10);
+const pskHex = process.argv[4];
+const unixSock = process.argv[5] || '/tmp/tls_relay.sock';
+
+if (!port || !pskHex) {
+  console.error("Usage: node tls_psk_proxy.js <host> <port> <psk_hex> [unix_sock]");
+  process.exit(1);
+}
+
+const psk = Buffer.from(pskHex, 'hex');
+
+if (fs.existsSync(unixSock)) {
+  try { fs.unlinkSync(unixSock); } catch(e) {}
+}
+
+const tlsSocket = tls.connect({
+  host: host,
+  port: port,
+  ciphers: 'PSK-AES128-GCM-SHA256:PSK-AES256-GCM-SHA384:PSK-CHACHA20-POLY1305:PSK-AES128-CBC-SHA256:PSK-AES256-CBC-SHA384:PSK-AES128-CBC-SHA:PSK-AES256-CBC-SHA:PSK',
+  minVersion: 'TLSv1.2',
+  maxVersion: 'TLSv1.2',
+  checkServerIdentity: () => undefined,
+  rejectUnauthorized: false,
+  pskCallback: (hint) => {
+    return { psk: psk, identity: '' };
+  }
+}, () => {
+  console.log('READY');
+});
+
+tlsSocket.on('error', (err) => {
+  console.error('TLS Socket Error:', err.message);
+  process.exit(1);
+});
+
+const server = net.createServer((clientSocket) => {
+  clientSocket.pipe(tlsSocket);
+  tlsSocket.pipe(clientSocket);
+  clientSocket.on('error', () => {});
+  tlsSocket.on('error', () => {});
+});
+
+server.listen(unixSock, () => {});
+"""
+
+def ensure_node_proxy_script():
+    proxy_path = "/tmp/tls_psk_proxy.js"
+    if not os.path.exists(proxy_path):
+        with open(proxy_path, "w", encoding="utf-8") as f:
+            f.write(NODE_TLS_PROXY_CODE.strip())
+    return proxy_path
+
+def find_pairing_file():
+    env_p = os.environ.get("MINIS_PAIRING_FILE")
+    if env_p and os.path.exists(env_p):
+        return env_p
+
+    search_dirs = [
+        "/var/minis/workspace",
+        "/var/minis/shared",
+        "/var/minis/mounts",
+        "/root",
+    ]
+
+    candidates = []
+    for sdir in search_dirs:
+        if not os.path.exists(sdir):
+            continue
+        for root, _, files in os.walk(sdir):
+            for f in files:
+                if f.endswith(".plist"):
+                    candidates.append(os.path.join(root, f))
+
+    candidates.sort(key=lambda x: (0 if "pair" in os.path.basename(x).lower() else 1, len(x)))
+
+    for cand in candidates:
+        try:
+            with open(cand, "rb") as fp:
+                pl = plistlib.load(fp)
+            if isinstance(pl, dict) and "identifier" in pl and "private_key" in pl and "public_key" in pl:
+                return cand
+        except Exception:
+            continue
+    return None
+
+def load_pairing(pairing_path=None):
+    target = pairing_path or find_pairing_file()
+    if not target or not os.path.exists(target):
+        raise FileNotFoundError(
+            "未找到可用的设备配对文件 (.plist)！\n"
+            "请将电脑配对文件或 SideStore 导出的 pairing.plist 放入 /var/minis/workspace/ 或挂载目录，\n"
+            "或设置环境变量 export MINIS_PAIRING_FILE=/path/to/pairing.plist"
+        )
+    with open(target, "rb") as f:
+        pl = plistlib.load(f)
+    return {
+        "path": target,
+        "identifier": pl["identifier"],
+        "private_key": pl["private_key"][:32],
+        "public_key": pl["public_key"][:32],
+        "alt_irk": pl.get("alt_irk", b"")
+    }
 
 def encode_tlv8(entries):
     parts = []
@@ -148,19 +239,31 @@ async def create_listener(reader, writer, psk, client_key, server_key):
     return res_obj["response"]["_1"]["createListener"]["port"]
 
 class MinisDeviceSession:
-    def __init__(self):
+    """
+    CoreDevice RSD 异步会话上下文管理器
+    
+    用法：
+        async with MinisDeviceSession() as s:
+            print("连接成功:", s.rsd.name)
+    """
+    def __init__(self, pairing_file=None):
+        self.pairing_file = pairing_file
         self.node_proc = None
         self.sock_path = f"/tmp/tls_relay_{os.getpid()}.sock"
 
     async def __aenter__(self):
-        record = load_pairing()
+        record = load_pairing(self.pairing_file)
         self.reader, self.writer = await asyncio.open_connection(HOST, PORT)
         psk, c_key, s_key = await do_pair_verify(self.reader, self.writer, record)
         port = await create_listener(self.reader, self.writer, psk, c_key, s_key)
 
-        if os.path.exists(self.sock_path): os.unlink(self.sock_path)
+        proxy_script = ensure_node_proxy_script()
+        if os.path.exists(self.sock_path):
+            try: os.unlink(self.sock_path)
+            except Exception: pass
+
         self.node_proc = subprocess.Popen(
-            ["node", "/tmp/tls_psk_proxy.js", HOST, str(port), psk.hex(), self.sock_path],
+            ["node", proxy_script, HOST, str(port), psk.hex(), self.sock_path],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
 
@@ -186,11 +289,6 @@ class MinisDeviceSession:
         await self.userspace_tun.up()
         self.userspace_tun.set_peer(server_addr)
         self.tcp_tunnel.tun = self.userspace_tun
-        self.tun = self.userspace_tun
-        
-        import pymobiledevice3.remote.userspace_tunnel as ustun
-        ustun._active_tunnel = self
-        ustun.USERSPACE_ACTIVE = True
         
         self.read_task = asyncio.create_task(self.tcp_tunnel.sock_read_task())
         self.tun_read_task = asyncio.create_task(self.tcp_tunnel.tun_read_task())
@@ -200,14 +298,10 @@ class MinisDeviceSession:
 
         self.rsd = RemoteServiceDiscoveryService((server_addr, server_port), open_connection=self.dial_plane.dial)
         await self.rsd.connect()
-        self.installer = InstallationProxyService(self.rsd)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         try:
-            import pymobiledevice3.remote.userspace_tunnel as ustun
-            ustun._active_tunnel = None
-            ustun.USERSPACE_ACTIVE = False
             await self.dial_plane.__aexit__(None, None, None)
             self.read_task.cancel()
             self.tun_read_task.cancel()
@@ -215,7 +309,8 @@ class MinisDeviceSession:
             if self.node_proc:
                 self.node_proc.terminate()
             if os.path.exists(self.sock_path):
-                os.unlink(self.sock_path)
+                try: os.unlink(self.sock_path)
+                except Exception: pass
             self.writer.close()
             await self.writer.wait_closed()
         except Exception:

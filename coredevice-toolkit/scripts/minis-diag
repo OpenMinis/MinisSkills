@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""
+minis-diag: 基于 CoreDevice RSD 底层通道的 iOS 原生硬件与系统日志自检诊断工具
+免电脑、免越狱，直接与 iOS 诊断中枢 (diagnostics_relay) 及系统日志 (syslog_relay) 交互
+"""
+
+import argparse
+import asyncio
+import os
+import sys
+
+from minis_device import MinisDeviceSession
+from pymobiledevice3.services.diagnostics import DiagnosticsService
+from pymobiledevice3.services.syslog import SyslogService
+
+async def cmd_battery(args):
+    print("⚡ 正在通过 CoreDevice RSD 握手连接 iOS 硬件诊断中枢...")
+    async with MinisDeviceSession() as s:
+        diag = DiagnosticsService(s.rsd)
+        data = await diag.get_battery()
+        
+        cycle = data.get("CycleCount", "未知")
+        design_cap = data.get("BatteryData", {}).get("DesignCapacity") or data.get("DesignCapacity", "未知")
+        raw_max = data.get("BatteryData", {}).get("NominalChargeCapacity") or data.get("NominalChargeCapacity") or data.get("FullChargeCapacity", "未知")
+        cur_cap = data.get("CurrentCapacity", "未知")
+        voltage = data.get("Voltage") or data.get("AppleRawBatteryVoltage", 0)
+        is_charging = data.get("IsCharging", False)
+        serial = data.get("Serial", "未知")
+        
+        adapter = data.get("AdapterDetails", {})
+        watts = adapter.get("Watts", "未知")
+        desc = adapter.get("Description", "未知")
+        volt = adapter.get("AdapterVoltage", 0) / 1000.0 if adapter.get("AdapterVoltage") else 0
+        amp = adapter.get("Current", 0) / 1000.0 if adapter.get("Current") else 0
+        
+        health_pct = "未知"
+        if isinstance(raw_max, (int, float)) and isinstance(design_cap, (int, float)) and design_cap > 0:
+            health_pct = f"{(raw_max / design_cap) * 100:.1f}%"
+
+        print("\n" + "=" * 54)
+        print("           🔋 iPhone 真实电池与电源硬件报告")
+        print("=" * 54)
+        print(f"  • 设备名称:         {s.rsd.name}")
+        print(f"  • 系统版本:         iOS {s.rsd.product_version} ({s.rsd.product_build_version})")
+        print(f"  • 电池序列号:       {serial}")
+        print(f"  • 真实充放电循环:   {cycle} 次")
+        print(f"  • 出厂设计容量:     {design_cap} mAh")
+        print(f"  • 当前实际物理容量: {raw_max} mAh (相对出厂: {health_pct})")
+        print(f"  • 当前剩余电量:     {cur_cap}%")
+        print(f"  • 当前电芯电压:     {voltage / 1000.0:.3f} V")
+        print(f"  • 充电状态:         {'⚡ 正在充电' if is_charging else '🔋 放电中'}")
+        if is_charging:
+            print(f"  • 充电适配器:       {desc} ({watts}W | {volt:.1f}V / {amp:.1f}A)")
+        print("=" * 54)
+
+async def cmd_syslog(args):
+    print("⚡ 正在通过 CoreDevice RSD 连接 iOS 内核控制台 (syslog)...")
+    if args.filter:
+        print(f"🔍 关键字过滤: '{args.filter}'")
+    print(f"⏱  持续监听: {args.duration} 秒 (按 Ctrl+C 可提前中断)\n" + "-" * 60)
+    
+    async with MinisDeviceSession() as s:
+        syslog = SyslogService(s.rsd)
+        import time
+        start = time.time()
+        count = 0
+        try:
+            async for line in syslog.watch():
+                if args.filter and args.filter.lower() not in line.lower():
+                    continue
+                print(line)
+                count += 1
+                if args.limit and count >= args.limit:
+                    break
+                if time.time() - start >= args.duration:
+                    break
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
+        print("-" * 60)
+        print(f"✨ 监听结束，共捕获 {count} 条日志。")
+
+def main():
+    parser = argparse.ArgumentParser(description="minis-diag: iOS 原生系统诊断与硬件遥测工具")
+    subparsers = parser.add_subparsers(dest="subcommand", required=True)
+
+    # battery
+    subparsers.add_parser("battery", help="获取真实电池循环次数、真实物理容量与充电硬件状态")
+    subparsers.add_parser("hw", help="获取真实电池与硬件状态 (battery 别名)")
+
+    # log
+    p_log = subparsers.add_parser("log", help="实时捕获全系统底层控制台日志 (syslog/kernel)")
+    p_log.add_argument("-f", "--filter", help="关键字过滤 (不区分大小写)")
+    p_log.add_argument("-t", "--duration", type=int, default=10, help="监听秒数 (默认 10 秒)")
+    p_log.add_argument("-n", "--limit", type=int, default=100, help="最大日志条数限制 (默认 100 条)")
+
+    args = parser.parse_args()
+    if args.subcommand in ("battery", "hw"):
+        asyncio.run(cmd_battery(args))
+    elif args.subcommand == "log":
+        asyncio.run(cmd_syslog(args))
+
+if __name__ == "__main__":
+    main()

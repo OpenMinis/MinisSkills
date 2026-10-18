@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+minis-inspect: 全局 WebKit / H5 远程调试与运行时穿透中枢
+基于 CoreDevice RSD 隧道 + com.apple.webinspector.shim.remote 服务
+"""
+
+import argparse
+import asyncio
+import json
+import sys
+import time
+
+from minis_device import MinisDeviceSession
+from pymobiledevice3.services.webinspector import WebinspectorService
+
+
+async def cmd_list(args):
+    print("⚡ 正在通过 CoreDevice RSD 隧道连接 WebKit 远程检查器 (com.apple.webinspector)...")
+    t0 = time.time()
+    async with MinisDeviceSession() as s:
+        wi = WebinspectorService(s.rsd)
+        await wi.connect()
+        # 等待应用和页面注册事件流收集 (给 1.5s 收集各 App 的推送)
+        await asyncio.sleep(1.5)
+        
+        apps = wi.connected_application
+        pages = wi.application_pages
+        t1 = time.time()
+        
+        if getattr(args, "json", False):
+            out = {
+                "applications": {k: {"bundle_id": v.bundle_identifier, "name": v.name} for k, v in apps.items()},
+                "pages": {k: [p.__dict__ for p in plist] for k, plist in pages.items()},
+            }
+            print(json.dumps(out, indent=2, ensure_ascii=False, default=str))
+            return 0
+        
+        print("\n" + "═" * 72)
+        print(f" 🌐 当前系统挂载的 WebKit / JS 运行时进程 (共 {len(apps)} 个应用)")
+        print("═" * 72)
+        
+        if not apps:
+            print("  📭 当前未发现活跃的 WebKit 实例。")
+            print("  💡 提示: 请确保在【设置 ➡️ Safari 浏览器 ➡️ 高级】开启了「网页检查器」，并在前台打开了网页。")
+            print("═" * 72 + "\n")
+            return 0
+            
+        for app_id, app in apps.items():
+            app_pages = pages.get(app_id, [])
+            app_name = getattr(app, "name", str(app))
+            app_bundle = getattr(app, "bundle", "") or "系统内部服务"
+            print(f" 📱 [{app_name}] (Bundle: {app_bundle} | ID: {app_id})")
+            if not app_pages:
+                print("    └─ 暂无公开页面/视窗")
+            else:
+                for idx, p in enumerate(app_pages, 1):
+                    title = getattr(p, "web_title", None) or getattr(p, "title", "未命名页面")
+                    url = getattr(p, "web_url", None) or getattr(p, "url", "about:blank")
+                    pid = getattr(p, "page_id", "未知")
+                    print(f"    ├─ [{idx}] 页面 ID: \033[32m{pid}\033[0m")
+                    print(f"    │   标题: {title}")
+                    print(f"    │   地址: {url}")
+            print("─" * 72)
+            
+        print(f" 耗时: {t1 - t0:.2f}s | 状态: 100% 畅通")
+        print("═" * 72 + "\n")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="minis-inspect",
+        description="全局 WebKit / H5 远程调试与运行时穿透中枢 (CoreDevice RSD + com.apple.webinspector)",
+    )
+    sub = parser.add_subparsers(dest="subcommand", required=True)
+
+    p_list = sub.add_parser("list", help="列出当前系统所有挂载 WebKit 引擎的应用与页面")
+    p_list.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+    p_list.set_defaults(func=cmd_list)
+
+    args = parser.parse_args()
+    return asyncio.run(args.func(args))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

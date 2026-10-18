@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""
+minis-install: iOS 本机免电脑、免越狱原生应用管理与侧载安装器
+基于 Surge 10.7.0.1 本地回环反射 + CoreDevice RSD + com.apple.mobile.installation_proxy
+"""
+
+import argparse
+import asyncio
+import os
+import plistlib
+import subprocess
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+
+from minis_device import MinisDeviceSession
+from pymobiledevice3.services.installation_proxy import InstallationProxyService
+
+def find_signing_assets():
+    env_p12 = os.environ.get("MINIS_SIGN_P12")
+    env_prov = os.environ.get("MINIS_SIGN_PROVISION")
+    env_pwd = os.environ.get("MINIS_SIGN_PASSWORD", "1")
+    if env_p12 and env_prov and os.path.exists(env_p12) and os.path.exists(env_prov):
+        return env_p12, env_prov, env_pwd
+
+    search_dirs = [
+        "/var/minis/workspace",
+        "/var/minis/shared",
+        "/var/minis/mounts",
+    ]
+
+    for base in search_dirs:
+        if not os.path.exists(base):
+            continue
+        p12 = None
+        prov = None
+        pwd = "1"
+        for root, _, files in os.walk(base):
+            for f in files:
+                if f.endswith(".p12") and not p12:
+                    p12 = os.path.join(root, f)
+                elif f.endswith(".mobileprovision") and not prov:
+                    prov = os.path.join(root, f)
+                elif ("密码" in f or "pwd" in f.lower() or "password" in f.lower()) and f.endswith(".txt"):
+                    try:
+                        with open(os.path.join(root, f), "rb") as pf:
+                            raw = pf.read().decode("utf-8", errors="ignore").strip()
+                        if "：" in raw: pwd = raw.split("：")[-1].strip()
+                        elif ":" in raw: pwd = raw.split(":")[-1].strip()
+                        else: pwd = raw
+                    except Exception:
+                        pass
+        if p12 and prov:
+            return p12, prov, pwd
+    return None, None, None
+
+def inspect_ipa(ipa_path):
+    orig_bid = ""
+    app_name = ""
+    has_signature = False
+    try:
+        with zipfile.ZipFile(ipa_path, "r") as z:
+            names = z.namelist()
+            for n in names:
+                if n.endswith("Info.plist") and n.count("/") == 2:
+                    try:
+                        pl = plistlib.loads(z.read(n))
+                        orig_bid = pl.get("CFBundleIdentifier", "")
+                        app_name = pl.get("CFBundleDisplayName") or pl.get("CFBundleName", "")
+                    except Exception:
+                        pass
+                if "_CodeSignature" in n:
+                    has_signature = True
+    except Exception:
+        pass
+    return orig_bid, app_name, has_signature
+
+def sign_ipa(src_ipa, dest_ipa, p12, prov, pwd, bundle_id=None, app_name=None):
+    zsign_bin = "/usr/local/bin/zsign"
+    if not os.path.exists(zsign_bin):
+        which_z = shutil_which = subprocess.run(["which", "zsign"], stdout=subprocess.PIPE, text=True).stdout.strip()
+        zsign_bin = which_z if which_z else "zsign"
+
+    cmd = [
+        zsign_bin,
+        "-k", p12,
+        "-p", pwd,
+        "-m", prov,
+        "-o", dest_ipa
+    ]
+    if bundle_id:
+        cmd.extend(["-b", bundle_id])
+    if app_name:
+        cmd.extend(["-n", app_name])
+    cmd.append(src_ipa)
+
+    print(f"✍️  正在使用证书进行代码签名...")
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if res.returncode != 0:
+        err = res.stderr or res.stdout
+        raise RuntimeError(f"zsign 签名失败: {err}")
+    print(f"✅ 签名成功！生成合规安装包: {os.path.basename(dest_ipa)}")
+
+async def cmd_list(args):
+    async with MinisDeviceSession() as sess:
+        installer = InstallationProxyService(sess.rsd)
+        print(f"📱 设备就绪: iOS {sess.rsd.product_version} ({sess.rsd.product_build_version})")
+        app_type = "User" if not args.all else "Any"
+        apps = await installer.get_apps(application_type=app_type)
+        print(f"📦 共查询到 {len(apps)} 个{'全部' if args.all else '第三方'}已安装应用:\n")
+        print(f"{'应用名称':<25} {'版本':<12} {'Bundle Identifier'}")
+        print("-" * 65)
+        for b_id, info in sorted(apps.items(), key=lambda x: (x[1].get('CFBundleDisplayName') or x[1].get('CFBundleName') or '')):
+            name = info.get("CFBundleDisplayName") or info.get("CFBundleName") or "Unknown"
+            ver = info.get("CFBundleShortVersionString") or "-"
+            print(f"{name[:23]:<25} {ver[:10]:<12} {b_id}")
+
+async def cmd_install(args):
+    ipa_path = os.path.abspath(args.ipa)
+    if not os.path.exists(ipa_path):
+        print(f"❌ 找不到 IPA 文件: {ipa_path}", file=sys.stderr)
+        sys.exit(1)
+
+    orig_bid, orig_name, has_signature = inspect_ipa(ipa_path)
+    final_ipa_path = ipa_path
+    temp_signed_ipa = None
+
+    need_sign = args.sign or (not args.no_sign and not has_signature) or args.bundle_id or args.name
+    if need_sign:
+        p12 = args.p12
+        prov = args.provision
+        pwd = args.password
+        if not (p12 and prov):
+            auto_p12, auto_prov, auto_pwd = find_signing_assets()
+            p12 = p12 or auto_p12
+            prov = prov or auto_prov
+            pwd = pwd or auto_pwd
+
+        if not (p12 and prov and os.path.exists(p12) and os.path.exists(prov)):
+            print(f"⚠️  未找到本地有效证书，将尝试直接向系统推送原始包...")
+        else:
+            temp_fd, temp_signed_ipa = tempfile.mkstemp(suffix=".ipa", prefix="minis_signed_")
+            os.close(temp_fd)
+            target_bid = args.bundle_id or orig_bid
+            target_name = args.name or orig_name
+            try:
+                sign_ipa(
+                    src_ipa=ipa_path,
+                    dest_ipa=temp_signed_ipa,
+                    p12=p12,
+                    prov=prov,
+                    pwd=pwd,
+                    bundle_id=target_bid,
+                    app_name=target_name
+                )
+                final_ipa_path = temp_signed_ipa
+            except Exception as e:
+                if os.path.exists(temp_signed_ipa):
+                    os.unlink(temp_signed_ipa)
+                print(f"❌ 签名失败: {e}", file=sys.stderr)
+                sys.exit(1)
+
+    print(f"🚀 准备向系统推送安装: {os.path.basename(final_ipa_path)} ({os.path.getsize(final_ipa_path)/(1024*1024):.1f} MB)")
+    try:
+        async with MinisDeviceSession() as sess:
+            installer = InstallationProxyService(sess.rsd)
+            print(f"📱 目标设备: iOS {sess.rsd.product_version}")
+
+            def on_progress(p, *extra):
+                bar_len = 30
+                filled = int(bar_len * (p / 100.0))
+                bar = "█" * filled + "░" * (bar_len - filled)
+                sys.stdout.write(f"\r  [安装进度] [{bar}] {p}%")
+                sys.stdout.flush()
+
+            print("⚡ 正在通过 com.apple.mobile.installation_proxy 发送安装请求...")
+            await installer.install_from_local(final_ipa_path, handler=on_progress, developer=True)
+            print("\n🎉 安装成功！应用已出现在桌面。")
+    finally:
+        if temp_signed_ipa and os.path.exists(temp_signed_ipa):
+            os.unlink(temp_signed_ipa)
+
+async def cmd_uninstall(args):
+    bundle_id = args.bundle_id
+    print(f"🗑️ 正在请求卸载: {bundle_id}")
+    async with MinisDeviceSession() as sess:
+        installer = InstallationProxyService(sess.rsd)
+        await installer.uninstall(bundle_id)
+        print(f"🎉 卸载指令已成功执行: {bundle_id}")
+
+def main():
+    parser = argparse.ArgumentParser(description="minis-install: iOS 本机免电脑应用管理与侧载安装器")
+    subparsers = parser.add_subparsers(dest="cmd", required=True)
+
+    p_list = subparsers.add_parser("list", help="列出本机已安装应用")
+    p_list.add_argument("-a", "--all", action="store_true", help="包含系统内置应用")
+
+    p_install = subparsers.add_parser("install", help="向系统安装指定 IPA (支持自动签名)")
+    p_install.add_argument("ipa", help="IPA 文件本地路径")
+    p_install.add_argument("-s", "--sign", action="store_true", help="强制调用本地 P12 证书签名后再安装")
+    p_install.add_argument("--no-sign", action="store_true", help="禁用自动签名检测，直接推安装包")
+    p_install.add_argument("-b", "--bundle-id", help="自定义安装的 Bundle Identifier")
+    p_install.add_argument("-n", "--name", help="自定义应用安装后的显示名称")
+    p_install.add_argument("-k", "--p12", help="指定 P12 证书路径")
+    p_install.add_argument("-m", "--provision", help="指定 mobileprovision 路径")
+    p_install.add_argument("-p", "--password", help="指定 P12 密码")
+
+    p_uninst = subparsers.add_parser("uninstall", help="从系统卸载应用")
+    p_uninst.add_argument("bundle_id", help="应用的 Bundle Identifier")
+
+    args = parser.parse_args()
+    if args.cmd == "list":
+        asyncio.run(cmd_list(args))
+    elif args.cmd == "install":
+        asyncio.run(cmd_install(args))
+    elif args.cmd == "uninstall":
+        asyncio.run(cmd_uninstall(args))
+
+if __name__ == "__main__":
+    main()
