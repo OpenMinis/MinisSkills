@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Training Check-In</title>
+<style>
+  :root { --bg:#0f1216; --card:#1a2027; --line:#2a323c; --tx:#e8edf2; --dim:#8b98a5;
+          --acc:#4da3ff; --ok:#3ecf8e; --warn:#f5a623; --bad:#ff5c5c; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--tx);
+         font:16px/1.5 -apple-system,"PingFang SC",sans-serif; padding:12px 12px 90px; }
+  h1 { font-size:18px; margin:6px 2px 2px; }
+  .sub { color:var(--dim); font-size:13px; margin:0 2px 10px; }
+  .daytabs { display:flex; gap:8px; margin-bottom:12px; }
+  .daytabs button { flex:1; min-height:44px; border-radius:10px; border:1px solid var(--line);
+    background:var(--card); color:var(--dim); font-size:15px; }
+  .daytabs button.on { background:var(--acc); color:#fff; border-color:var(--acc); font-weight:600; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:12px; margin-bottom:12px; }
+  .card h2 { font-size:16px; margin:0 0 2px; }
+  .preset { color:var(--dim); font-size:13px; margin-bottom:8px; }
+  .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:8px 0; }
+  .lbl { color:var(--dim); font-size:13px; min-width:64px; }
+  .stepper { display:flex; align-items:center; gap:2px; }
+  .stepper button { width:44px; height:44px; border-radius:10px; border:1px solid var(--line);
+    background:#232b34; color:var(--tx); font-size:20px; }
+  .stepper .val { min-width:52px; text-align:center; font-size:18px; font-weight:600; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { min-height:44px; padding:0 14px; border-radius:22px; border:1px solid var(--line);
+    background:#232b34; color:var(--tx); font-size:14px; display:flex; align-items:center; }
+  .chip.on { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .chip.on.ok { background:var(--ok); border-color:var(--ok); }
+  .chip.on.warn { background:var(--warn); border-color:var(--warn); color:#222; }
+  .chip.on.bad { background:var(--bad); border-color:var(--bad); }
+  details.cues summary { color:var(--dim); font-size:13px; min-height:36px; display:flex; align-items:center; }
+  details.cues p { color:var(--dim); font-size:13px; margin:6px 2px; }
+  .foot { position:fixed; left:0; right:0; bottom:0; padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    background:#141a20; border-top:1px solid var(--line); display:flex; gap:8px; }
+  .foot button { flex:1; min-height:48px; border-radius:12px; border:none; font-size:16px; font-weight:600; }
+  #exportBtn { background:var(--acc); color:#fff; }
+  #copyBtn { background:#232b34; color:var(--tx); border:1px solid var(--line); }
+  .saved { position:fixed; top:10px; right:12px; background:var(--ok); color:#04231a;
+    font-size:12px; padding:4px 10px; border-radius:12px; opacity:0; transition:opacity .3s; }
+  .saved.show { opacity:1; }
+  pre#out { background:#0b0e12; border:1px solid var(--line); border-radius:10px; padding:10px;
+    font-size:12px; overflow-x:auto; white-space:pre-wrap; word-break:break-all; display:none; }
+</style>
+</head>
+<body>
+<h1 id="title">Training Check-In</h1>
+<p class="sub" id="subtitle">全部操作点选完成，无需打字 · 自动保存</p>
+<div class="daytabs" id="daytabs"></div>
+<div id="content"></div>
+<pre id="out"></pre>
+<div class="foot">
+  <button id="copyBtn">复制导出</button>
+  <button id="exportBtn">完成并导出</button>
+</div>
+<div class="saved" id="savedTip">已保存</div>
+
+<script>
+/* ================= CONFIG =================
+   由 agent 按用户的训练计划替换本对象；其余代码无需改动。
+   weight 单位：per_side 为 true 时表示每侧片重（史密斯/杠铃）。 */
+const CONFIG = {
+  date: new Date().toISOString().slice(0, 10),
+  days: [
+    { id: "D1", name: "下肢蹲", cardio: { mode: "椭圆机", modes: ["椭圆机", "跑步机坡度走", "划船机"], presetMin: 10 },
+      exercises: [
+        { id: "smith_squat", name: "史密斯深蹲", weight: 15, per_side: true, sets: 3, reps: 10,
+          cues: "安全挡就位；膝盖跟随脚尖方向；核心收紧不塌腰。" },
+        { id: "split_squat", name: "史密斯分腿蹲", weight: 0, per_side: true, sets: 2, reps: 10,
+          cues: "先扶稳找步距；膝不适则改徒手或取消。" },
+        { id: "hip_adduction", name: "髋内收", weight: 35, per_side: false, sets: 2, reps: 15,
+          cues: "骨盆贴稳，慢放，不撞片。" }
+      ] },
+    { id: "D2", name: "上肢推", cardio: { mode: "跑步机坡度走", modes: ["跑步机坡度走", "椭圆机", "单车"], presetMin: 12 },
+      exercises: [
+        { id: "smith_incline_press", name: "史密斯上斜卧推", weight: 10, per_side: true, sets: 3, reps: 12,
+          cues: "肩胛后收下沉；手腕中立；安全挡就位。" },
+        { id: "shoulder_press", name: "坐姿肩推", weight: 20, per_side: false, sets: 3, reps: 8,
+          cues: "不耸肩不锁肘；下放到无痛范围。" }
+      ] }
+  ]
+};
+/* ================= END CONFIG ================= */
+
+const $ = (s) => document.querySelector(s);
+const storeKey = () => "training-checkin:" + CONFIG.date;
+let state = load() || initState();
+let dayIdx = 0;
+
+function initState() {
+  return { day: 0, cardio: {}, sets: {}, rir: {}, pain: {}, warmup: false, stretch: false, notes: [] };
+}
+function load() { try { return JSON.parse(localStorage.getItem(storeKey())); } catch (e) { return null; } }
+function save() {
+  localStorage.setItem(storeKey(), JSON.stringify(state));
+  const t = $("#savedTip"); t.classList.add("show");
+  clearTimeout(save._t); save._t = setTimeout(() => t.classList.remove("show"), 800);
+}
+
+function renderTabs() {
+  const tabs = $("#daytabs");
+  tabs.innerHTML = "";
+  CONFIG.days.forEach((d, i) => {
+    const b = document.createElement("button");
+    b.textContent = d.id + " " + d.name;
+    if (i === state.day) b.classList.add("on");
+    b.onclick = () => { state.day = i; save(); renderTabs(); renderBody(); };
+    tabs.appendChild(b);
+  });
+}
+
+function stepper(get, set, min, max) {
+  const wrap = document.createElement("div"); wrap.className = "stepper";
+  const minus = document.createElement("button"); minus.textContent = "−";
+  const val = document.createElement("div"); val.className = "val";
+  const plus = document.createElement("button"); plus.textContent = "+";
+  const sync = () => { val.textContent = get(); };
+  minus.onclick = () => { set(Math.max(min, get() - 1)); sync(); save(); };
+  plus.onclick = () => { set(Math.min(max, get() + 1)); sync(); save(); };
+  wrap.append(minus, val, plus); sync();
+  return wrap;
+}
+
+function chipRow(labels, getIdx, setIdx, cls) {
+  const row = document.createElement("div"); row.className = "chips";
+  labels.forEach((l, i) => {
+    const c = document.createElement("button"); c.className = "chip"; c.textContent = l;
+    if (getIdx() === i) { c.classList.add("on"); if (cls) c.classList.add(cls); }
+    c.onclick = () => { setIdx(getIdx() === i ? -1 : i); save(); renderBody(); };
+    row.appendChild(c);
+  });
+  return row;
+}
+
+function renderBody() {
+  const day = CONFIG.days[state.day];
+  const box = $("#content"); box.innerHTML = "";
+
+  const cardio = document.createElement("div"); cardio.className = "card";
+  cardio.innerHTML = `<h2>有氧（力量前集中完成）</h2>`;
+  cardio.appendChild(chipRow(day.cardio.modes,
+    () => day.cardio.modes.indexOf(state.cardio.mode ?? day.cardio.mode),
+    (i) => { state.cardio.mode = i >= 0 ? day.cardio.modes[i] : day.cardio.mode; }, ""));
+  const mrow = document.createElement("div"); mrow.className = "row";
+  mrow.innerHTML = `<div class="lbl">时长(分)</div>`;
+  mrow.appendChild(stepper(() => state.cardio.min ?? day.cardio.presetMin,
+    (v) => state.cardio.min = v, 0, 60));
+  cardio.appendChild(mrow);
+  box.appendChild(cardio);
+
+  day.exercises.forEach((ex, xi) => {
+    const key = ex.id;
+    const card = document.createElement("div"); card.className = "card";
+    card.innerHTML = `<h2>${ex.name}</h2>
+      <div class="preset">预设 ${ex.weight}${ex.per_side ? "kg/侧" : "kg"} × ${ex.sets}×${ex.reps}</div>`;
+    for (let s = 0; s < ex.sets; s++) {
+      const row = document.createElement("div"); row.className = "row";
+      row.innerHTML = `<div class="lbl">第${s + 1}组 次数</div>`;
+      row.appendChild(stepper(
+        () => (state.sets[key] ?? [])[s] ?? ex.reps,
+        (v) => { (state.sets[key] = state.sets[key] || [])[s] = v; }, 0, 40));
+      card.appendChild(row);
+    }
+    const rirRow = document.createElement("div"); rirRow.className = "row";
+    rirRow.innerHTML = `<div class="lbl">末组余力</div>`;
+    rirRow.appendChild(chipRow(["力竭0", "剩1", "剩2", "剩3", "轻松4+"],
+      () => state.rir[key], (i) => state.rir[key] = i, "ok"));
+    card.appendChild(rirRow);
+    const painRow = document.createElement("div"); painRow.className = "row";
+    painRow.innerHTML = `<div class="lbl">疼痛</div>`;
+    painRow.appendChild(chipRow(["无", "轻微", "锐痛⚠"], () => state.pain[key],
+      (i) => state.pain[key] = i, "warn"));
+    card.appendChild(painRow);
+    const cues = document.createElement("details"); cues.className = "cues";
+    cues.innerHTML = `<summary>要点</summary><p>${ex.cues}</p>`;
+    card.appendChild(cues);
+    box.appendChild(card);
+  });
+
+  const tail = document.createElement("div"); tail.className = "card";
+  tail.innerHTML = `<h2>课末</h2>`;
+  const row = document.createElement("div"); row.className = "chips";
+  [["已热身", "warmup"], ["已拉伸", "stretch"]].forEach(([label, field]) => {
+    const c = document.createElement("button"); c.className = "chip" + (state[field] ? " on ok" : "");
+    c.textContent = label;
+    c.onclick = () => { state[field] = !state[field]; save(); renderBody(); };
+    row.appendChild(c);
+  });
+  tail.appendChild(row);
+  box.appendChild(tail);
+}
+
+function exportText() {
+  const day = CONFIG.days[state.day];
+  const L = [`# ${CONFIG.date} ${day.id} ${day.name}`];
+  L.push(`cardio | ${state.cardio.mode ?? day.cardio.mode} | ${state.cardio.min ?? day.cardio.presetMin} min`);
+  day.exercises.forEach((ex) => {
+    const reps = state.sets[ex.id] ?? Array(ex.sets).fill(ex.reps);
+    const rir = state.rir[ex.id] >= 0 ? state.rir[ex.id] : "-";
+    const pain = ["none", "mild", "sharp"][state.pain[ex.id] ?? 0];
+    L.push(`${ex.id} | ${ex.weight}${ex.per_side ? "kg/side" : "kg"} | ${ex.sets}x${reps.join("/")} | RIR ${rir} | pain:${pain}`);
+  });
+  L.push(`warmup:${state.warmup ? "y" : "n"} stretch:${state.stretch ? "y" : "n"}`);
+  return L.join("\n");
+}
+
+$("#exportBtn").onclick = () => {
+  const out = $("#out"); out.style.display = "block";
+  out.textContent = exportText();
+  out.scrollIntoView({ behavior: "smooth" });
+};
+$("#copyBtn").onclick = async () => {
+  try { await navigator.clipboard.writeText(exportText()); $("#copyBtn").textContent = "已复制✓"; }
+  catch (e) { $("#exportBtn").click(); }
+  setTimeout(() => $("#copyBtn").textContent = "复制导出", 1200);
+};
+
+renderTabs(); renderBody();
+</script>
+</body>
+</html>
