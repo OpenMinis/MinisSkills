@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""
+cdtk-springboard: iOS 原生桌面图标编排与文件夹分类管理工具
+基于 CoreDevice RSD 底层通道与 SpringBoardServices 服务 (com.apple.springboard.iconstate)
+支持免电脑、免越狱直接导出、备份与一键生效自定义主屏布局 (setIconState)
+"""
+
+import argparse
+import asyncio
+import json
+import os
+import plistlib
+import sys
+from pathlib import Path
+
+from coredevice_session import CoreDeviceSession
+from pymobiledevice3.services.springboard import SpringBoardServicesService
+
+async def cmd_backup(args):
+    dest = os.path.abspath(args.output)
+    print(f"⚡ 正在通过 CoreDevice RSD 读取当前系统主屏布局...")
+    async with CoreDeviceSession(args.pairing) as s:
+        sb = SpringBoardServicesService(s.rsd)
+        state = await sb.get_icon_state()
+        
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        if dest.endswith(".json"):
+            with open(dest, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2, default=str)
+        else:
+            with open(dest, "wb") as f:
+                plistlib.dump(state, f)
+                
+        page_count = len(state)
+        dock_count = len(state[0]) if page_count > 0 and isinstance(state[0], list) else 0
+        print(f"✅ 主屏布局已成功备份至: {dest}")
+        print(f"📊 统计: 共 {page_count - 1} 个主屏幕页 + 1 个 Dock 栏 (包含 {dock_count} 个固定图标)")
+
+async def cmd_apply(args):
+    src = os.path.abspath(args.input)
+    if not os.path.exists(src):
+        print(f"❌ 找不到布局文件: {src}", file=sys.stderr)
+        sys.exit(1)
+
+    if not args.yes:
+        print(f"⚠️ [安全确认] 即将向 SpringBoard 覆盖下发全量桌面图标排布布局: {src}")
+        try:
+            confirm = input("确认执行覆盖生效吗？输入 [y/N]: ").strip().lower()
+            if confirm not in ("y", "yes"):
+                print("操作已取消。")
+                return
+        except (KeyboardInterrupt, EOFError):
+            print("\n操作已取消。")
+            return
+        
+    print(f"⚡ 正在加载布局文件: {src} ...")
+    if src.endswith(".json"):
+        with open(src, "r", encoding="utf-8") as f:
+            new_layout = json.load(f)
+    else:
+        with open(src, "rb") as f:
+            new_layout = plistlib.load(f)
+
+    if not isinstance(new_layout, list):
+        print("❌ 无效的布局文件格式！根元素必须为页面列表 (list)。", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"🚀 正在通过 com.apple.springboard.iconstate 下发并热更新主屏布局...")
+    async with CoreDeviceSession(args.pairing) as s:
+        sb = SpringBoardServicesService(s.rsd)
+        await sb.set_icon_state(new_layout)
+        print("🎉 桌面布局更新指令已成功送达 SpringBoard！界面已即时刷新。")
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="cdtk-springboard",
+        description="cdtk-springboard: iOS 桌面图标与文件夹原子化管理工具"
+    )
+    parser.add_argument("--pairing", help="指定设备配对文件路径 (.plist)")
+    subparsers = parser.add_subparsers(dest="cmd", required=True)
+
+    p_backup = subparsers.add_parser("backup", help="导出并备份当前主屏布局")
+    p_backup.add_argument("output", nargs="?", default="home_layout_backup.plist", help="保存路径 (默认 home_layout_backup.plist，支持 .json 或 .plist)")
+
+    p_apply = subparsers.add_parser("apply", help="下发并应用指定主屏布局")
+    p_apply.add_argument("input", help="要应用的布局文件路径 (.plist 或 .json)")
+    p_apply.add_argument("-y", "--yes", action="store_true", help="跳过用户交互直接确认应用")
+
+    args = parser.parse_args()
+    if args.cmd == "backup":
+        asyncio.run(cmd_backup(args))
+    elif args.cmd == "apply":
+        asyncio.run(cmd_apply(args))
+
+if __name__ == "__main__":
+    main()

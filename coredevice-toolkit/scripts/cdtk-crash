@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+cdtk-crash: 原生系统崩溃与闪退日志透视器 (Crash Reports Analyzer)
+基于 CoreDevice RSD + com.apple.crashreportcopymobile 协议
+"""
+
+import argparse
+import asyncio
+import json
+import os
+import posixpath
+import sys
+from coredevice_session import CoreDeviceSession
+from pymobiledevice3.services.crash_reports import CrashReportsManager
+
+BUG_TYPES = {
+    "109": "Crash (崩溃/内存越界)",
+    "188": "Resource Exhaustion (CPU/磁盘超限)",
+    "298": "Jetsam Event (系统内存紧张杀后台)",
+    "288": "Disk Writes Resource (高频写磁盘超限)",
+    "309": "Watchdog Timeout (主线程卡死超限杀)",
+}
+
+async def cmd_list(args):
+    print("⚡ 正在通过 CoreDevice RSD 扫描系统崩溃与诊断日志...")
+    async with CoreDeviceSession() as s:
+        cm = CrashReportsManager(s.rsd)
+        entries = await cm.ls("/")
+        
+        ips_files = [f for f in entries if f.endswith(".ips") or f.endswith(".synced") or ".ips" in f]
+        ips_files.sort(reverse=True)
+        
+        if args.filter:
+            kw = args.filter.lower()
+            ips_files = [f for f in ips_files if kw in f.lower()]
+            
+        limit = args.limit or 20
+        shown = ips_files[:limit]
+        
+        print(f"\n📋 发现 {len(ips_files)} 份系统崩溃日志 (显示最近 {len(shown)} 份):")
+        print("─" * 76)
+        print(f" {'序号':<4} {'类型':<16} {'日志文件名'}")
+        print("─" * 76)
+        for i, f in enumerate(shown, 1):
+            name = posixpath.basename(f)
+            t = "Event"
+            if "JetsamEvent" in name:
+                t = "Jetsam(内存超限)"
+            elif "diskwrites" in name:
+                t = "DiskWrite(写盘超限)"
+            elif "Crash" in name or ".ips" in name:
+                t = "Crash(崩溃)"
+            print(f" {i:<4} {t:<16} {name}")
+        print("─" * 76)
+        print("💡 查看详情: cdtk-crash view <文件名>  或  导出: cdtk-crash pull <文件名>\n")
+
+async def cmd_view(args):
+    target = args.filename
+    if not target.startswith("/"):
+        target = "/" + target
+        
+    print(f"⚡ 正在拉取并解析崩溃日志: {target}...")
+    async with CoreDeviceSession() as s:
+        cm = CrashReportsManager(s.rsd)
+        try:
+            content = await cm.afc.get_file_contents(target)
+        except Exception as e:
+            print(f"❌ 读取崩溃日志失败: {e}")
+            sys.exit(1)
+            
+        text = content.decode("utf-8", errors="ignore")
+        lines = text.splitlines()
+        
+        header = {}
+        body = {}
+        try:
+            if lines:
+                header = json.loads(lines[0])
+            body_text = "\n".join(lines[1:])
+            if body_text.strip().startswith("{"):
+                body = json.loads(body_text)
+        except Exception:
+            pass
+
+        print("\n" + "═" * 76)
+        print(" 🔬 系统崩溃日志深度解析报告")
+        print("═" * 76)
+        
+        bug_id = str(header.get("bug_type") or body.get("bug_type") or "")
+        bug_desc = BUG_TYPES.get(bug_id, f"未知类型 ({bug_id})")
+        print(f" • 故障类型:     \033[33m{bug_desc}\033[0m")
+        print(f" • 发生时间:     {header.get('timestamp') or body.get('date') or '未知'}")
+        print(f" • 崩溃应用/进程: \033[36m{body.get('procName') or body.get('process') or target}\033[0m")
+        if body.get("bundleInfo", {}).get("CFBundleIdentifier"):
+            print(f" • Bundle ID:    {body['bundleInfo']['CFBundleIdentifier']}")
+        
+        ex = body.get("exception", {})
+        if ex:
+            print(f" • 异常代码:     \033[31m{ex.get('type')} ({ex.get('signal')})\033[0m")
+            print(f" • 异常子代码:   {ex.get('subtype', '无')}")
+        
+        tr = body.get("termination", {})
+        if tr:
+            print(f" • 终止原因:     \033[31m{tr.get('namespace')} - 标志: {tr.get('indicator')}\033[0m")
+            if tr.get("details"):
+                print(f" • 终止详情:     {tr.get('details')}")
+                
+        threads = body.get("threads", [])
+        crashed_idx = -1
+        for i, th in enumerate(threads):
+            if th.get("triggered"):
+                crashed_idx = i
+                break
+                
+        if crashed_idx >= 0:
+            print(f"\n 💥 崩溃触发线程 [Thread {crashed_idx}]:")
+            print(" ─" * 38)
+            frames = threads[crashed_idx].get("frames", [])
+            for f in frames[:15]:
+                sym = f.get("symbol") or f"0x{f.get('imageOffset', 0):x}"
+                img = f.get("imageName") or "binary"
+                print(f"   • {img:<24} {sym}")
+        elif "largestProcess" in body:
+            print(f"\n ⚠️ 内存超限杀进程 (Jetsam):")
+            print(f"   • 内存最大进程: {body.get('largestProcess')}")
+            print(f"   • 页面水位:     {body.get('pageSize')} 字节/页")
+
+        print("═" * 76 + "\n")
+
+async def cmd_pull(args):
+    target = args.filename
+    if not target.startswith("/"):
+        target = "/" + target
+        
+    out_path = args.output
+    if not out_path:
+        out_path = "/var/minis/workspace/" + posixpath.basename(target)
+        
+    print(f"⚡ 正在导出崩溃日志: {target} -> {out_path}...")
+    async with CoreDeviceSession() as s:
+        cm = CrashReportsManager(s.rsd)
+        content = await cm.afc.get_file_contents(target)
+        
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        with open(out_path, "wb") as fp:
+            fp.write(content)
+            
+        print(f"✅ 导出成功！文件大小: {len(content)} 字节")
+        print(f"📄 本地预览: [点击查看](minis://{out_path.replace('/var/minis/', '')})")
+
+async def cmd_latest(args):
+    async with CoreDeviceSession() as s:
+        cm = CrashReportsManager(s.rsd)
+        entries = await cm.ls("/")
+        ips = [f for f in entries if f.endswith(".ips")]
+        if args.app:
+            ips = [f for f in ips if args.app.lower() in f.lower()]
+        ips.sort(reverse=True)
+        if not ips:
+            print("📭 未找到相关的最近崩溃日志。")
+            return
+        target = ips[0]
+        args.filename = target
+        await cmd_view(args)
+
+def main():
+    p = argparse.ArgumentParser(prog="cdtk-crash", description="系统崩溃与闪退日志透视器 (CoreDevice RSD)")
+    sub = p.add_subparsers(dest="subcommand", required=True)
+    
+    p_ls = sub.add_parser("list", help="列出全量崩溃日志")
+    p_ls.add_argument("-n", "--limit", type=int, default=15, help="显示数量上限")
+    p_ls.add_argument("-f", "--filter", help="按进程名或关键词过滤")
+    
+    p_v = sub.add_parser("view", help="结构化查看崩溃日志")
+    p_v.add_argument("filename", help="日志文件名")
+    
+    p_pull = sub.add_parser("pull", help="导出原始崩溃日志到本地")
+    p_pull.add_argument("filename", help="日志文件名")
+    p_pull.add_argument("output", nargs="?", help="本地保存路径")
+    
+    p_lat = sub.add_parser("latest", help="一键解析最近一次崩溃")
+    p_lat.add_argument("app", nargs="?", help="指定应用名过滤")
+    
+    args = p.parse_args()
+    if args.subcommand == "list":
+        asyncio.run(cmd_list(args))
+    elif args.subcommand == "view":
+        asyncio.run(cmd_view(args))
+    elif args.subcommand == "pull":
+        asyncio.run(cmd_pull(args))
+    elif args.subcommand == "latest":
+        asyncio.run(cmd_latest(args))
+
+if __name__ == "__main__":
+    main()

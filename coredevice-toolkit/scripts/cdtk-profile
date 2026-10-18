@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""
+cdtk-profile: iOS 描述文件 (Configuration Profile) 底层管理工具
+基于 CoreDevice RSD 隧道与 com.apple.mobile.MCInstall.shim.remote (端口 52451)
+支持已安装描述文件枚举、描述文件安装以及静默免密移除
+"""
+
+import argparse
+import asyncio
+import os
+import plistlib
+import sys
+from pathlib import Path
+
+from coredevice_session import CoreDeviceSession
+from pymobiledevice3.exceptions import ProfileError
+from pymobiledevice3.services.mobile_config import MobileConfigService
+
+KEYBAG_ENV = "CDTK_PROFILE_KEYBAG"
+
+def resolve_keybag(explicit: str | None) -> Path | None:
+    """定位监管身份 (supervision identity) PEM keybag。仅接受显式参数或环境变量。"""
+    if explicit:
+        p = Path(explicit)
+        if p.is_file():
+            return p
+        raise FileNotFoundError(f"指定的监管身份文件不存在: {explicit}")
+    env_k = os.environ.get(KEYBAG_ENV)
+    if env_k:
+        p = Path(env_k)
+        if p.is_file():
+            return p
+        raise FileNotFoundError(f"环境变量 {KEYBAG_ENV} 指定的文件不存在: {env_k}")
+    return None
+
+def describe_payload(path: str) -> tuple[bytes, str]:
+    p = Path(path)
+    if not p.is_file():
+        raise SystemExit(f"错误：找不到描述文件 {path}")
+    data = p.read_bytes()
+    if not data:
+        raise SystemExit(f"错误：描述文件为空 {path}")
+    name = p.name
+    try:
+        pl = plistlib.loads(data)
+        if isinstance(pl, dict):
+            name = pl.get("PayloadDisplayName") or pl.get("PayloadIdentifier") or name
+    except Exception:
+        pass
+    return data, name
+
+async def cmd_list(args) -> int:
+    print("⚡ 正在通过 CoreDevice RSD 隧道连接 com.apple.mobile.MCInstall.shim.remote ...")
+    async with CoreDeviceSession() as s:
+        mc = MobileConfigService(s.rsd)
+        resp = await mc.get_profile_list()
+        metadata = resp.get("ProfileMetadata") or {}
+        if args.json:
+            import json
+            print(json.dumps(metadata, ensure_ascii=False, indent=2, default=str))
+            return 0
+        if not metadata:
+            print("\n📭 设备上没有已安装的 Configuration Profile（0 个）")
+            return 0
+        rows = []
+        for ident, meta in metadata.items():
+            rows.append({
+                "PayloadDisplayName": meta.get("PayloadDisplayName", ""),
+                "PayloadIdentifier": meta.get("PayloadIdentifier", ident),
+                "PayloadUUID": meta.get("PayloadUUID", ""),
+                "PayloadVersion": meta.get("PayloadVersion", ""),
+                "PayloadType": meta.get("PayloadType", ""),
+            })
+        print(f"\n📋 已安装描述文件（共 {len(rows)} 个）")
+        print("=" * 78)
+        for i, r in enumerate(rows, 1):
+            print(f" {i}. {r['PayloadDisplayName'] or '(未命名)'}")
+            print(f"    PayloadIdentifier : {r['PayloadIdentifier']}")
+            print(f"    PayloadUUID       : {r['PayloadUUID']}")
+            if args.verbose:
+                print(f"    PayloadVersion    : {r['PayloadVersion']}")
+                if r['PayloadType']:
+                    print(f"    PayloadType       : {r['PayloadType']}")
+        print("=" * 78)
+    return 0
+
+async def cmd_install(args) -> int:
+    # 强制二次确认阻断检查 (Reviewer Blocking 1)
+    if not args.yes:
+        print(f"🛑 [安全阻断] 准备安装描述文件: {args.path}")
+        print("   警告：安装描述文件可能会改变系统网络、CA 根证书信任或设备管理策略！")
+        print("   为确保安全，此高危操作必须显式追加 -y / --yes 参数方可执行。")
+        return 1
+
+    payload, display_name = describe_payload(args.path)
+    keybag = resolve_keybag(args.keybag)
+    print(f"⚡ 目标描述文件: {display_name} ({Path(args.path).name}, {len(payload)} bytes)")
+    print("⚡ 正在通过 CoreDevice RSD 隧道连接 com.apple.mobile.MCInstall.shim.remote ...")
+    async with CoreDeviceSession() as s:
+        mc = MobileConfigService(s.rsd)
+        mode = None
+        if keybag:
+            print(f"🔑 检测到监管身份 keybag: {keybag}")
+            await mc.install_profile_silent(keybag, payload)
+            mode = "InstallProfileSilent（监管静默，设备零弹窗）"
+        else:
+            try:
+                await mc._send_recv({"RequestType": "InstallProfileSilent", "Payload": payload})
+                mode = "InstallProfileSilent（协议层静默）"
+            except ProfileError:
+                await mc.install_profile(payload)
+                mode = "InstallProfile（经 MCInstall 直接下发，免跳转 Safari）"
+        
+        resp = await mc.get_profile_list()
+        metadata = resp.get("ProfileMetadata") or {}
+        installed = None
+        try:
+            ident = plistlib.loads(payload).get("PayloadIdentifier")
+        except Exception:
+            ident = None
+        if ident and ident in metadata:
+            installed = metadata[ident]
+
+    print("\n" + "=" * 60)
+    print("🎉 描述文件下发成功！")
+    print(f"  • 名称:     {display_name}")
+    print(f"  • 安装模式: {mode}")
+    if installed:
+        print(f"  • Identifier: {installed.get('PayloadIdentifier')}")
+        print(f"  • UUID:       {installed.get('PayloadUUID')}")
+    print("=" * 60)
+    return 0
+
+async def cmd_remove(args) -> int:
+    ident = args.identifier.strip()
+    if not ident:
+        raise SystemExit("错误：必须指定要移除的 PayloadIdentifier")
+
+    # 强制二次确认阻断检查 (Reviewer Blocking 1)
+    if not args.yes:
+        print(f"🛑 [安全阻断] 准备从系统彻底移除描述文件: {ident}")
+        print("   警告：移除描述文件将永久注销相关安全策略或证书凭据！")
+        print("   为确保安全，此高危操作必须显式追加 -y / --yes 参数方可执行。")
+        return 1
+
+    print(f"⚡ 目标移除 Identifier: {ident}")
+    print("⚡ 正在通过 CoreDevice RSD 隧道连接 com.apple.mobile.MCInstall.shim.remote ...")
+    async with CoreDeviceSession() as s:
+        mc = MobileConfigService(s.rsd)
+        resp = await mc.get_profile_list()
+        metadata = resp.get("ProfileMetadata") or {}
+        target_meta = metadata.get(ident)
+        if not target_meta:
+            matches = [k for k in metadata if ident.lower() in k.lower()]
+            if len(matches) == 1:
+                ident = matches[0]
+                target_meta = metadata[ident]
+                print(f"💡 自动模糊匹配到唯一描述文件: {ident}")
+            elif len(matches) > 1:
+                print(f"❌ 找到多个匹配的描述文件，请提供精确 Identifier：")
+                for m in matches:
+                    print(f"   • {m}")
+                return 1
+            else:
+                print(f"❌ 未找到 Identifier 为 '{ident}' 的描述文件。请运行 cdtk-profile list 核对。")
+                return 1
+
+        display = target_meta.get("PayloadDisplayName") or ident
+        print(f"🚀 正在移除: {display} ...")
+        await mc.remove_profile(ident)
+
+        resp2 = await mc.get_profile_list()
+        metadata2 = resp2.get("ProfileMetadata") or {}
+        if ident not in metadata2:
+            print(f"✅ 成功移除描述文件: {display} ({ident})")
+            return 0
+        else:
+            print(f"⚠️ 移除指令已发送，但该描述文件仍显示在列表中，可能受到系统 MDM 限制。")
+            return 2
+
+def main():
+    p = argparse.ArgumentParser(
+        prog="cdtk-profile",
+        description="iOS 描述文件底层管理工具 (基于 CoreDevice RSD / MCInstall)",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    p_list = sub.add_parser("list", help="枚举设备上已安装的全部 Configuration Profiles")
+    p_list.add_argument("-v", "--verbose", action="store_true", help="显示详细元数据")
+    p_list.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+
+    p_install = sub.add_parser("install", help="向设备安装 .mobileconfig 描述文件")
+    p_install.add_argument("path", help="本地 .mobileconfig 文件路径")
+    p_install.add_argument("--keybag", help="监管身份证书路径 (.pem)")
+    p_install.add_argument("-y", "--yes", action="store_true", help="确认执行安装（高危操作必需参数）")
+
+    p_remove = sub.add_parser("remove", help="从设备移除指定的描述文件 (根据 PayloadIdentifier)")
+    p_remove.add_argument("identifier", help="描述文件的 PayloadIdentifier")
+    p_remove.add_argument("-y", "--yes", action="store_true", help="确认执行移除（高危操作必需参数）")
+
+    args = p.parse_args()
+    if args.cmd == "list":
+        sys.exit(asyncio.run(cmd_list(args)))
+    elif args.cmd == "install":
+        sys.exit(asyncio.run(cmd_install(args)))
+    elif args.cmd == "remove":
+        sys.exit(asyncio.run(cmd_remove(args)))
+
+if __name__ == "__main__":
+    main()

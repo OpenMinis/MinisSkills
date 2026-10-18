@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""
+cdtk-fs: 基于 CoreDevice RSD 底层通道的 iOS 原生沙盒穿透与媒体文件管理工具
+免电脑、免越狱，直接与 iOS 沙盒软禁服务 (house_arrest) 及媒体传输 (afc) 交互
+"""
+
+import argparse
+import asyncio
+import os
+import sys
+from pathlib import Path
+
+from coredevice_session import CoreDeviceSession
+from pymobiledevice3.services.afc import AfcService
+from pymobiledevice3.services.house_arrest import HouseArrestService
+
+async def get_app_service(rsd, bundle_id):
+    try:
+        h = HouseArrestService(rsd, documents_only=False)
+        await h.send_command(bundle_id, "VendContainer")
+        return h, "container"
+    except Exception:
+        pass
+    
+    try:
+        h = HouseArrestService(rsd, documents_only=True)
+        await h.send_command(bundle_id, "VendDocuments")
+        return h, "documents"
+    except Exception as e:
+        raise RuntimeError(f"无法访问应用 {bundle_id} 的沙盒: {e}")
+
+async def cmd_media_ls(args):
+    print("⚡ 正在通过 CoreDevice RSD 连接 iOS 原生媒体分区 (AFC)...")
+    async with CoreDeviceSession() as s:
+        afc = AfcService(s.rsd)
+        target_path = args.path or "/"
+        items = await afc.listdir(target_path)
+        print(f"\n📂 媒体分区目录: {target_path} (共 {len(items)} 项)\n" + "-" * 55)
+        for item in sorted(items):
+            try:
+                full_path = f"{target_path.rstrip('/')}/{item}" if target_path != "/" else f"/{item}"
+                stat = await afc.stat(full_path)
+                is_dir = stat.get("st_ifmt") == "S_IFDIR"
+                size = stat.get("st_size", 0)
+                icon = "📁" if is_dir else "📄"
+                print(f" {icon}  {item:<32} {'<DIR>' if is_dir else f'{size} B'}")
+            except Exception:
+                print(f" 📄  {item}")
+        print("-" * 55)
+
+async def cmd_media_cat(args):
+    async with CoreDeviceSession() as s:
+        afc = AfcService(s.rsd)
+        data = await afc.get_file_contents(args.path)
+        sys.stdout.buffer.write(data)
+
+async def cmd_media_pull(args):
+    print(f"⚡ 正在从媒体分区导出文件: {args.remote_path} -> {args.local_path}...")
+    async with CoreDeviceSession() as s:
+        afc = AfcService(s.rsd)
+        data = await afc.get_file_contents(args.remote_path)
+        os.makedirs(os.path.dirname(os.path.abspath(args.local_path)), exist_ok=True)
+        with open(args.local_path, "wb") as f:
+            f.write(data)
+        print(f"✅ 导出成功！保存至本地: {args.local_path} ({len(data)} 字节)")
+
+async def cmd_app_ls(args):
+    print(f"⚡ 正在穿透应用沙盒: {args.bundle_id}...")
+    async with CoreDeviceSession() as s:
+        h, mode = await get_app_service(s.rsd, args.bundle_id)
+        target_path = args.path or ("/" if mode == "container" else "/Documents")
+        items = await h.listdir(target_path)
+        print(f"\n📂 沙盒目录 [{mode}]: {target_path} (共 {len(items)} 项)\n" + "-" * 55)
+        for item in sorted(items):
+            try:
+                full_path = f"{target_path.rstrip('/')}/{item}" if target_path != "/" else f"/{item}"
+                stat = await h.stat(full_path)
+                is_dir = stat.get("st_ifmt") == "S_IFDIR"
+                size = stat.get("st_size", 0)
+                icon = "📁" if is_dir else "📄"
+                print(f" {icon}  {item:<32} {'<DIR>' if is_dir else f'{size} B'}")
+            except Exception:
+                print(f" 📄  {item}")
+        print("-" * 55)
+
+async def cmd_app_pull(args):
+    print(f"⚡ 正在从应用沙盒导出: {args.bundle_id}:{args.remote_path} -> {args.local_path}...")
+    async with CoreDeviceSession() as s:
+        h, _ = await get_app_service(s.rsd, args.bundle_id)
+        data = await h.get_file_contents(args.remote_path)
+        os.makedirs(os.path.dirname(os.path.abspath(args.local_path)), exist_ok=True)
+        with open(args.local_path, "wb") as f:
+            f.write(data)
+        print(f"✅ 导出成功！保存至本地: {args.local_path} ({len(data)} 字节)")
+
+async def cmd_app_cat(args):
+    async with CoreDeviceSession() as s:
+        h, _ = await get_app_service(s.rsd, args.bundle_id)
+        data = await h.get_file_contents(args.remote_path)
+        sys.stdout.buffer.write(data)
+
+def main():
+    parser = argparse.ArgumentParser(description="cdtk-fs: iOS 原生沙盒穿透与媒体分区文件管理工具")
+    subparsers = parser.add_subparsers(dest="target", required=True)
+
+    # media group
+    p_media = subparsers.add_parser("media", help="管理 iOS 系统媒体分区 (相册/下载/图书)")
+    m_sub = p_media.add_subparsers(dest="subaction", required=True)
+    m_ls = m_sub.add_parser("ls", help="列出媒体分区目录")
+    m_ls.add_argument("path", nargs="?", default="/", help="目录路径 (默认 /)")
+    m_cat = m_sub.add_parser("cat", help="输出媒体分区文件内容")
+    m_cat.add_argument("path", help="远程文件路径")
+    m_pull = m_sub.add_parser("pull", help="下载媒体分区文件")
+    m_pull.add_argument("remote_path", help="设备端路径")
+    m_pull.add_argument("local_path", help="本地保存路径")
+
+    # app group
+    p_app = subparsers.add_parser("app", help="穿透第三方应用沙盒容器 (Documents/Library)")
+    a_sub = p_app.add_subparsers(dest="subaction", required=True)
+    a_ls = a_sub.add_parser("ls", help="列出应用沙盒目录")
+    a_ls.add_argument("bundle_id", help="应用 Bundle Identifier (如 com.nssurge.inc.surge-ios.1)")
+    a_ls.add_argument("path", nargs="?", default="", help="沙盒相对路径")
+    a_cat = a_sub.add_parser("cat", help="输出应用沙盒文件内容")
+    a_cat.add_argument("bundle_id", help="应用 Bundle Identifier")
+    a_cat.add_argument("remote_path", help="沙盒文件路径")
+    a_pull = a_sub.add_parser("pull", help="导出应用沙盒文件")
+    a_pull.add_argument("bundle_id", help="应用 Bundle Identifier")
+    a_pull.add_argument("remote_path", help="沙盒文件路径")
+    a_pull.add_argument("local_path", help="本地保存路径")
+
+    args = parser.parse_args()
+
+    if args.target == "media":
+        if args.subaction == "ls": asyncio.run(cmd_media_ls(args))
+        elif args.subaction == "cat": asyncio.run(cmd_media_cat(args))
+        elif args.subaction == "pull": asyncio.run(cmd_media_pull(args))
+    elif args.target == "app":
+        if args.subaction == "ls": asyncio.run(cmd_app_ls(args))
+        elif args.subaction == "cat": asyncio.run(cmd_app_cat(args))
+        elif args.subaction == "pull": asyncio.run(cmd_app_pull(args))
+
+if __name__ == "__main__":
+    main()
