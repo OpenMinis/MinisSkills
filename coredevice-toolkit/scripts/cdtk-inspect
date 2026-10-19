@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-cdtk-inspect: 全局 WebKit / H5 远程调试与运行时穿透中枢
-基于 CoreDevice RSD 隧道 + com.apple.webinspector.shim.remote 服务
+cdtk-inspect: 全局 WebKit / H5 / 小程序远程调试与运行时穿透中枢
+基于 CoreDevice RSD 隧道 + com.apple.webinspector.shim.remote 协议
+免电脑、免越狱，实现全系统 Web 容器枚举、动态 JS 注入与存储凭据 Dump
 """
 
 import argparse
@@ -12,74 +13,233 @@ import sys
 import time
 
 from coredevice_session import CoreDeviceSession
+from pymobiledevice3.remote.core_device.app_service import AppServiceService
 from pymobiledevice3.services.webinspector import WebinspectorService
 
 
+async def get_target_app_and_page(wi, page_id=None, app_name_filter=None):
+    """查找并匹配指定的目标 Web 应用和页面"""
+    await wi.get_open_pages()
+    
+    for app_id, app_obj in wi.connected_application.items():
+        curr_name = getattr(app_obj, "name", "")
+        if app_name_filter and app_name_filter.lower() not in curr_name.lower():
+            continue
+            
+        pages_map = wi.application_pages.get(app_id, {})
+        if page_id is not None:
+            for p in pages_map.values():
+                if str(p.id_) == str(page_id):
+                    return app_obj, p
+        elif pages_map:
+            # 默认返回第一个包含可用 URL 的非扩展普通页面
+            for p in pages_map.values():
+                if not (p.web_url or "").startswith("safari-web-extension://"):
+                    return app_obj, p
+            return app_obj, next(iter(pages_map.values()))
+            
+    return None, None
+
+
 async def cmd_list(args):
-    print("⚡ 正在通过 CoreDevice RSD 隧道连接 WebKit 远程检查器 (com.apple.webinspector)...")
+    print("⚡ 正在通过 CoreDevice RSD 隧道探测系统 WebKit 远程检查器...")
     t0 = time.time()
+    
     async with CoreDeviceSession() as s:
         wi = WebinspectorService(s.rsd)
         await wi.connect()
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(0.4)
         
-        apps = wi.connected_application
-        pages = wi.application_pages
+        pages_res = await wi.get_open_pages()
+        open_pages = pages_res if isinstance(pages_res, dict) else {}
         t1 = time.time()
         
         if getattr(args, "json", False):
-            out = {
-                "applications": {k: {"bundle_id": v.bundle_identifier, "name": v.name} for k, v in apps.items()},
-                "pages": {k: [p.__dict__ for p in plist] for k, plist in pages.items()},
-            }
+            out = {}
+            for app_name, plist in open_pages.items():
+                out[app_name] = [
+                    {
+                        "page_id": p.id_,
+                        "type": str(p.type_),
+                        "title": p.web_title,
+                        "url": p.web_url,
+                    }
+                    for p in plist
+                ]
             print(json.dumps(out, indent=2, ensure_ascii=False, default=str))
             return 0
+            
+        print("\n" + "═" * 74)
+        print(f" 🌐 当前系统活跃的 WebKit / H5 容器 (共 {len(open_pages)} 个应用)")
+        print("═" * 74)
         
-        print("\n" + "═" * 72)
-        print(f" 🌐 当前系统挂载的 WebKit / JS 运行时进程 (共 {len(apps)} 个应用)")
-        print("═" * 72)
-        
-        if not apps:
-            print("  📭 当前未发现活跃的 WebKit 实例。")
-            print("  💡 提示: 请确保在【设置 ➡️ Safari 浏览器 ➡️ 高级】开启了「网页检查器」，并在前台打开了网页。")
-            print("═" * 72 + "\n")
+        if not open_pages:
+            print("  📭 当前未发现活跃且开放检查的 WebKit 页面。")
+            print("  💡 提示: 请确保在【设置 ➡️ Safari 浏览器 ➡️ 高级】开启了「网页检查器」。")
+            print("═" * 74 + "\n")
             return 0
             
-        for app_id, app in apps.items():
-            app_pages = pages.get(app_id, [])
-            app_name = getattr(app, "name", str(app))
-            app_bundle = getattr(app, "bundle", "") or "系统内部服务"
-            print(f" 📱 [{app_name}] (Bundle: {app_bundle} | ID: {app_id})")
-            if not app_pages:
-                print("    └─ 暂无公开页面/视窗")
-            else:
-                for idx, p in enumerate(app_pages, 1):
-                    title = getattr(p, "web_title", None) or getattr(p, "title", "未命名页面")
-                    url = getattr(p, "web_url", None) or getattr(p, "url", "about:blank")
-                    pid = getattr(p, "page_id", "未知")
-                    print(f"    ├─ [{idx}] 页面 ID: \033[32m{pid}\033[0m")
-                    print(f"    │   标题: {title}")
-                    print(f"    │   地址: {url}")
-            print("─" * 72)
+        for app_name, plist in open_pages.items():
+            print(f" 📱 应用: \033[1;36m{app_name}\033[0m (发现 {len(plist)} 个视窗/标签页)")
+            for p in plist:
+                pid = p.id_
+                title = p.web_title or "（无标题或后台页面）"
+                url = p.web_url or "about:blank"
+                is_ext = url.startswith("safari-web-extension://")
+                tag = "\033[33m[插件扩展]\033[0m" if is_ext else "\033[32m[网页页面]\033[0m"
+                print(f"   ├─ ID: \033[1;32m{pid:<3}\033[0m {tag} {title}")
+                print(f"   │  地址: {url}")
+            print("─" * 74)
             
-        print(f" 耗时: {t1 - t0:.2f}s | 状态: 100% 畅通")
-        print("═" * 72 + "\n")
+        print(f" 耗时: {t1 - t0:.2f}s | 已枚举 {len(open_pages)} 个应用")
+        print("═" * 74 + "\n")
+    return 0
+
+
+async def cmd_eval(args):
+    print(f"⚡ 正在连接 WebKit 页面 ID: \033[1;32m{args.page_id}\033[0m 准备注入 JavaScript...")
+    async with CoreDeviceSession() as s:
+        wi = WebinspectorService(s.rsd)
+        await wi.connect()
+        await asyncio.sleep(0.4)
+        
+        app, page = await get_target_app_and_page(wi, page_id=args.page_id)
+        if not app or not page:
+            print(f"❌ 未找到页面 ID 为 {args.page_id} 的活跃 Web 容器！请先运行 `cdtk-inspect list` 查看可用页面。")
+            return 1
+            
+        print(f"🎯 命中目标: [{app.name}] -> {page.web_title or page.web_url}")
+        session = await wi.inspector_session(app, page)
+        
+        print(f"💉 注入表达式: \033[33m{args.script}\033[0m")
+        result = await session.runtime_evaluate(args.script, return_by_value=True)
+        
+        print("\n" + "═" * 60)
+        print(" 🚀 JavaScript 执行结果:")
+        print("═" * 60)
+        if isinstance(result, (dict, list)):
+            print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        else:
+            print(result)
+        print("═" * 60 + "\n")
+    return 0
+
+
+async def cmd_dump(args):
+    print(f"⚡ 正在深度提取页面 ID: \033[1;32m{args.page_id}\033[0m 的存储凭据 (Cookies / LocalStorage)...")
+    js_extract = """
+    (() => {
+        const result = {
+            title: document.title,
+            url: location.href,
+            cookie: document.cookie,
+            localStorage: {},
+            sessionStorage: {}
+        };
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                result.localStorage[k] = localStorage.getItem(k);
+            }
+        } catch(e) { result.localStorage_error = String(e); }
+        try {
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const k = sessionStorage.key(i);
+                result.sessionStorage[k] = sessionStorage.getItem(k);
+            }
+        } catch(e) { result.sessionStorage_error = String(e); }
+        return result;
+    })()
+    """
+    async with CoreDeviceSession() as s:
+        wi = WebinspectorService(s.rsd)
+        await wi.connect()
+        await asyncio.sleep(0.4)
+        
+        app, page = await get_target_app_and_page(wi, page_id=args.page_id)
+        if not app or not page:
+            print(f"❌ 未找到页面 ID 为 {args.page_id} 的活跃 Web 容器！")
+            return 1
+            
+        session = await wi.inspector_session(app, page)
+        data = await session.runtime_evaluate(js_extract, return_by_value=True)
+        
+        print("\n" + "═" * 70)
+        print(f" 🔑 页面凭据与存储提取报告 (ID: {args.page_id})")
+        print("═" * 70)
+        print(f"  • 网页标题: {data.get('title')}")
+        print(f"  • 网页地址: {data.get('url')}")
+        print(f"  • Cookies : {data.get('cookie') or '（无 Cookie）'}")
+        
+        ls = data.get("localStorage", {})
+        print(f"  • LocalStorage ({len(ls)} 项):")
+        for k, v in ls.items():
+            print(f"     - {k}: {str(v)[:100]}")
+            
+        ss = data.get("sessionStorage", {})
+        print(f"  • SessionStorage ({len(ss)} 项):")
+        for k, v in ss.items():
+            print(f"     - {k}: {str(v)[:100]}")
+        print("═" * 70 + "\n")
+    return 0
+
+
+async def cmd_nav(args):
+    print(f"⚡ 正在远程控制页面 ID: \033[1;32m{args.page_id}\033[0m 跳转到: {args.url}...")
+    async with CoreDeviceSession() as s:
+        wi = WebinspectorService(s.rsd)
+        await wi.connect()
+        await asyncio.sleep(0.4)
+        
+        app, page = await get_target_app_and_page(wi, page_id=args.page_id)
+        if not app or not page:
+            print(f"❌ 未找到页面 ID 为 {args.page_id} 的活跃 Web 容器！")
+            return 1
+            
+        session = await wi.inspector_session(app, page)
+        await session.navigate_to_url(args.url)
+        print(f"🎉 指令已发送，页面正在导航至: {args.url}")
     return 0
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="cdtk-inspect",
-        description="全局 WebKit / H5 远程调试与运行时穿透中枢 (CoreDevice RSD + com.apple.webinspector)",
+        description="全局 WebKit / H5 / 小程序远程调试与运行时穿透中枢 (CoreDevice RSD + WebInspector)",
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
-    p_list = sub.add_parser("list", help="列出当前系统所有挂载 WebKit 引擎的应用与页面")
+    p_list = sub.add_parser("list", help="枚举当前系统所有开放检查的 Web 容器与标签页")
     p_list.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     p_list.set_defaults(func=cmd_list)
 
+    p_eval = sub.add_parser("eval", help="向指定 Web 页面注入执行任意 JavaScript 脚本")
+    p_eval.add_argument("page_id", help="目标页面的 ID（通过 `cdtk-inspect list` 获取）")
+    p_eval.add_argument("script", help="要注入执行的 JavaScript 代码字符串")
+    p_eval.set_defaults(func=cmd_eval)
+
+    p_dump = sub.add_parser("dump", help="一键 Dump 目标页面的 Cookies、LocalStorage 与 SessionStorage")
+    p_dump.add_argument("page_id", help="目标页面的 ID")
+    p_dump.set_defaults(func=cmd_dump)
+
+    p_nav = sub.add_parser("nav", help="远程控制目标页面跳转至指定 URL")
+    p_nav.add_argument("page_id", help="目标页面的 ID")
+    p_nav.add_argument("url", help="要导航的目标 URL")
+    p_nav.set_defaults(func=cmd_nav)
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        return 1
+
     args = parser.parse_args()
-    return asyncio.run(args.func(args))
+    try:
+        return asyncio.run(args.func(args))
+    except KeyboardInterrupt:
+        print("\n⚠️ 操作已取消。")
+        return 130
+    except Exception as e:
+        print(f"\n❌ 执行失败: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

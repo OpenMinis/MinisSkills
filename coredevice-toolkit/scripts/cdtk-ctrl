@@ -36,6 +36,9 @@ async def cmd_procs(args):
     async with CoreDeviceSession() as s:
         async with AppServiceService(s.rsd) as app_svc:
             procs = await app_svc.list_processes()
+            if not procs:
+                print("⚠️ 未发现运行中的进程或系统服务无响应。")
+                return 0
             print(f"\n📱 当前系统共运行 {len(procs)} 个进程:\n" + "-" * 65)
             print(f"{'PID':<8} {'类型':<10} {'应用 / 执行路径'}")
             print("-" * 65)
@@ -115,8 +118,8 @@ def main():
     # procs
     p_procs = subparsers.add_parser("procs", help="列出当前运行的 App 与进程")
     p_procs.add_argument("-f", "--filter", help="关键字过滤")
-    p_procs.add_argument("--apps-only", action="store_true", default=True, help="仅列出带 UI 的 App 进程")
-    p_procs.add_argument("--all", dest="apps_only", action="store_false", help="列出全部系统进程")
+    p_procs.add_argument("--apps-only", action="store_true", help="仅列出带 UI 的 App 进程")
+    p_procs.add_argument("--all", dest="apps_only", action="store_false", help="列出全部系统进程（默认）")
 
     # hid-list
     subparsers.add_parser("hid-list", help="列出底层硬件输入设备 (触摸屏/键盘/按键)")
