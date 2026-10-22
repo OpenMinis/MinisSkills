@@ -1,0 +1,13 @@
+#!name=CoreDevice Local Loopback (10.7.0.1)
+#!desc=Lets developer services on the device reach this machine via 10.7.0.1 (used by cdtk / StikDebug / SideStore). Based on the IP Rewrite section of the Surge manual (iOS 5.23.0+). Disable this module to restore the original behavior.
+#!category=Developer
+
+[General]
+# Required by the official example: tools like SideStore ignore VPN interfaces that carry an IPv6 address, so disable the IPv6 VIF
+ipv6-vif = disabled
+# Your main config's skip-proxy includes 10.0.0.0/8, which would make 10.7.0.1 bypass Surge; explicitly pull it back into the VIF here
+tun-included-routes = %INSERT% 10.7.0.1/32
+
+[IP Rewrite]
+# Packets destined for 10.7.0.1 have source/destination swapped and are bounced straight back to the sender = plugging the "data cable" back into the phone itself
+10.7.0.1 = reflect

@@ -1,0 +1,16 @@
+# Portrait paging demo (pure ObjC, drawn by UIKit, no real video).
+name: SwipeDemo
+display_name: Swipe Demo
+bundle_id: com.example.swipe          # Same as above: with a free account use XTL-<team ID>.<suffix>
+version: "1.0"
+build: "1"
+min_ios: "14.0"
+sdk: ~/.ios-sdk/iPhoneOS26.5.sdk
+sources: [src/*.m, src/*.c]
+frameworks: [UIKit, Foundation, QuartzCore, CoreGraphics]   # CoreGraphics is required: CGAffineTransform* lives here
+sign:
+  mode: adhoc
+  # mode: p12
+  # p12: ~/.ios-signer/keys/dev.p12
+  # password_env: IOSDEV_P12_PASS
+  # profile: ~/.ios-signer/keys/dev.mobileprovision
