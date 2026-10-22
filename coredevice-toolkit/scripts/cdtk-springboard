@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 cdtk-springboard: iOS 原生桌面图标编排与文件夹分类管理工具
-基于 CoreDevice RSD 底层通道与 SpringBoardServices 服务 (com.apple.springboard.iconstate)
+基于 CoreDevice RSD 底层通道与 SpringBoardServices 服务 (com.apple.springboardservices)
 支持免电脑、免越狱直接导出、备份与一键生效自定义主屏布局 (setIconState)
 """
 
@@ -65,7 +65,7 @@ async def cmd_apply(args):
         print("❌ 无效的布局文件格式！根元素必须为页面列表 (list)。", file=sys.stderr)
         sys.exit(1)
 
-    print(f"🚀 正在通过 com.apple.springboard.iconstate 下发并热更新主屏布局...")
+    print(f"🚀 正在通过 com.apple.springboardservices 下发并热更新主屏布局...")
     async with CoreDeviceSession(args.pairing) as s:
         sb = SpringBoardServicesService(s.rsd)
         await sb.set_icon_state(new_layout)

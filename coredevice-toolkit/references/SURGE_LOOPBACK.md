@@ -43,6 +43,8 @@ always-raw-tcp-keywords = %APPEND% "Content-Type: application/pairing+tlv8"
 10.7.0.1 = reflect
 ```
 
+> 没有 Surge 时可改用 **LocalDevVPN**：开启后同样能连上 `10.7.0.1:49152`，已实测连接、诊断和主屏布局操作正常。
+
 ---
 
 ## 3. 配置副作用与安全性释疑 (Side Effects Analysis)
