@@ -1,0 +1,16 @@
+# Hello World (ObjC + C mixed). Usage: python3 scripts/mk.py <copied project dir> --install
+name: Hello
+display_name: Hello Pika
+bundle_id: com.example.hello          # With a free account, change to XTL-<your team ID>.<any suffix>, matching the App ID in the provisioning profile
+version: "1.0"
+build: "1"
+min_ios: "14.0"
+sdk: ~/.ios-sdk/iPhoneOS26.5.sdk
+sources: [src/*.m, src/*.c]
+frameworks: [UIKit, Foundation]
+sign:
+  mode: adhoc                          # To install on a real device: switch to the p12 config below
+  # mode: p12
+  # p12: ~/.ios-signer/keys/dev.p12
+  # password_env: IOSDEV_P12_PASS       # Keep the password in an environment variable; do not write it into the file
+  # profile: ~/.ios-signer/keys/dev.mobileprovision
