@@ -21,7 +21,7 @@ Everything runs on the phone (iSH), with **no dependency on Xcode and no depende
 | Prerequisite | Notes |
 |---|---|
 | **Runtime environment** | Minis' iSH (Alpine, aarch64). Most scripts also run on ordinary Linux, but **loopback handshakes, `minis-bonjour`, and "phone pairing with itself" only make sense on a phone** |
-| **Target device** | **iOS 17+ (RemotePairing)**; tested on iPhone19,2 / iOS 27.0.1. Anything below iOS 18 is **untested** |
+| **Target device** | **iOS 17+ (RemotePairing)**; tested on iPhone19,2 / iOS 27.0.1 and iPhone19,4 / iOS 27.1 (side-button-reserved screen edge). Anything below iOS 18 is **untested** |
 | **Account** | **Free Apple ID**: the login flow in this skill can obtain a certificate automatically (7-day profile, restricted App ID). **Paid developer account**: **logging in is not supported** — bring your own p12 + provisioning profile, set `IOSDEV_P12_PASS`, and sign directly with `mk.py` (see `references/signing.md`, "Bring your own p12"). Only the signing half of the paid path has been verified; it has not been tested with a real paid certificate |
 | **Network** | The phone **must be on Wi-Fi**; a loopback VPN is required (Surge ≥5.23.0 or LocalDevVPN). Only one VPN can be active at a time |
 | **Compilable languages** | ObjC / C only. No Swift, no Storyboard/Asset Catalog compiler |
@@ -51,7 +51,7 @@ Every item reports ✅/⚠️/❌ with a fix hint. **If anything later goes wron
 ## Workflow and the matching documents
 | # | Stage | What to do | Details |
 |---|---|---|---|
-| 0 | Environment | `apk add clang lld llvm19 openssl zip nodejs py3-yaml py3-cryptography`; `pip install websockets 'pymobiledevice3>=11.34' pmd-pytcp`; `rcodesign`; iOS SDK: `python3 scripts/install_sdk.py` installs `iPhoneOS26.5.sdk` into `~/.ios-sdk/` in one shot (26 is the default, giving access to newer APIs such as UIGlassEffect) | hints from `doctor.py` |
+| 0 | Environment | `apk add clang lld llvm19 openssl zip nodejs py3-yaml py3-cryptography`; `pip install websockets 'pymobiledevice3>=11.34' pmd-pytcp`; `rcodesign`; iOS SDK: `python3 scripts/install_sdk.py [version]` installs e.g. `iPhoneOS26.5.sdk` (default) or `iPhoneOS27.1.sdk` into `~/.ios-sdk/` in one shot. **Building for an iOS 27 device: read `references/sdk27.md` first** — 27.x needs an automatic `.tbd` patch (done by the installer) and mandatory UIScene adoption | hints from `doctor.py` |
 | 1 | Loopback | **Pick one** VPN that routes `10.7.0.1` back to the phone itself: Surge ≥5.23.0 (import `references/CoreDevice-Loopback.sgmodule`) or LocalDevVPN (free on the App Store), etc.; **phone on Wi-Fi**, Developer Mode enabled | `references/loopback.md` |
 | 2 | Pairing file | Obtain a RemotePairing plist (`~/.cdtk/pairing/*.plist`, 600, `IOSDEV_PAIRING_FILE`) | `references/pairing.md` |
 | 3 | Account → certificate (**free Apple ID only**; skip for paid accounts, bring your own p12 — see `signing.md`) | `gsa.py` login → `devsvc.py` list/register device/generate key+CSR/request certificate/create App ID/generate profile/assemble p12 | `references/account.md` |
@@ -67,6 +67,9 @@ python3 scripts/mk.py /tmp/myapp --install
 Sample projects: `assets/hello` (mixed ObjC+C) and `assets/swipe` (portrait paging, UIScrollView paging + double-tap to like, **the content is a simulated gradient — no real video**).
 
 ## Key facts (so you don't step on the same rakes)
+- **iOS 27 SDK is a breaking change, not a drop-in**: (a) its `.tbd` stubs drop the `arm64` slice, so every link dies with `unknown architecture` — `install_sdk.py` rewrites `targets:` automatically; (b) the scene lifecycle becomes **mandatory** — an app that builds its own `UIWindow` in the AppDelegate is killed at launch with `___UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption_block_invoke` at the top of the stack (on the 26.x SDK it is only a warning); (c) the scene delegate must be referenced at compile time (`c.delegateClass = [SceneD class]`) — referenced only by the Info.plist string it gets `-dead_strip`ped, the scene connects with a nil delegate, and the app launches with **no window and no crash report**. Full walkthrough: `references/sdk27.md`.
+- **Chrome must sit inside the safe area, not at the screen edge**: 27-era devices reserve part of one edge for the side button (measured: `safeRight = 84` pt with `cornerRadius = 59` on iPhone19,4). Anchor overlaid controls and the bottom bar to `safeAreaLayoutGuide.trailingAnchor/leadingAnchor` and add `MAX(10, cornerRadius × 0.25)` clearance, or the control ends up under the hardware looking "cut off".
+- **Launch failures are diagnosable from the phone**: `scripts/crashlogs.py --app <Name> --print` reads the device's crash store over RSD (no Mac, no Settings taps); `DvtProvider(rsd)` + `ProcessControl.launch()` reports launchd's refusal and `OsTraceService(rsd).syslog()` shows the `Visible → NotVisible` state flicker of a nil-delegate app.
 - **Surge is not the only loopback option**: NetworkExtension-based apps such as LocalDevVPN work too. The shared constraint is that the **phone must be on Wi-Fi** (49152 is closed on cellular) and only one VPN may run at a time. **Only the Surge approach has been verified on-device here**; LocalDevVPN's source was read but never tested. Surge **<5.23.0 silently drops `[IP Rewrite]`** (symptom: any port connects in 1 ms but no data flows).
 - **The pairing file** must be in RemotePairing format (`identifier/private_key/public_key`); legacy lockdown records do not work. **The most reliable way to get one is to borrow a Mac and run idevice's `pair_host`**; it can also be installed on the phone (`apk add pair-host`, source in `references/pairing.md` under "Obtaining pair_host"), but the mDNS broadcast it emits itself gets blocked by iOS (missing multicast entitlement), so it needs `minis-bonjour` to publish. StikPair **has never succeeded** on this device's iOS 27.0.1.
 - **2FA has to be routed by channel**: `secondaryAuth` means SMS via `phone/securitycode`, not `validateCode`. This once caused a run of 409/`-21669`.
@@ -92,7 +95,7 @@ Sample projects: `assets/hello` (mixed ObjC+C) and `assets/swipe` (portrait pagi
 **Tested on a real device**: compile → p12 signing → install → read back; Surge loopback; Apple ID login (SMS 2FA) → Xcode token; registering a device, creating certificates, App IDs, profiles; loopback handshake and `installation_proxy`; re-signing and installing StikPair; generating a pairing file with `pair_host` on a Mac.
 **Only tested locally/with fake data, never sent to a real account**: `devsvc.py renew-profile` (delete the old profile, then create).
 **Unverified/never succeeded**: LocalDevVPN/Clash Mi as the loopback (only source/README read); the phone's Settings page discovering this host's broadcast "Pair with …" entry (StikPair/bridge approach); scripted touch injection (unavailable under a userspace tunnel); Swift builds; equivalent flows on Android/Windows.
-**Versions at verification time** (no guarantees across versions): iOS 27.0.1 · Surge 5.23.0 · pymobiledevice3 11.35.0 · pmd-pytcp 0.3.8 · rcodesign 0.29.0 · clang 19.1.4 · Node 22 · Python 3.12 · SDK `iPhoneOS26.5.sdk` (AppConnect tested) / 16.5 (early Hello, Swipe) · Alpine/iSH aarch64.
+**Versions at verification time** (no guarantees across versions): iOS 27.0.1 / 27.1 · Surge 5.23.0 · pymobiledevice3 11.35.0 · pmd-pytcp 0.3.8 · rcodesign 0.29.0 · clang 19.1.4 · Node 22 · Python 3.12 · SDK `iPhoneOS27.1.sdk` (AppConnect, iOS 27 device) / `iPhoneOS26.5.sdk` (older projects) / 16.5 (early Hello, Swipe) · Alpine/iSH aarch64.
 **Out of our control**: Apple may change private endpoints at any time; public Anisette servers are occasionally unavailable; Apple automatically reclaims old App IDs on free accounts (in practice, 2 of SideStore's disappeared).
 
 ## Relationship to coredevice-toolkit
@@ -114,7 +117,7 @@ ios-dev/
 ├── SKILL.md  LICENSE  THIRD_PARTY.md
 ├── scripts/   doctor.py  mk.py  profile.py  gsa.py  anisette.py  srp_client.py  devsvc.py
 │              install_ipa.py  session.py  rppairing.py  psk_bridge.js
-│              pairing_import.py  pair_via_bonjour.py  install_sdk.py  AppleRoot.pem
-├── references/  loopback.md  pairing.md  account.md  signing.md  CoreDevice-Loopback.sgmodule
+│              pairing_import.py  pair_via_bonjour.py  install_sdk.py  crashlogs.py  AppleRoot.pem
+├── references/  loopback.md  pairing.md  account.md  signing.md  sdk27.md  CoreDevice-Loopback.sgmodule
 └── assets/    hello/src  swipe/src
 ```
