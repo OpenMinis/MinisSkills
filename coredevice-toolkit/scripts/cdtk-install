@@ -42,8 +42,15 @@ def find_signing_assets(cert_arg=None, prov_arg=None, pass_arg=None):
             if not pwd:
                 pwd_files = list(cdtk_dir.glob("*pwd*.txt")) + list(cdtk_dir.glob("*pass*.txt"))
                 if pwd_files:
+                    pwd_file = pwd_files[0]
                     try:
-                        pwd = pwd_files[0].read_text(encoding="utf-8").strip()
+                        mode = pwd_file.stat().st_mode & 0o777
+                        if mode & 0o077:
+                            print(
+                                f"⚠️  证书密码文件权限过宽 ({oct(mode)}): {pwd_file}，建议 chmod 600",
+                                file=sys.stderr,
+                            )
+                        pwd = pwd_file.read_text(encoding="utf-8").strip()
                     except Exception:
                         pass
 
@@ -105,6 +112,11 @@ def sign_ipa(src_ipa, dest_ipa, p12, prov, pwd, bundle_id=None, app_name=None):
     cmd.append(src_ipa)
 
     print(f"✍️  正在使用证书进行代码签名...")
+    if pwd:
+        print(
+            "⚠️  注意：zsign 只接受命令行密码，本机进程列表可能短暂看到该参数。",
+            file=sys.stderr,
+        )
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if res.returncode != 0:
         err = res.stderr or res.stdout
@@ -143,6 +155,9 @@ async def cmd_install(args):
         sys.exit(1)
 
     ipa_path = os.path.abspath(args.ipa)
+    if args.sign and args.no_sign:
+        print("❌ --sign 与 --no-sign 不能同时使用。", file=sys.stderr)
+        sys.exit(1)
     if not os.path.exists(ipa_path):
         print(f"❌ 找不到安装包: {ipa_path}", file=sys.stderr)
         sys.exit(1)

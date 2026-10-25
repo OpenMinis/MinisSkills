@@ -31,10 +31,25 @@ async def cmd_backup(args):
             with open(dest, "wb") as f:
                 plistlib.dump(state, f)
                 
-        page_count = len(state)
-        dock_count = len(state[0]) if page_count > 0 and isinstance(state[0], list) else 0
+        dock = state[0] if len(state) > 0 and isinstance(state[0], list) else []
+        pages = state[1:] if len(state) > 1 else []
+        
+        folder_count = 0
+        app_in_folder_count = 0
+        standalone_apps = 0
+        
+        for p in pages:
+            for item in p:
+                if isinstance(item, dict) and item.get("listType") == "folder":
+                    folder_count += 1
+                    sub_lists = item.get("iconLists", [])
+                    app_in_folder_count += sum(len(sub) for sub in sub_lists)
+                else:
+                    standalone_apps += 1
+                
         print(f"✅ 主屏布局已成功备份至: {dest}")
-        print(f"📊 统计: 共 {page_count - 1} 个主屏幕页 + 1 个 Dock 栏 (包含 {dock_count} 个固定图标)")
+        print(f"📊 统计: 共 {len(pages)} 个主屏幕页 + 1 个 Dock 栏 (包含 {len(dock)} 个固定图标)")
+        print(f"📁 文件夹: 全机共 {folder_count} 个文件夹 (收纳 {app_in_folder_count} 个应用), 散落应用/组件 {standalone_apps} 个")
 
 async def cmd_apply(args):
     src = os.path.abspath(args.input)

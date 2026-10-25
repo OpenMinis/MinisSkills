@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+cdtk-proc: 基于 DVT Instruments (dtservicehub) 的系统级进程特权与内存豁免中枢
+免电脑、免越狱，实现应用内存限制解锁 (Jetsam Waive)、防杀后台及底层信号调度
+"""
+
+import argparse
+import asyncio
+import json
+import sys
+import time
+
+from coredevice_session import CoreDeviceSession
+from pymobiledevice3.dtx import PInt32
+from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
+from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
+
+
+async def resolve_pid(pc, target):
+    """解析 target（可以是纯数字 PID 或应用的 Bundle ID）为真实进程 PID"""
+    if str(target).isdigit():
+        return int(target)
+    
+    # 尝试按 bundle_id 查询
+    pid = await pc.service.process_identifier_for_bundle_identifier_(str(target))
+    if pid and pid > 0:
+        return pid
+    return None
+
+
+async def cmd_mem(args):
+    print(f"⚡ 正在连接 DVT Instruments 服务，准备豁免目标进程内存限制: \033[1;36m{args.target}\033[0m...")
+    t0 = time.time()
+    
+    async with CoreDeviceSession() as s:
+        async with DvtProvider(s.rsd) as provider:
+            pc = ProcessControl(provider)
+            await pc.connect()
+            
+            pid = await resolve_pid(pc, args.target)
+            if not pid:
+                print(f"❌ 未找到运行中的进程: {args.target}！请确保目标应用已启动。")
+                return 1
+                
+            print(f"🎯 命中目标进程 PID: \033[1;32m{pid}\033[0m")
+            print("🛡️  正在向 iOS 内核申请豁免 Jetsam 内存查杀限制...")
+            
+            await pc.disable_memory_limit_for_pid(pid)
+            t1 = time.time()
+            
+            print("\n" + "═" * 68)
+            print(" 🎉 恭喜！目标进程已成功解除 Jetsam 内存限制 (Memory Limit Waived)！")
+            print("═" * 68)
+            print(f"  • 目标标识:   {args.target}")
+            print(f"  • 进程 PID:   {pid}")
+            print(f"  • 内核状态:   \033[1;32m已免疫系统内存超限查杀 (Jetsam Immune)\033[0m")
+            print(f"  • 操作耗时:   {t1 - t0:.2f} 秒")
+            print("═" * 68)
+            print("💡 说明: 该应用现在可以自由申请大内存空间（运行虚拟机/大模型/重型脚本），")
+            print("   不会因为物理内存占用过高被 iOS 内核强制闪退！\n")
+    return 0
+
+
+async def cmd_signal(args):
+    if not args.yes:
+        print(f"🛑 [安全阻断] 准备向进程 {args.target} 发送信号: {args.signal}")
+        print("   警告：SIGKILL/SIGSTOP 可能直接终止或冻结系统进程。")
+        print("   此高危操作必须显式追加 -y / --yes 参数方可执行。")
+        return 1
+
+    sig_map = {
+        "stop": 17,    # SIGSTOP
+        "cont": 19,    # SIGCONT
+        "kill": 9,     # SIGKILL
+        "term": 15,    # SIGTERM
+    }
+    sig_val = sig_map.get(str(args.signal).lower()) or int(args.signal)
+    
+    print(f"⚡ 正在向进程 \033[1;36m{args.target}\033[0m 注入内核信号: \033[33m{args.signal} (SIG={sig_val})\033[0m...")
+    async with CoreDeviceSession() as s:
+        async with DvtProvider(s.rsd) as provider:
+            pc = ProcessControl(provider)
+            await pc.connect()
+            
+            pid = await resolve_pid(pc, args.target)
+            if not pid:
+                print(f"❌ 未找到运行中的目标进程: {args.target}！")
+                return 1
+                
+            res = await pc.signal(pid, sig_val)
+            print(f"✅ 信号已成功发送至 PID {pid}！返回: {res}")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="cdtk-proc",
+        description="iOS 原生进程特权与内存限制豁免中枢 (CoreDevice RSD + DVT ProcessControl)",
+    )
+    sub = parser.add_subparsers(dest="subcommand", required=True)
+
+    p_mem = sub.add_parser("mem", help="一键豁免目标应用的 Jetsam 内存上限，彻底防杀后台")
+    p_mem.add_argument("target", help="应用 Bundle ID（如 com.openminis.app）或目标 PID")
+    p_mem.set_defaults(func=cmd_mem)
+
+    p_sig = sub.add_parser("signal", help="向目标进程注入底层系统信号（如 stop / cont / kill）")
+    p_sig.add_argument("target", help="目标应用 Bundle ID 或 PID")
+    p_sig.add_argument("signal", help="信号名称（stop, cont, kill, term）或整数值")
+    p_sig.add_argument("-y", "--yes", action="store_true", help="确认发送信号（高危操作必需参数）")
+    p_sig.set_defaults(func=cmd_signal)
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        return 1
+
+    args = parser.parse_args()
+    try:
+        return asyncio.run(args.func(args))
+    except KeyboardInterrupt:
+        print("\n⚠️ 操作已取消。")
+        return 130
+    except Exception as e:
+        print(f"\n❌ 执行失败: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
