@@ -1,6 +1,6 @@
 ---
 name: coredevice-toolkit
-description: "iOS 免电脑、免越狱 CoreDevice RSD 极客工具链 (CDTK)。利用 Surge 本地回环反射 (10.7.0.1=reflect) + Node.js TLS-PSK 桥接 + 纯用户态协议栈 (pmd-pytcp)，在 iPhone 单机内部建立苹果底层开发者通信隧道，提供本地开发侧载、原生进程调度、硬件诊断、沙盒管理、描述文件管理及崩溃透视全套 CLI 工具。触发词：coredevice-toolkit, cdtk, cdtk-install, cdtk-ctrl, cdtk-profile, cdtk-fs, cdtk-diag, cdtk-crash, cdtk-inspect, CoreDevice RSD。"
+description: "iOS 免电脑、免越狱 CoreDevice RSD 极客工具链 (CDTK)。利用 Surge 本地回环反射 (10.7.0.1=reflect) + Node.js TLS-PSK 桥接 + 纯用户态协议栈 (pmd-pytcp)，在 iPhone 单机内部建立苹果底层开发者通信隧道，提供本地开发侧载、原生进程调度、硬件诊断、沙盒管理、描述文件管理及崩溃透视全套 CLI 工具。触发词：coredevice-toolkit, cdtk, cdtk-install, cdtk-ctrl, cdtk-profile, cdtk-fs, cdtk-diag, cdtk-crash, cdtk-inspect, cdtk-springboard, CoreDevice RSD。"
 compatibility: "iOS 18.0+ (Verified), iOS 17.x (Experimental), Node.js, Python 3.10+, Surge 5.10+"
 ---
 
@@ -61,7 +61,7 @@ compatibility: "iOS 18.0+ (Verified), iOS 17.x (Experimental), Node.js, Python 3
 
 ## 三、 专属核心 CLI 工具矩阵 (`cdtk-*`)
 
-安装后可在终端直接调用以下 7 大全局命令行神器：
+安装后可在终端直接调用以下 8 大全局命令行神器：
 
 ### 1. `cdtk-install`（免电脑开发侧载与自签直装）
 - **功能**：自动动态发现本地证书与描述文件、自动签名（支持自定义 App 展现名称与 Bundle ID 避免冲突），并通过底层 `installation_proxy` 原生推流直装进入系统。
@@ -128,12 +128,26 @@ compatibility: "iOS 18.0+ (Verified), iOS 17.x (Experimental), Node.js, Python 3
   cdtk-inspect list                     # 列出全机所有挂载 WebKit 引擎的页面与 ID
   ```
 
+### 8. `cdtk-springboard`（主屏图标与文件夹布局管理）
+- **功能**：基于 `com.apple.springboardservices`（RSD 下为 `.shim.remote`），导出 / 下发整份主屏布局（Dock、各页图标、文件夹、小组件），可以批量整理图标、建文件夹、调顺序，写入后桌面立即刷新。
+- **常用命令**：
+  ```bash
+  cdtk-springboard backup layout.json   # 导出当前主屏布局 (支持 .json / .plist)
+  cdtk-springboard apply layout.json -y # 下发并应用布局 (覆盖全部页面)
+  ```
+- **要点**：
+  - 布局是 `[Dock, 第1页, 第2页, ...]` 的列表；文件夹是 `listType: "folder"`，里面的 `iconLists` 每页最多 9 个。
+  - `apply` 会覆盖整个桌面：改之前先 `backup`，改完再 `backup` 回读确认。
+  - 同一个 App 可以放多个图标，但系统按 `displayIdentifier` 去重，副本要写成 `{"displayIdentifier": "<新 UUID，大写>", "bundleIdentifier": "<包名>", "iconType": "app", "iconLists": []}`。
+  - 没写进布局的 App，`apply` 后会被系统追加到最后几页。
+  - 一页放不下的元素会被**静默丢弃**（iPhone 一页 4×6 格，中号小组件占 8 格）；空页会被系统自动清掉。
+
 ---
 
 ## 四、 安全规范与凭据防护机制 🛡️
 
 1. **AI / 自动化调用最高安全准则 (Mandatory Safety Rule)**：
-   - **绝对禁止静默执行修改**：在未向用户发起询问并获得明确聊天答复许可前，**严禁**执行任何安装/移除描述文件（`cdtk-profile install/remove`）、安装/卸载应用（`cdtk-install install/uninstall`）或覆写应用沙盒文件操作！
+   - **绝对禁止静默执行修改**：在未向用户发起询问并获得明确聊天答复许可前，**严禁**执行任何安装/移除描述文件（`cdtk-profile install/remove`）、安装/卸载应用（`cdtk-install install/uninstall`）、覆盖主屏布局（`cdtk-springboard apply`）或覆写应用沙盒文件操作！
    - 只有在获得用户明确授权后，方可在命令行中附加 `-y / --yes` 执行。若无 `-y`，CLI 进程将主动输出阻断提示并安全退出（退出码 1）；
 2. **配对文件（Private Key）强隔离与权限阻断**：
    - 配对文件 `.plist` 包含设备的 Ed25519 签名私钥，相当于全权设备信任凭据；
