@@ -1,0 +1,106 @@
+# Compose a reminder card
+
+Use this reference when source material contains more information than one useful
+Reminders card: documents, meeting notes, screenshots, several dates, missing
+times, or multiple links.
+
+## One visible home
+
+Extract the source first, then project each useful fact into one card part:
+
+| Card part | Purpose |
+|---|---|
+| title | The action or scheduled item the user will recognize at a glance |
+| trigger | The action's actual due time, recurrence, or arrive/leave condition |
+| notes | Brief context needed at the moment of action |
+| canonical link | The one page that performs the action or provides the essential reference |
+| evidence | Source text or image location used for reasoning, not copied by default |
+
+Use the title as the scan line, not as a miniature record. A date, place, owner,
+or event name can stay when it helps identify the action. Metadata already carried
+by the trigger, list, priority, or notes adds no value when repeated in the title.
+Read title, notes, and trigger together and remove a duplicate when the card remains
+equally actionable without it.
+
+## Dates without invented times
+
+Dates in the same source can serve different jobs. A registration deadline can
+trigger “Register for DevDay,” while the later event date is supporting context.
+Assign a date to `due` only when it controls this action; keep context dates in
+notes.
+
+Resolve clear relative wording against the source date and device timezone. Keep
+wording such as “early next week” unresolved when it does not identify one safe
+date or time.
+
+The current command cannot store a typed all-day due. Bare `YYYY-MM-DD` becomes a
+timed midnight. For a date-only trigger:
+
+1. apply the user's established storage preference when one exists;
+2. otherwise ask once whether to use a real local time or leave due unset and keep
+   the date in notes;
+3. use midnight only when the user explicitly chooses midnight or accepts that
+   approximation.
+
+Collect the choice once for a batch when the same preference can apply to every
+date-only candidate.
+
+### Repairing an existing midnight-shaped card
+
+The date-only preference is easy to apply before create, but it may not be
+patchable afterward. If an existing reminder already has a 00:00 due, the command
+cannot clear that due and turn the card into “date in notes, no due.” Offer the
+smallest honest choices: keep the midnight approximation, choose a real local
+time, clear the date manually in Reminders, or—only with explicit replacement and
+delete/complete authorization—create a new unscheduled card and reconcile the old
+one. Adding a date to notes alone does not repair the existing trigger. Because the
+CLI projects native all-day and intentional midnight identically, do not rewrite
+an existing 00:00 item until the user resolves that meaning.
+
+## One useful link
+
+Choose one canonical link by the action it enables: Register, Join, Pay, Review,
+or another concrete next step. The current command cannot write the native
+reminder URL field, so a needed link can only be stored as concise labelled note
+text. Treat it as note text, not as a native URL or attachment.
+
+That fallback still shows the full raw URL. When the user values a clean card,
+apply their established preference or include one choice in the same clarification:
+keep the single labelled URL in notes, or omit it. Distinguish three future
+capabilities: singular EventKit URL metadata, a visible native URL attachment/card
+on iPhone, and raw or linkified note text. Exposing only URL metadata would not by
+itself prove clean mobile presentation. Treat any future `--url` flag as
+metadata-only until a physical-device check proves a visible native card; require
+metadata read-back separately from physical presentation, and claim clean mobile
+presentation only after a device check shows the intended native card. Current
+native support is tracked in
+[OpenMinis/OpenMinis#286](https://github.com/OpenMinis/OpenMinis/issues/286).
+
+Keep a second link only when it supports a genuinely different next step or
+reference the user will need. Source archiving is a different job from composing a
+reminder; a card does not need to preserve every supplied URL.
+
+## Example
+
+Source:
+
+```text
+OpenAI DevDay Exchange 2026; registration closes Sep 4 (no time supplied);
+Seoul event Oct 22 at 14:00; registration URL; event-information URL.
+```
+
+Card proposal on the current command:
+
+```text
+title: Register for OpenAI DevDay Exchange 2026
+due: unresolved date-only trigger
+notes:
+  Event: Oct 22 at 14:00 · Seoul
+  Register: <registration URL>
+```
+
+The registration page is the canonical action link. The general information page
+stays out unless it adds needed information or the user asks to retain it. After
+the date and link storage choices are resolved, use this same card as the write
+intent and the read-back comparison. Report only its verified phone-sized
+projection.
