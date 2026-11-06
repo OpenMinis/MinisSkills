@@ -21,15 +21,15 @@ adb_heal() {
   fi
 }
 ensure_adb() {
-  command -v adb >/dev/null 2>&1 || { echo "ERR: 找不到 adb（Alpine: apk add android-tools）"; return 2; }
+  command -v adb >/dev/null 2>&1 || { echo "ERR: adb not found (Alpine: apk add android-tools)"; return 2; }
   adb_heal
   if ! adbx devices 2>/dev/null | grep -q 'device$'; then
     adb start-server >/dev/null 2>&1
     if [ -n "$ADB_CONNECT" ] || [ -z "$SERIAL" ]; then timeout 15 adb connect "${ADB_CONNECT:-localhost:5555}" >/dev/null 2>&1; fi
   fi
   N=$(timeout 8 adb devices 2>/dev/null | grep -c 'device$')
-  if [ "$N" = "0" ]; then echo "ERR: 无在线设备。请先开启开发者选项 → 无线调试并 adb pair/connect，见 references/setup.md"; return 3; fi
-  if [ "$N" -gt 1 ] && [ -z "$SERIAL" ]; then echo "ERR: 多个设备，请设置 SERIAL=<序列号>"; adb devices; return 4; fi
+  if [ "$N" = "0" ]; then echo "ERR: No online device. Enable Developer options -> Wireless debugging and run adb pair/connect; see references/setup.md"; return 3; fi
+  if [ "$N" -gt 1 ] && [ -z "$SERIAL" ]; then echo "ERR: Multiple devices attached; set SERIAL=<serial>"; adb devices; return 4; fi
   return 0
 }
 # Host calls the on-device agent API via adb forward; the local port is saved in $STATE/fport and the forward is recreated if lost
@@ -60,7 +60,7 @@ agent_to() {
 
 # Upgrade hint appended to all errors: update to the latest version and retry
 SK_VERSION=$(cat "$SK_DIR/assets/VERSION" 2>/dev/null)
-upgrade_hint() { echo "hint: 本 skill 版本 ${SK_VERSION:-?}。出错请先更新到最新版（重新安装本 skill 包，再运行 start.sh 会自动升级设备上的 APK），再试一次是否解决。详见 CHANGELOG.md"; }
+upgrade_hint() { echo "hint: skill version ${SK_VERSION:-?}. If errors occur, update to the latest skill package first (start.sh will auto-upgrade the on-device APK) and retry. See CHANGELOG.md"; }
 # Read the APK version on the device: prints JSON (device_version/skill_version/match)
 version_info() {
   HAVE=$(adbx shell "dumpsys package $PKG 2>/dev/null | grep -m1 versionName | sed 's/.*=//'" 2>/dev/null | tr -d '\r ')

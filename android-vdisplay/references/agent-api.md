@@ -1,42 +1,44 @@
-# Agent 接口（APK 内置，127.0.0.1:28080）
+# Agent HTTP API (Built-In APK Server, `127.0.0.1:28080`)
 
-APK 启动后在设备本机监听。电脑上用 `adb forward tcp:<本机端口> tcp:28080` 访问；设备内的 agent 直接访问 127.0.0.1:28080。坐标默认使用参考宽度 `ref=540`（高度按设备主屏比例等比换算，如 540×1170 / 540×1176），与 `/screenshot` 和 `/ui` 默认输出尺寸一致。
+Once the overlay APK starts, it listens on `127.0.0.1:28080` on the device. From a host computer, use `adb forward tcp:<local_port> tcp:28080`; from inside Minis on the phone, connect to `127.0.0.1:28080` directly (or via `agent.sh`). Coordinates default to reference width `ref=540` (height scaled proportionally to the physical screen aspect ratio, e.g. `540x1170` or `540x1176`), matching the default output of `/screenshot` and `/ui`.
 
-| 路径 | 说明 |
+| Endpoint | Description |
 |---|---|
-| `/status` | `{connected,ready,frames,rendered,dropped,decodeErrors,displayId,serviceEnabled,serviceConnected,width,height,closed,closedReason,idleMs,idleLimitMs,humanActive,manualTakeover,stopped,...}`，见下方 ready 语义 |
+| `/status` | `{connected,ready,frames,rendered,dropped,decodeErrors,displayId,serviceEnabled,serviceConnected,width,height,closed,closedReason,idleMs,idleLimitMs,humanActive,manualTakeover,stopped,...}` — see `ready` semantics below |
 | `/version` | `{ok,app,version,versionCode,scrcpy,protocol,sdk,device}` |
-| `/ui` | 只读副屏控件树（需无障碍服务，参数见下方） |
-| `/screenshot` | `TextureView.getBitmap()` 抓取小窗画面。参数：`w=宽(默认540)`、`scale=0.1~1`、`fmt=png\|jpg\|webp`、`q=30~100`（jpg/webp 质量）。响应头 `X-Timing-Ms` 给出 capture/scale/encode 耗时 |
-| `/ping` | 空操作，用来量传输开销 |
-| `/tap?x=&y=&ref=540` | 点击（按参考宽度 `ref` 等比映射到虚拟屏真实分辨率） |
-| `/swipe?x1=&y1=&x2=&y2=&ms=300&ref=540` | 滑动 |
-| `/key?code=4` | 按键（Android keycode） |
-| `/text?s=hello` | 输入文字（ASCII 逐字注入；含非 ASCII 自动走剪贴板粘贴） |
-| `/start?pkg=com.android.chrome` | 在虚拟屏启动 App |
-| `/title?s=文案` | 动态更新悬浮小窗顶栏任务标题 |
-| `/window?x=&y=&w=<dp>` / `hide=1\|0` | 移动/缩放小窗；`hide=1` 移出屏幕且不可触摸（副屏继续运行，agent 仍可操作与截图）；`hide=0` 恢复 |
-| `/takeover?on=1\|0` / `/resume` | 人类接管开关；`/resume` 解除用户接管或停止态 |
+| `/ui` | Read-only virtual display widget tree (requires accessibility service; parameters below) |
+| `/screenshot` | Captures the floating card via `TextureView.getBitmap()`. Params: `w=<width(default 540)>`, `scale=0.1~1`, `fmt=png\|jpg\|webp`, `q=30~100` (for jpg/webp). Response header `X-Timing-Ms` reports `capture/scale/encode` latency |
+| `/ping` | No-op endpoint used to measure baseline transport overhead |
+| `/tap?x=&y=&ref=540` | Tap at `(x, y)` (scaled proportionally from reference width `ref` to the virtual display's native resolution) |
+| `/swipe?x1=&y1=&x2=&y2=&ms=300&ref=540` | Swipe from `(x1, y1)` to `(x2, y2)` over `ms` milliseconds |
+| `/key?code=4` | Inject Android keycode (`4`=BACK, `3`=HOME, `66`=ENTER, `67`=DEL) |
+| `/text?s=hello` | Inject text (ASCII injected character by character; non-ASCII pasted via system clipboard) |
+| `/start?pkg=com.android.chrome` | Launch an application on the virtual display |
+| `/title?s=Label` | Dynamically update the top-bar task pill on the floating window |
+| `/window?x=&y=&w=<dp>` / `hide=1\|0` | Move/resize the floating card; `hide=1` moves it off-screen and makes it untouchable while keeping the virtual display active; `hide=0` restores it |
+| `/takeover?on=1\|0` / `/resume` | Toggle human takeover; `/resume` clears human takeover or stopped state |
 
-人类在小窗定点长按 1 秒（或点右上角停止按钮）进入接管，接管期间控制请求（`tap`/`swipe`/`key`/`text`/`start`）返回 HTTP 423，直到用户点击「交还 AI」（或调用 `/resume`）；仅在用户明确要求时才可加 `force=1` 绕过拦截。
+When the user stationary long-presses the floating card for 1 second (or taps the top-right Stop button), human takeover begins and all control endpoints (`tap`, `swipe`, `key`, `text`, `start`) return **HTTP 423** until the user taps **Hand back to AI** (or `/resume` is called). Pass `force=1` only when the user explicitly instructs the agent to override takeover.
 
-## `ready` / `frames` / `rendered`（0.11.0）
-- `frames`：从 scrcpy 视频流收到的**数据包**数（旧版 `ready` 的依据）。包到了不代表画面出来了：解码器可能没拿到 config/关键帧，或 Surface 失效，此时 `frames` 持续增长而截图是纯黑。
-- `rendered`：解码器**真正输出并以 render=true 释放**的帧数。
-- `ready = connected && rendered > 0`，即“已经画出过画面”。`start.sh` 以此为成功标准。
-- `dropped`：因解码器输入缓冲超时而丢弃的包数（config/关键帧会重试约 500 ms，仍失败则向 server 发 RESET_VIDEO 要新关键帧）。`decodeErrors`：解码异常次数（原因在 `error` 与 logcat 的 `SKILLED` 标签）。
-- Surface 销毁时 `rendered` 归零，新 Surface 绑定并出新画面后恢复。
+## `ready` / `frames` / `rendered` (`v0.11.0+`)
+- `frames`: Number of video **packets** received from the scrcpy stream (used as `ready` in older versions). Receiving packets does not guarantee a visible picture: if the decoder misses the config/keyframe packet or the Surface is not ready, `frames` increments while screenshots remain black.
+- `rendered`: Number of frames **actually decoded and released with `render=true`**.
+- `ready = connected && rendered > 0` ("at least one frame has been drawn"). `start.sh` requires `ready:true` before succeeding.
+- `dropped`: Packets dropped due to decoder input-buffer timeouts (config and keyframe packets retry for up to ~500 ms and send scrcpy `RESET_VIDEO` if still unable to queue). `decodeErrors`: Decoder exception count (details in `error` and logcat tag `SKILLED`).
+- When the Surface is destroyed, `rendered` resets to `0` and recovers once a new Surface is attached and rendered.
 
-## `GET /ui`（0.12.0，只读控件树，需无障碍服务）
-`/status` 含 `displayId`（本副屏 id）、`serviceEnabled`、`serviceConnected`。`/ui` 只读：人类接管/Stop 期间也可用，并刷新闲置计时。
-| 参数 | 说明 |
+## `GET /ui` (`v0.12.0+`, Read-Only Widget Tree)
+`/status` exposes `displayId` (our virtual display ID), `serviceEnabled`, and `serviceConnected`. `/ui` is read-only: it remains available during human takeover or Stop state and refreshes the idle timer.
+
+| Parameter | Description |
 |---|---|
-| `display=<id>\|all` | 默认本副屏；`all` 列出各屏窗口 |
-| `ref=540` | 坐标参考宽度（同 /tap），高度按比例；每个节点带 `center` |
-| `find=<text>` | 不分大小写子串，匹配 text / contentDescription / resource id；无匹配返回 `count=0` |
-| `clickable=1` `editable=1` `scrollable=1` | 过滤 |
-| `limit=N` | 默认 200 |
-| `format=lines\|json` | 默认 lines：`[25] ImageButton desc="7" id=digit_7 click (6,605)-(134,733) c=(70,669)`；json 为 `items:[{i,d,p,class,text,desc,id,bounds,center,clickable,...}]` |
-| `all=1` | 不过滤不可见/无信息节点 |
-默认输出跳过不可见、零尺寸、无 text/desc 且不可点击/编辑/滚动的节点。服务未启用/未连接返回 HTTP 503：`{"ok":false,"error":..,"serviceEnabled":..,"serviceConnected":..,"hint":"<启用命令>"}`（`agent.sh ui` 遇到 503 会自动补回一次）；系统调用超过 5 s 返回 504。
-实测字节数（540 参考坐标）：计算器 lines 3.5 KB / json 6.3 KB；设置 4.0 / 7.0 KB；Chrome 5.6 / 9.5 KB。延迟中位数 16 ms。
+| `display=<id>\|all` | Defaults to our virtual display; `all` lists windows across all displays |
+| `ref=540` | Reference coordinate width (same as `/tap`), height scaled proportionally; every node includes `center` |
+| `find=<text>` | Case-insensitive substring match against `text`, `contentDescription`, or `resource id`; returns `count=0` when unmatched |
+| `clickable=1` `editable=1` `scrollable=1` | Filter by node capability |
+| `limit=N` | Maximum nodes returned (default `200`) |
+| `format=lines\|json` | Default `lines`: `[25] ImageButton desc="7" id=digit_7 click (6,605)-(134,733) c=(70,669)`; `json` returns `items:[{i,d,p,class,text,desc,id,bounds,center,clickable,...}]` |
+| `all=1` | Disable filtering of invisible or uninformative container nodes |
+
+By default, `/ui` skips nodes that are invisible, zero-sized, or lack text/description while not being clickable/editable/scrollable. If the accessibility service is disabled or disconnected, `/ui` returns HTTP 503 (`{"ok":false,"error":..,"serviceEnabled":..,"serviceConnected":..,"hint":"<enable_cmd>"}`, which `agent.sh ui` heals automatically once); if the system call takes longer than 5 s, it returns HTTP 504.
+Measured payload sizes (`ref=540`): Calculator `lines` 3.5 KB / `json` 6.3 KB; Settings 4.0 KB / 7.0 KB; Chrome 5.6 KB / 9.5 KB. Median latency: 16 ms.
