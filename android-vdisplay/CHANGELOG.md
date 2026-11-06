@@ -2,6 +2,12 @@
 
 > **Update first when you hit any error**: Reinstall the latest `android-vdisplay` package and run `start.sh`. The script compares the installed APK version against the bundled skill version and upgrades automatically when they differ. Check version parity with `sh scripts/agent.sh version` (or query `/status` and `/version` directly for `version`, `versionCode`, `protocol`, `sdk`, and `device`).
 
+## 0.12.1 (script fixes, no APK change)
+- Fixed `start.sh` failing on the first run after a fresh install (APK not installed): the preflight fields are now labelled (`V= J= P= R=`) so an empty version no longer shifts the port/jar fields; the port is validated.
+- Fixed `agent.sh` always exiting 0: control commands now exit non-zero on `{"ok":false,...}` (e.g. HTTP 423 `human has control`) or a transport failure.
+- `device-run.sh` now passes `display_ime_policy=local` (override with `IME_POLICY=fallback`) so the soft keyboard shows on the second screen instead of the main screen.
+- Reported by a user on Xiaomi 24122RKC7C / Android 17 / HyperOS.
+
 ## 0.12.1
 - `agent.sh ui` / `ui-tap` now heal a LOST accessibility service in the middle of a session: on "service not enabled" they re-enable it (append-only) and retry once, with a one-line note on stderr.
   Guard rails: only inside a session we started (between `start.sh` and `stop.sh`), at most once per 60 s (if it is switched off again right away, someone meant it), remembered as blocked when the system refuses the write (some vendor ROMs), and an explicit `start.sh` re-authorizes.
