@@ -1,43 +1,43 @@
-# 悬浮窗交互与人类接管
+# Floating Window Interaction & Human Takeover
 
-## 视觉与状态
-- 画面铺满圆角卡片，标题与按钮叠在画面上方，不额外占高度。
-- 呼吸灯流光沿边缘铺展：
-  - **蓝紫橙粉交替（快）**：AI 正在操作
-  - **淡蓝静止**：AI 待命
-  - **绿色**：用户接管中
-  - **红橙**：已停止 AI
-- 顶栏控件：
-  - 左侧：标题胶囊（展示当前阶段任务，如「Computing 37x42」）
-  - 右侧：
-    - AI 操作中：红色圆形**停止按钮**（内含白方块）
-    - 待命 / 用户操作中：灰色圆形 **× 关闭副屏按钮**（点一次提示「再点一次关闭」，3 秒内再点退出整套副屏）
-    - 接管状态：绿色**「交还 AI」胶囊**
+## Visual States & Controls
+- Video fills the rounded card edge-to-edge; the title pill and action buttons overlay the top of the video without adding extra bar height.
+- An AGSL breathing-light border animates around the card edges:
+  - **Fast multi-color (blue/purple/orange/pink)**: AI is actively operating
+  - **Calm light blue**: AI standby
+  - **Green**: Human takeover active
+  - **Red/orange**: AI stopped by user
+- Top-bar controls:
+  - Left: **Task title pill** (shows current step, e.g. `Computing 37x42`; hidden during takeover so it does not overlap the resume pill)
+  - Right:
+    - While AI is operating: Red circular **Stop button** (white square icon)
+    - Standby / Human operating: Gray circular **x Close button** (first tap arms confirmation and displays `Tap again to close`; second tap within 3 seconds shuts down the entire virtual display stack)
+    - Takeover / Stopped state: Green **"Hand back to AI" pill**
 
-## 手势规则
-| 手势 | AI 操作中 | 待命状态 | 人类已接管 |
+## Gesture Rules
+| Gesture | While AI Is Operating | Standby State | Human in Control |
 |---|---|---|---|
-| **轻点** | 忽略（不接管、不传副屏） | 忽略（不接管、不传副屏；需先长按 1 秒接管） | 传副屏点击 |
-| **单指拖动** | 移动悬浮窗（松手靠边吸附折叠） | 移动悬浮窗 | 传副屏滑动 |
-| **定点长按 1 秒** | **进入接管**（出现绿色进度环，满 1 秒接管） | **进入接管** | 传副屏长按 |
-| **双指捏合/张开** | **等比缩放窗口**（双指中心为锚点，跟手） | **等比缩放窗口** | **等比缩放窗口** |
-| **拖到屏幕左/右边缘** | **吸附折叠成箭头小拉手** | **吸附折叠** | **吸附折叠** |
+| **Light tap** | Ignored (no takeover, not forwarded) | Ignored (no takeover, not forwarded; hold 1 s first) | Forwarded as tap to virtual display |
+| **One-finger drag** | Moves floating window (snaps/docks at screen edges) | Moves floating window | Forwarded as swipe to virtual display |
+| **Stationary 1 s long-press** | **Enters takeover** (green progress ring fills over 1 s) | **Enters takeover** | Forwarded as long-press to virtual display |
+| **Two-finger pinch / spread** | **Proportional resize** (anchored at finger midpoint) | **Proportional resize** | **Proportional resize** |
+| **Drag to left/right screen edge** | **Docks & collapses into arrow pull-tab** | **Docks & collapses** | **Docks & collapses** |
 
-- **折叠状态**：画面收起，只在边缘留一个带方向箭头的圆角小拉手。副屏照常运行，agent 仍可正常截图和操作；点击拉手即可重新展开。
-- **窗口尺寸保护**：最小宽度 120dp，最大尺寸受限于屏幕 85%；顶栏按钮随窗口尺寸等比缩放（0.75~1.1x），避免小窗时按钮过大。
+- **Docked / collapsed state**: The card slides off-screen and leaves a small rounded arrow pull-tab on the screen edge. The virtual display continues running in the background and the agent can still query `/ui`, take screenshots, and inject actions; tapping the pull-tab expands the card back onto the screen.
+- **Size bounds & control scaling**: Window width is clamped between `120dp` and `85%` of the screen; top-bar controls and the center hint scale proportionally (`0.75x` to `1.15x`) so buttons never look oversized on a small card.
 
-## 人类接管与 HTTP 423
-- **接管判定**：定点长按满 1 秒（或点右上角停止），进入接管态。
-- **423 拦截**：接管期间，agent 发送的所有控制请求（`tap` / `swipe` / `key` / `text` / `start`）均被服务端拦截并返回 **HTTP 423**：
+## Human Takeover & HTTP 423
+- **Entering takeover**: Stationary long-pressing the card for 1 second (or tapping the top-right Stop button) enters takeover mode.
+- **HTTP 423 interception**: Throughout takeover, every control request from the agent (`tap`, `swipe`, `key`, `text`, `start`) is rejected with **HTTP 423**:
   ```json
   {"ok": false, "error": "human has control", "humanActive": true}
   ```
-  如果是用户点击了右上角停止按钮，则返回：
+  If the user tapped the top-right Stop button, the response is:
   ```json
-  {"ok": false, "error": "stopped by user", "hint": "The user pressed Stop..."}
+  {"ok": false, "error": "stopped by user", "hint": "The user pressed Stop. Ask the user before continuing, or ask them to tap Hand back to AI."}
   ```
-- **agent 应对规则**：
-  1. 收到 423 时**绝不要高频重试轰炸**。
-  2. 立即暂停操作，在对话中如实告知用户「检测到您正在接管/停止操作，请在需要时点击小窗上的『交还 AI』」。
-  3. 仅在用户于聊天中明确要求继续时，才允许加 `force=1` 绕过拦截。
-- **只读操作不受拦截**：读取控件树（`ui`）、截图（`shot`）、查询状态（`status`）、设标题（`title`）在接管期间仍可正常调用。
+- **Agent handling rules**:
+  1. Never retry in a tight loop when receiving HTTP 423.
+  2. Pause immediately and inform the user in chat that manual takeover / stop was detected and they can tap **Hand back to AI** on the floating window when ready.
+  3. Only pass `force=1` if the user explicitly instructs the agent in chat to continue despite takeover.
+- **Read-only operations remain available**: Widget tree inspection (`ui`), screenshots (`shot`), status queries (`status`), and title updates (`title`) continue to work normally during takeover.

@@ -1,28 +1,30 @@
-# 架构与实现要点
+# Architecture & Implementation Notes
 
-## 组件
-| 组件 | 运行身份 | 作用 |
+## Components
+| Component | Execution Identity | Role |
 |---|---|---|
-| scrcpy server (`scrcpy-server.jar`) | adb shell | 创建 **trusted 虚拟屏**（带系统装饰/输入法，默认与主屏同尺寸/dpi），H.264 编码，处理控制消息（触摸/按键/文字/启动 App） |
-| Bridge (`skilled-shell.jar`，类 `app.openminis.vdisplay.Bridge`) | adb shell | TCP 桥：连 `@scrcpy_<scid>`（默认 `scid=76646973`，即 `"vdis"`），映射到 `127.0.0.1:<空闲端口>`（27183 起自动选择） |
-| `skilled.apk`（包名 `app.openminis.vdisplay`） | 普通 App（悬浮窗 + 只读无障碍服务） | 连桥、解码 H.264 到圆角悬浮窗 `TextureView`（AGSL 呼吸灯流光边框）、处理手势（长按 1 秒接管、双指跟手缩放、边缘吸附折叠）、内置 `UiService` 读取副屏控件树、暴露本机 HTTP 接口(28080) |
+| `scrcpy-server` (`scrcpy-server.jar`) | ADB `shell` | Creates a **trusted virtual display** (with system decorations and IME, matching the main screen's resolution/DPI by default), encodes H.264, and handles control messages (touch, key, text, app launch) |
+| Bridge (`skilled-shell.jar`, class `app.openminis.vdisplay.Bridge`) | ADB `shell` | TCP bridge: connects to `@scrcpy_<scid>` (default `scid=76646973`, ASCII `"vdis"`) and exposes it on `127.0.0.1:<free_port>` (auto-selected starting at `27183`) |
+| `skilled.apk` (package `app.openminis.vdisplay`) | Normal App (Overlay + Read-Only Accessibility Service) | Connects to Bridge, decodes H.264 into a rounded `TextureView` card with AGSL breathing-light border, handles gestures (1 s long-press takeover, two-finger midpoint-anchored pinch zoom, edge docking), runs `UiService` to read the virtual display's widget tree, and serves the local HTTP API (`127.0.0.1:28080`) |
 
-## 为什么要 TCP 桥
-普通 App 连 shell 进程创建的 abstract socket 会被 SELinux 拒绝（`Permission denied`，已实测），但可以连 `127.0.0.1` TCP。scrcpy server 因此保持零改动。
+## Why a TCP Bridge Is Required
+On Android, untrusted apps are blocked by SELinux (`Permission denied`) from connecting to abstract UNIX domain sockets created by the `shell` user, whereas loopback TCP connections to `127.0.0.1` are permitted. Using a lightweight TCP bridge in `shell` context allows `scrcpy-server.jar` to remain 100% unmodified.
 
-## 连接顺序
-scrcpy 在 `tunnel_forward=true` 下按 **video → control** 顺序 accept，Bridge 与 APK 必须同序连接。流格式：`[dummy 1B][设备名 64B][codec id 4B]`，之后循环 `[12B 帧头 + payload]`；帧头 8B `ptsAndFlags`（bit63 session，bit62 config，bit61 keyframe）+ 4B 长度；session 头为 `flags(4)+w(4)+h(4)`。
+## Connection Ordering & Wire Protocol
+When `tunnel_forward=true`, `scrcpy-server` accepts connections sequentially in **video -> control** order; both Bridge and the APK must connect in that exact order. Stream format: `[dummy 1B][device_name 64B][codec_id 4B]`, followed by repeating `[12B frame_header + payload]` packets (`8B ptsAndFlags` with bit 63 = session, bit 62 = config, bit 61 = keyframe + `4B length`; session header is `flags(4)+w(4)+h(4)`).
 
-## 虚拟屏参数与共存
-- `new_display=WxH/dpi vd_system_decorations=true`；`cleanup=false power_off_on_close=false power_on=false stay_awake=false`，退出时不改主屏电源/常亮设置。
-- 进程清理只匹配本项目 `scid`（默认 `76646973`）和 `app.openminis.vdisplay.Bridge`，不会误杀用户在电脑上运行的其它 scrcpy 会话。
+## Virtual Display Parameters & Coexistence
+- `new_display=WxH/dpi vd_system_decorations=true`; `cleanup=false power_off_on_close=false power_on=false stay_awake=false` so exiting never locks the physical screen or alters stay-awake settings.
+- Process cleanup matches only our specific `scid` (default `76646973`) and `app.openminis.vdisplay.Bridge`, leaving any other `scrcpy` sessions started by the user untouched.
 
-## 从源码重新构建
-仓库 `OpenMinis/scrcpy-skilled`：`scripts/build-scrcpy-server.sh`（本机编译 scrcpy server，手写 AIDL stub，因为 x86 的 aidl 在 ARM 上跑不了）、`scripts/build-apk.sh`。
+## Rebuilding from Source
+Source repository `OpenMinis/scrcpy-skilled`:
+- `scripts/build-scrcpy-server.sh`: Compiles `scrcpy-server` on-device using handwritten AIDL stubs (since Google's `x86_64` `aidl` binary cannot run directly on ARM64).
+- `scripts/build-apk.sh`: Compiles resources, Java sources, and DEX for `skilled.apk` and `skilled-shell.jar`.
 
-## 已验证的坑
-- shell 往虚拟屏 `am start` 需要虚拟屏带 `PUBLIC`，scrcpy 已带。
-- 前台服务必须 5 秒内 `startForeground()`，否则进程被杀、虚拟屏消失。
-- `SurfaceView` 无法被 View 的圆角 `Outline` 裁剪，改用 `TextureView` 才能裁出干净圆角并直接 `getBitmap()` 截图。
-- `am force-stop` 会让系统从 `enabled_accessibility_services` 中移除本包条目，因此 `start.sh` 每次都会幂等追加。
-- `/data/local/tmp` 根目录的 jar 会被系统或其它工具清理，放子目录 `/data/local/tmp/sc/`。
+## Verified Pitfalls
+- Launching activities onto a virtual display from `shell` requires the virtual display to carry the `PUBLIC` flag (included by `scrcpy-server`).
+- A foreground service started via `am start-foreground-service` must call `startForeground()` within 5 seconds or Android kills the process and destroys the virtual display.
+- `SurfaceView` punches through the window and ignores view-hierarchy rounded `Outline` clipping; `TextureView` is required for clean rounded corners and direct `getBitmap()` screenshots.
+- `am force-stop` causes Android to remove our entry from `enabled_accessibility_services`, so `start.sh` idempotently appends it on every launch.
+- Files placed directly under `/data/local/tmp/*.jar` may be cleaned up unexpectedly; store runtime artifacts in `/data/local/tmp/sc/`.

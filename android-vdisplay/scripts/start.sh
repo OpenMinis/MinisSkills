@@ -4,7 +4,7 @@
 # On success prints one JSON line: {"ok":true,"display":N,"port":P,"w":..,"h":..}; on failure prints {"ok":false,"stage":"...","hint":"...","log":"..."} and exits non-zero.
 FRESH=${VDISPLAY_FRESH:-0}
 if [ "$1" = "--fresh" ]; then FRESH=1; shift; fi   # force a rebuild instead of reusing a healthy display
-. "$(dirname "$0")/common.sh"; ensure_adb || { echo "{\"ok\":false,\"stage\":\"adb\",\"hint\":\"设备未连接或未授权，见 references/setup.md\"}"; exit 3; }
+. "$(dirname "$0")/common.sh"; ensure_adb || { echo "{\"ok\":false,\"stage\":\"adb\",\"hint\":\"Device disconnected or unauthorized; see references/setup.md\"}"; exit 3; }
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
 T0=$(now_ms); TL=$T0; TIMING=""
 lap() { _n=$(now_ms); TIMING="$TIMING${TIMING:+,}\"$1\":$((_n-TL))"; TL=$_n; }   # per-stage milliseconds, reported in the result JSON
@@ -18,7 +18,7 @@ fail() { # fail <stage> <hint>
   [ -z "$SAVED" ] && SAVED=$(save_logs)
   L=$(adbx shell "echo '--- server'; tail -4 $DEV/server.log; echo '--- bridge'; tail -4 $DEV/bridge.log" 2>/dev/null | tr '\n\r' '  ' | sed 's/"/\\"/g' | cut -c1-600)
   V=$(version_info 2>/dev/null)
-  echo "{\"ok\":false,\"stage\":\"$1\",\"hint\":\"$2\",\"version\":${V:-null},\"upgrade\":\"出错请先更新到最新版 skill/APK 再试\",\"log\":\"$L\",\"savedLogs\":\"$SAVED\"}"; exit 1; }
+  echo "{\"ok\":false,\"stage\":\"$1\",\"hint\":\"$2\",\"version\":${V:-null},\"upgrade\":\"Update to the latest skill/APK and retry if errors persist\",\"log\":\"$L\",\"savedLogs\":\"$SAVED\"}"; exit 1; }
 
 # 0. Reuse: a healthy display for OUR scid (app alive, server alive, /status ready, not closed, same size) is returned untouched.
 SAVED=""
@@ -37,9 +37,9 @@ WANT=$(cat "$SK_DIR/assets/VERSION" 2>/dev/null)
 PRE=$(adbx shell "echo \$(dumpsys package $PKG 2>/dev/null | grep -m1 versionName | sed 's/.*=//') \$([ -f $DEV/server.jar ] && echo jar || echo nojar) \$(p=27183; while [ \$p -lt 27283 ]; do if ! (cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | grep -qi \":\$(printf %04X \$p) \"); then echo \$p; break; fi; p=\$((p+1)); done) \$(wc -c < $DEV/run.sh 2>/dev/null || echo 0)" | tr -d '\r')
 HAVE=$(echo "$PRE" | awk '{print $1}'); JAR=$(echo "$PRE" | awk '{print $2}'); PORT=$(echo "$PRE" | awk '{print $3}'); RUNSZ=$(echo "$PRE" | awk '{print $4}')
 if [ "$JAR" != "jar" ] || [ "$HAVE" != "$WANT" ]; then
-  IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1) || { sleep 2; IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1); } || fail install "安装失败（已自动重试一次）：$(echo "$IR" | tr '\n"' '  ' | cut -c1-200)"
+  IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1) || { sleep 2; IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1); } || fail install "Install failed (after 1 automatic retry): $(echo "$IR" | tr '\n"' '  ' | cut -c1-200)"
 fi
-[ -z "$PORT" ] && fail port "27183~27282 全被占用"
+[ -z "$PORT" ] && fail port "Ports 27183~27282 are all in use"
 
 # 3. Cleanly restart everything and wait for readiness — ONE device-side call (stop → start server+bridge+overlay in parallel →
 #    100 ms polling for "virtual display exists and the app is decoding"). Replaces ~10 separate adb round trips and 1 s polling.

@@ -36,7 +36,7 @@ case "$c" in
         MAGIC=$(head -c 4 "$OUT" 2>/dev/null | od -An -tx1 | tr -d ' \n')
         case "$FMT:$MAGIC" in
           png:89504e47|jpg:ffd8ff*|webp:52494646) echo "$OUT" ;;
-          *) echo "ERR: 截图失败: $(head -c 200 "$OUT" 2>/dev/null)"; echo "hint: 先 agent.sh status 看 ready/frames；ready=false 就 start.sh；锁屏需先解锁"; upgrade_hint; rm -f "$OUT"; exit 1 ;;
+          *) echo "ERR: screenshot failed: $(head -c 200 "$OUT" 2>/dev/null)"; echo "hint: check ready/frames via agent.sh status; if ready=false run start.sh; unlock the phone if locked"; upgrade_hint; rm -f "$OUT"; exit 1 ;;
         esac ;;
   ui) q="ref=$REF"; FMT=lines
       while [ $# -gt 0 ]; do case "$1" in
@@ -77,6 +77,6 @@ else:
         NONE) echo "ERR: no node matches \"$1\" (try: agent.sh ui, or shot if the app draws its own UI)"; exit 1 ;;
         *) echo "$OUT"; echo "ERR: several different matches; pick one and use: agent.sh tap <cx> <cy>"; exit 1 ;;
       esac ;;
-  *) echo "未知命令: $c"; exit 2 ;;
+  *) echo "Unknown command: $c"; exit 2 ;;
 esac
 echo

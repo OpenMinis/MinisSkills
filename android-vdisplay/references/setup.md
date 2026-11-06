@@ -1,34 +1,33 @@
-# 让 Minis 能 adb 连到本机（无线调试）
+# Connecting Minis to the Local Device via Wireless Debugging
 
-本 skill 需要 Alpine 里的 `adb` 以 shell 权限连到**这台手机自己**。Android 11+ 用「无线调试」。
+This skill requires `adb` inside Minis's Alpine environment to connect to **the same Android phone** with `shell` privileges. On Android 11+, use built-in **Wireless Debugging**.
 
-## 1. 安装工具
+## 1. Install Required Packages
 ```sh
 apk add android-tools curl python3
 ```
 
-## 2. 开启无线调试（手机上）
-1. 设置 → 关于手机 → 连续点「版本号」7 次，开启开发者选项。
-2. 开发者选项 → 打开「无线调试」（需连着 WiFi）。
-3. 点进「无线调试」→ 看到「IP 地址和端口」（连接用）。
+## 2. Enable Wireless Debugging (On the Phone)
+1. Go to **Settings -> About phone** and tap **Build number** 7 times to enable Developer options.
+2. Go to **Settings -> System -> Developer options** and turn on **Wireless debugging** (requires an active Wi-Fi connection).
+3. Tap into **Wireless debugging** and note the **IP address & Port** shown on the main page (used for `adb connect`).
 
-## 3. 首次配对（需在交互终端里输入配对码）
-1. 无线调试页 → 「使用配对码配对设备」，会显示 `IP:配对端口` 和 6 位配对码。
-2. 在 Minis **交互终端**里执行（配对码不要发到聊天里）：
+## 3. One-Time Pairing (Run Inside Minis Interactive Terminal)
+1. On the Wireless debugging screen, tap **Pair device with pairing code** to display the `IP:pairing_port` and 6-digit pairing code.
+2. In the Minis **interactive terminal**, run (do not paste the pairing code into chat):
    ```sh
-   adb pair <IP>:<配对端口>        # 提示后输入 6 位配对码
-   adb connect <IP>:<连接端口>     # 连接端口是无线调试首页显示的那个
-   adb devices                      # 应显示 device
+   adb pair <IP>:<pairing_port>        # Enter the 6-digit pairing code when prompted
+   adb connect <IP>:<connect_port>     # Use the IP & port from the main Wireless debugging page
+   adb devices                         # Should list the device as `device`
    ```
-3. 之后每次使用，只需 `adb connect`（IP:端口会在重启 / 换 WiFi 后变化）。
+3. On subsequent uses, only `adb connect` is needed (note that the port changes after a reboot or Wi-Fi network switch).
 
-## 4. 让脚本找到设备
-- 只有一台设备：什么都不用设。
-- 多台：`export SERIAL=<IP:端口>`。
-- 想让脚本自动重连：`export ADB_CONNECT=<IP:端口>`。
+## 4. Device Selection Environment Variables
+- Single device attached: no configuration needed.
+- Multiple devices attached: `export SERIAL=<IP:port>`.
+- Automatic reconnection on drop: `export ADB_CONNECT=<IP:port>`.
 
-## 5. 注意
-- 本机连本机时，IP 通常是手机的 WiFi 地址（不一定是 127.0.0.1）。
-- 手机重启后，无线调试会关闭，要重新开启并重新 connect。
-- 授权一直弹窗时，勾选「一律允许使用这台计算机调试」。
-- 部分手机需要保持 WiFi 连接；断网后无线调试会停止。
+## 5. Notes
+- When connecting to the phone from itself, use the Wi-Fi IP address shown in Wireless debugging (not necessarily `127.0.0.1`).
+- Wireless debugging turns off after a phone reboot; re-enable it in Developer options and run `adb connect` again.
+- If an authorization dialog appears on screen, check **Always allow from this computer**.

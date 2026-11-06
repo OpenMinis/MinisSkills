@@ -1,77 +1,77 @@
 ---
 name: android-vdisplay
-description: 在 Android 设备的 Minis 里，通过本机 adb 创建「副屏（虚拟显示器）」并以悬浮小窗显示在主屏，让 agent 在副屏里启动 App、截图、点击、滑动、输入、按键，人类可随时触摸小窗接管（自动互斥）。基于 scrcpy server（trusted 虚拟屏）+ 配套 APK。当用户提到「副屏」「虚拟屏」「画中画」「悬浮窗操作手机」「后台操作 App」「不影响主屏的自动化」「scrcpy 虚拟显示器」「agent 操作手机 App 并可接管」，或需要在 Android 本机上让 agent 操作 App 而不占用当前屏幕时使用。
+description: >
+  Create an on-device virtual display ("second screen") on an Android phone running Minis via local wireless ADB, render it inside a floating Picture-in-Picture overlay window on the main screen, and let the agent launch apps, inspect the widget tree, take screenshots, and inject touch, swipe, text, and key events while allowing the human user to take over at any time (with automatic HTTP 423 mutual exclusion). Powered by scrcpy-server (trusted virtual display) + a companion overlay APK. Trigger this skill whenever the user mentions "second screen", "virtual display", "virtual screen", "PiP", "picture-in-picture", "floating window automation", "background app automation", "scrcpy virtual display", "operate an app without occupying the main screen", or wants the agent to control Android apps on the same phone with human takeover support.
 version: 0.12.1
 ---
 
-# android-vdisplay：本机副屏 + 悬浮小窗 + agent 操作
+# android-vdisplay: On-Device Virtual Display + Floating PiP Overlay + Agent Control
 
-同一台手机上：scrcpy server 经本机 adb(shell) 建一块虚拟屏，App 在副屏运行，画面以悬浮小窗叠在主屏；agent 用脚本操作，人触摸小窗即可接管。
+On the same Android phone: `scrcpy-server` creates a trusted virtual display over local ADB (`shell`), apps run on that virtual display while rendered inside a floating Picture-in-Picture card on the main screen, the agent drives apps via scripts, and the human user can long-press the card to take over at any time.
 
-## ⚠️ 出错先更新
-**任何脚本报错、行为异常，第一步先更新到最新版再试**：重新安装最新的 android-vdisplay 包，运行 `start.sh` 会自动检测并更新设备端 APK。`sh scripts/agent.sh version` 可查看版本一致性。更新后仍失败，按 JSON 里的 `stage`/`hint` 处置。
+## Update First When Errors Occur
+**Whenever a script fails or behaves unexpectedly, update to the latest version first**: reinstall the latest `android-vdisplay` skill package and run `start.sh`, which automatically checks and upgrades the on-device APK. Run `sh scripts/agent.sh version` to verify version parity. If it still fails after updating, follow the `stage` and `hint` fields in the JSON output.
 
-## 最短路径（照做，别探索）
+## Shortest Path (Follow Directly — Do Not Improvise)
 ```sh
 SK=/var/minis/skills/android-vdisplay/scripts
-sh $SK/start.sh                        # 自动安装→选空闲端口→起 server/桥/小窗→等视频帧到达
-sh $SK/run-app.sh com.android.chrome   # 启动并确认 App 真的在副屏前台
-sh $SK/agent.sh ui                     # 先读控件树：一行一个控件，带中心点 c=(x,y)（540 坐标系）
-sh $SK/agent.sh ui find 7              # 按文字/描述/id 找；或 ui-tap 7 一步找到并点击
-sh $SK/agent.sh tap 270 480            # 用 ui 给的 c=(x,y) 点击；操作后再 ui find 验证结果
-sh $SK/agent.sh shot /tmp/s.jpg jpg 70 # ui 为空/不够时（游戏、WebView、Flutter、自绘 UI）才截图看图
-sh $SK/stop.sh                         # 结束并退出
+sh $SK/start.sh                        # Auto-install -> pick free port -> start server/bridge/overlay -> wait for rendered frame
+sh $SK/run-app.sh com.android.chrome   # Launch app and verify it is in the foreground on the virtual display
+sh $SK/agent.sh ui                     # Read widget tree first: 1 node per line with center c=(x,y) in 540-wide coord space
+sh $SK/agent.sh ui find 7              # Match by text/desc/id; or run `ui-tap 7` to find and tap in one step
+sh $SK/agent.sh tap 270 480            # Tap using c=(x,y) from `ui`; verify with `ui find` afterwards
+sh $SK/agent.sh shot /tmp/s.jpg jpg 70 # Fall back to screenshots only when `ui` is empty/insufficient (games, WebView, Flutter, custom UI)
+sh $SK/stop.sh                         # Stop and exit cleanly
 ```
-所有命令输出 JSON 或明确的 `ERR:`，退出码非 0 即失败。直接按 JSON 中的 `hint` 处理，不要手动拼 adb 命令。
+Every command outputs JSON or an explicit `ERR:` message and exits non-zero on failure. Follow the `hint` field in the JSON output directly instead of crafting raw `adb` commands by hand.
 
-## 前置（一次性）
-Android 10+；Alpine 需 `adb curl python3`（`apk add android-tools curl python3`）；`adb devices` 能看到本机设备（无线调试，见 `references/setup.md`）。多设备时 `export SERIAL=<序列号>`；想自动重连 `export ADB_CONNECT=ip:port`。手机需亮屏解锁。
+## Prerequisites (One-Time)
+Android 10+; Alpine requires `adb curl python3` (`apk add android-tools curl python3`); `adb devices` must list the phone itself (via Wireless Debugging — see [references/setup.md](references/setup.md)). When multiple devices are attached, set `export SERIAL=<serial>`; set `export ADB_CONNECT=ip:port` for automatic reconnection. Keep the phone screen unlocked and awake.
 
-## start.sh 状态码
-- 成功：`{"ok":true,"display":N,"port":P,"reused":false}`。`ok:true` 表示**虚拟屏已建且画面已真正渲染**（`rendered>0`），可立即操作。
-- **复用**：若本 scid 的副屏仍健康（APK/server 存活、`ready:true`、未关闭、尺寸一致），`start.sh` 直接返回同一块屏（`"reused":true`，约 1 s，不动任何东西）。要强制重建：`start.sh --fresh` 或 `VDISPLAY_FRESH=1`。display ID 在一次开机内只增不减，这是 Android 正常行为，不是泄漏。
-- 首次 3 秒内没渲染出画面时，`start.sh` 会先保存日志再自动重建一次（`"healed":true`）；仍失败则 `stage:"render"`。日志存于 `~/.android-vdisplay/logs/<时间戳>/`（保留最近 5 份，`stop.sh` 也会保存），JSON 里的 `savedLogs` 给出路径。
-- 失败：返回 `stage`/`hint`/`log`。常用 stage：
-  - `adb`：设备未连/未授权（按 setup.md 操作）
-  - `server`/`bridge`：看 log；重试一次即可
-  - `display`：多为手机锁屏或桥未连，解锁亮屏后重试
-  - `frames`：小窗未收到视频包，确认悬浮窗权限后重试
-  - `render`：有视频包但解码器没渲染出画面（截图会是纯黑）；已自动重建一次仍失败，看 `savedLogs`
+## `start.sh` Status & Stages
+- **Success**: `{"ok":true,"display":N,"port":P,"reused":false}`. `ok:true` means the **virtual display is created AND the decoder has rendered at least one frame** (`rendered>0`), so it is ready for immediate interaction.
+- **Reuse**: If the virtual display for our `scid` is already healthy (APK and server alive, `ready:true`, not closed, matching resolution), `start.sh` reuses it immediately (`"reused":true`, ~1 s, without restarting anything). Force a fresh rebuild with `start.sh --fresh` or `VDISPLAY_FRESH=1`. Display IDs monotonically increase within a boot session — this is standard Android behavior, not a resource leak.
+- **Self-healing**: If no frame is rendered within 3 seconds on first start, `start.sh` saves diagnostic logs and rebuilds once automatically (`"healed":true`). If it still fails, it exits with `stage:"render"`. Diagnostic logs are saved under `~/.android-vdisplay/logs/<timestamp>/` (last 5 runs kept; `stop.sh` also saves logs) and reported in `savedLogs`.
+- **Failure stages** (`stage` / `hint` / `log`):
+  - `adb`: Device disconnected or unauthorized (follow [references/setup.md](references/setup.md)).
+  - `server` / `bridge`: Check `log`; retrying once usually resolves transient races.
+  - `display`: Typically caused by a locked phone screen or bridge connection failure; unlock the phone and retry.
+  - `frames`: Overlay did not receive video packets; verify overlay permission and retry.
+  - `render`: Video packets arrived but the decoder rendered no frames (screenshots would be solid black); already retried once — inspect `savedLogs`.
 
-## 核心操作（`agent.sh`）
-| 命令 | 说明 |
+## Core Operations (`agent.sh`)
+| Command | Description |
 |---|---|
-| `status` | `ready:true` = 解码器**已渲染出画面**（`rendered>0`）；`frames` 只是收到的包数；另有 `dropped`、`decodeErrors`、`port`、`humanActive`、`error` |
-| `shot [path] [png\|jpg\|webp] [q]` | 截图（默认 540 宽）；看图推荐 `jpg 70` 省 token |
-| `ui [find 文字] [clickable] [editable] [json]` / `ui-tap 文字` | 副屏控件树（一行一节点，含中心点）；`ui-tap` 唯一匹配才点 |
-| `tap x y` / `swipe x1 y1 x2 y2 [ms]` | 像素坐标，与 `shot` 尺寸完全一致（默认 540 宽等比） |
-| `key <code>` | 4=BACK 3=HOME 66=ENTER 67=DEL |
-| `text "内容"` | 英文逐字输入；中文等非 ASCII 自动走剪贴板粘贴 |
-| `title "文案"` | 动态更新小窗顶栏标题（让用户看到正在干什么） |
-| `window x=.. y=.. w=<dp>` / `hide` / `show` | 调窗；`hide` 移出主屏但副屏照跑、仍可截图操作 |
-| `version` / `resume` | 版本核对；`resume` 解除用户的接管态 |
+| `status` | `ready:true` = decoder has **rendered a frame** (`rendered>0`); `frames` is packet count only; also reports `dropped`, `decodeErrors`, `port`, `humanActive`, `error` |
+| `shot [path] [png\|jpg\|webp] [q]` | Capture screenshot (default width 540); `jpg 70` is recommended for vision inspection to save latency and tokens |
+| `ui [find TEXT] [clickable] [editable] [json]` / `ui-tap TEXT` | Read virtual display widget tree (1 line per node with center point); `ui-tap` taps only when a single unique target matches |
+| `tap x y` / `swipe x1 y1 x2 y2 [ms]` | Coordinates in the same reference space as `shot` and `ui` (default width 540, proportional height) |
+| `key <code>` | `4`=BACK, `3`=HOME, `66`=ENTER, `67`=DEL |
+| `text "content"` | Injects ASCII character by character; non-ASCII (e.g. CJK) is pasted automatically via clipboard |
+| `title "label"` | Update the top-bar task pill on the floating window so the user sees what the agent is doing |
+| `window x=.. y=.. w=<dp>` / `hide` / `show` | Move/resize window; `hide` moves it off-screen while keeping the virtual display running and controllable |
+| `version` / `resume` | Check version parity; `resume` clears human takeover / stopped state |
 
-`run-app.sh <包名>`：只有 `ok:true` 才代表 App 已在副屏前台；若失败会直接报原因（未安装 / 未到前台）。
+`run-app.sh <package>`: Returns `ok:true` only after verifying the app is in the foreground on the virtual display; otherwise reports the exact reason (not installed vs. did not reach foreground).
 
-## ⚠️ 核心工作流与铁律
-1. **工作流**：`start` → `run-app` → 循环「`ui` 找控件 → 一个动作 → `ui find` 验证（必要时 `shot`）」→ `stop`。
-2. **控件树优先**：`agent.sh ui` 读副屏控件树（0.12.0+，详见 [references/accessibility.md](references/accessibility.md)）；节点为空或缺目标时才 `shot`。**不要**用 `android-a11y-cli ui dump/find` 或 `uiautomator dump` 读副屏：它们忽略 `--display`，只返回主屏 45 个节点。`ui` 返回 503（服务未启用）时脚本会自动补回一次；仍失败就按 hint 或改用 `shot`，不要反复重试。**首次使用前先告诉用户**：为读取控件树，`start.sh` 会通过 adb 在系统「无障碍」里追加一个只读服务「Minis 副屏」（不会改动其他服务），`stop.sh` 时移除。
-3. **人类接管与 423**：
-   - 用户在小窗定点长按 1 秒或点右上角停止按钮进入接管，此时 agent 控制接口返回 **HTTP 423**（`human has control` / `stopped by user`）。
-   - 收到 423 时**绝不可重试轰炸**，暂停并告知用户，等用户点「交还 AI」后再继续。详见 [references/takeover.md](references/takeover.md)。
-4. **闲置 10 分钟自动关闭**：连续 10 分钟既没有任何 agent 请求（包括 `status` 轮询），也没有人碰小窗，副屏会自行退出（最后一分钟标题显示倒计时）。退出后 `/status` 不再可达；如需继续，重新 `start.sh`。想改时长：`IDLE_MIN=30 sh $SK/start.sh`，`IDLE_MIN=0` 表示不自动关闭。用完仍应主动 `stop.sh`。
+## Core Workflow & Rules
+1. **Workflow**: `start` -> `run-app` -> loop (`ui` to locate target -> one action -> `ui find` to verify, or `shot` when needed) -> `stop`.
+2. **Widget Tree First (`ui`)**: Always prefer `agent.sh ui` to inspect the virtual display's widget tree (0.12.0+, see [references/accessibility.md](references/accessibility.md)); fall back to `shot` only when nodes are empty or missing the target. **Never** run `android-a11y-cli ui dump/find` or `uiautomator dump` for the virtual display — both ignore `--display` and always return main-screen nodes. If `ui` returns HTTP 503 (service disabled), `agent.sh` automatically heals it once; if it still fails, follow `hint` or fall back to `shot` without looping. **Inform the user before first use**: to read the widget tree, `start.sh` appends a read-only accessibility service (`Minis Second Screen`) via ADB without touching other services, and `stop.sh` removes it.
+3. **Human Takeover & HTTP 423**:
+   - When the user stationary long-presses the floating card for 1 second or taps the top-right Stop button, human takeover begins and all agent control endpoints return **HTTP 423** (`human has control` / `stopped by user`).
+   - Upon receiving 423, **never retry in a loop**. Pause immediately, inform the user in chat, and wait until the user taps "Hand back to AI" or asks you to continue. See [references/takeover.md](references/takeover.md).
+4. **10-Minute Idle Auto-Close**: After 10 minutes with no agent requests (including `status` polls) and no human touch on the floating window, the virtual display closes automatically (showing a countdown in the title bar during the last minute). Once closed, `/status` is unreachable; run `start.sh` to start a new session. Customize the timeout via `IDLE_MIN=30 sh $SK/start.sh` (`IDLE_MIN=0` disables auto-close). Always run `stop.sh` proactively when finished.
+5. **Black Screen Triage**: If screenshots are solid black (identical tiny JPEG byte size) or the floating card stays on "AI standby" with no video, take a **main-screen** screenshot to confirm, then run `stop.sh && start.sh` directly — **do not retry screenshots in a loop**. Since 0.11.0, `start.sh` detects and heals this automatically.
 
-5. **黑屏分诊**：截图纯黑（JPEG 体积每次一样且很小）或主屏小窗显示 "AI standby" 却无画面时，先截**主屏**确认，然后直接 `stop.sh && start.sh`，**不要反复重试截图**。0.11.0 起 `start.sh` 已自动检测并处理这种情况。
+## Progressive Disclosure References
+- [references/setup.md](references/setup.md): Local Wireless Debugging pairing and connectivity guide
+- [references/takeover.md](references/takeover.md): Floating window gestures (long-press takeover, pinch zoom, edge docking) and HTTP 423 rules
+- [references/accessibility.md](references/accessibility.md): Virtual display widget tree (`ui`) design, silent activation, and auto-healing
+- [references/agent-api.md](references/agent-api.md): Built-in HTTP API (`127.0.0.1:28080`) endpoints and response schema
+- [references/architecture.md](references/architecture.md): `scrcpy-server` + TCP Bridge + APK cross-process architecture
 
-## 渐进式参考文档
-- [references/setup.md](references/setup.md)：本机无线调试配对与连通性指引
-- [references/takeover.md](references/takeover.md)：手势（长按接管、双指缩放、折叠拉手）与 423 详细规则
-- [references/accessibility.md](references/accessibility.md)：副屏控件树（`ui`）的原理、启用方式与实测
-- [references/agent-api.md](references/agent-api.md)：APK 内置 HTTP 接口（127.0.0.1:28080）完整协议与返回结构
-- [references/architecture.md](references/architecture.md)：scrcpy-server + Bridge + APK 跨进程架构
+## Known Limitations
+Verified on Google Pixel 4a (Android 13) and Pixel 6 (Android 17); virtual display widget tree via `ui` requires ADB `WRITE_SECURE_SETTINGS` (custom-drawn UI / games / Flutter require `shot`); unavailable while the phone is locked; video uses local loopback H.264; non-ASCII text injection overwrites the system clipboard.
 
-## 已知限制
-已验证：Pixel 4a (Android 13)、Pixel 6 (Android 17)；副屏控件树经 `ui` 可读（仅 4a 测过静默启用；自绘 UI 无节点需截图）；锁屏时不可用；视频走 H.264 本机 loopback；中文输入会覆盖手机系统剪贴板。
-
-## 目录
-`scripts/`（start / stop / run-app / agent / install / common / device-run）、`assets/`（skilled.apk、scrcpy-server.jar 5.0.1、skilled-shell.jar、VERSION）、`references/`。源码：https://github.com/OpenMinis/scrcpy-skilled
+## Directory Layout
+`scripts/` (`start`, `stop`, `run-app`, `agent`, `install`, `common`, `device-run`), `assets/` (`skilled.apk`, `scrcpy-server.jar` 5.0.1, `skilled-shell.jar`, `VERSION`), `references/`. Source repository: https://github.com/OpenMinis/scrcpy-skilled
