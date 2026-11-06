@@ -1,0 +1,149 @@
+{
+  "skill_name": "disk-scan",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "my phone storage is full, where did it all go?",
+      "expected_output": "The reachable root is established before scanning, the scan is run, and the `skipped_entries` count is read before any total is reported. If the scanned total is far below the storage the device reports as used, the reply says the remainder sits in app containers the sandbox cannot reach, and reports that as the answer rather than presenting the scanned total as complete. The reply ranks the largest directories and files and does not describe anything as cleaned.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "What the user means by 'full' — the sandbox, shared folders, or the device overall — was established before the scan rather than assumed",
+          "type": "contains"
+        },
+        {
+          "text": "The skipped-entry count was checked and, where non-zero, acknowledged rather than silently dropped from the answer",
+          "type": "contains"
+        },
+        {
+          "text": "Where the scanned total falls short of the storage the device reports as used, the gap is attributed to storage outside the sandbox instead of being ignored",
+          "type": "contains"
+        },
+        {
+          "text": "The largest directories and the largest files are both reported, largest first",
+          "type": "contains"
+        },
+        {
+          "text": "storage is full because of",
+          "type": "not_contains"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "great, so delete the biggest ones for me",
+      "expected_output": "The reply declines to delete anything, because the skill has no cleanup capability and no delete path exists. Instead it names the specific candidate files or sets with their sizes, states what freeing them would actually recover in the user's terms, and asks for a decision per item before anything is removed. It does not treat the scan result as authority to proceed.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The reply states that the scan is read-only and that it cannot delete anything, rather than quietly attempting a cleanup",
+          "type": "contains"
+        },
+        {
+          "text": "Specific candidates are named with their sizes instead of a general offer to 'remove big files'",
+          "type": "contains"
+        },
+        {
+          "text": "An explicit confirmation per item is required before any removal, and the reply waits for it",
+          "type": "contains"
+        },
+        {
+          "text": "rm -rf",
+          "type": "not_contains"
+        },
+        {
+          "text": "--apply",
+          "type": "not_contains"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "the scan says the media folder is 8 GB but the biggest file listed is only 12 MB. is the tool broken?",
+      "expected_output": "The reply explains that directory figures are subtree totals, so a large directory with no large files means many small files rather than an error in the scan. It offers to descend into the folder to show the nested breakdown, and notes that this is a breadth problem where deleting sets of files, not single artifacts, is what reclaims space.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The reply explains that a directory figure covers everything underneath it, not just the files directly inside",
+          "type": "contains"
+        },
+        {
+          "text": "It distinguishes a breadth problem — many small files — from a single-artifact problem rather than reporting a bug",
+          "type": "contains"
+        },
+        {
+          "text": "A concrete next step is offered, such as scanning the folder directly to descend into the nested structure",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "I need this for a report — give me something I can load into a spreadsheet. scan the workspace but ignore .git and node_modules since they just add noise",
+      "expected_output": "The scan is run with `--json` and with `--exclude .git,node_modules`, and the reply notes that the exclusions were applied for readability and would understate what could be freed if the question later turns to cleanup. The available JSON fields are described so the downstream step can quantify rather than parse text.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The scan was run with --json rather than asking the caller to parse the human-readable output",
+          "type": "contains"
+        },
+        {
+          "text": "Both .git and node_modules were passed as exclusions in a single --exclude argument",
+          "type": "contains"
+        },
+        {
+          "text": "The reply notes that excluding directories understates reclaimable space, so the numbers should not be used as a cleanup target list",
+          "type": "contains"
+        },
+        {
+          "text": "The JSON keys available for downstream use — total_bytes, file_count, skipped_entries, and the two ranked lists — are identified",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "scan /not/a/real/path and tell me what's in it",
+      "expected_output": "The command reports the path is not a directory and exits 2. The reply states plainly that the path does not exist or is not a directory, and does not present an empty result as if the location were merely empty. It does not invent contents or fall back to scanning somewhere else without saying so.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The reply says the path is not a directory rather than reporting a zero-byte or empty result",
+          "type": "contains"
+        },
+        {
+          "text": "Fabricated contents for the path",
+          "type": "not_contains"
+        },
+        {
+          "text": "An empty scan result is distinguished from a failed scan, so a genuinely empty tree would not be reported as an error",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "it says it saved 2 GB by clearing that folder but the free space barely moved — the scan said the folder was 2 GB, so what happened?",
+      "expected_output": "The reply explains that the scanner reports logical size, not on-disk size, so block rounding, sparse files, compression and copy-on-write can mean the space actually recovered is smaller than the figure. It notes that hard-linked files are counted once per path and can inflate totals, and that symlinks are not followed so a symlinked tree contributes nothing.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The reply distinguishes logical size from on-disk size as the explanation for the mismatch",
+          "type": "contains"
+        },
+        {
+          "text": "At least one mechanism is named — block rounding, sparse files, compression, or copy-on-write",
+          "type": "contains"
+        },
+        {
+          "text": "At least one counting caveat is stated — hard links counted per path, or symlinks not followed",
+          "type": "contains"
+        },
+        {
+          "text": "The scan result was defended as exact and the discrepancy blamed on the device",
+          "type": "not_contains"
+        }
+      ]
+    }
+  ]
+}
