@@ -34,8 +34,11 @@ fi
 
 # 1. Preflight in ONE device call: installed version, jar present, first free bridge port (27183+). Install/upgrade only if needed.
 WANT=$(cat "$SK_DIR/assets/VERSION" 2>/dev/null)
-PRE=$(adbx shell "echo \$(dumpsys package $PKG 2>/dev/null | grep -m1 versionName | sed 's/.*=//') \$([ -f $DEV/server.jar ] && echo jar || echo nojar) \$(p=27183; while [ \$p -lt 27283 ]; do if ! (cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | grep -qi \":\$(printf %04X \$p) \"); then echo \$p; break; fi; p=\$((p+1)); done) \$(wc -c < $DEV/run.sh 2>/dev/null || echo 0)" | tr -d '\r')
-HAVE=$(echo "$PRE" | awk '{print $1}'); JAR=$(echo "$PRE" | awk '{print $2}'); PORT=$(echo "$PRE" | awk '{print $3}'); RUNSZ=$(echo "$PRE" | awk '{print $4}')
+PRE=$(adbx shell "echo V=\$(dumpsys package $PKG 2>/dev/null | grep -m1 versionName | sed 's/.*=//') J=\$([ -f $DEV/server.jar ] && echo jar || echo nojar) P=\$(p=27183; while [ \$p -lt 27283 ]; do if ! (cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | grep -qi \":\$(printf %04X \$p) \"); then echo \$p; break; fi; p=\$((p+1)); done) R=\$({ wc -c < $DEV/run.sh; } 2>/dev/null || echo 0)" | tr -d '\r')
+# Fields are labelled (V= J= P= R=) so an empty value (e.g. APK not installed -> empty version) cannot shift the others.
+HAVE=$(printf '%s' "$PRE" | sed -n 's/.*V=\([^ ]*\).*/\1/p'); JAR=$(printf '%s' "$PRE" | sed -n 's/.*J=\([^ ]*\).*/\1/p')
+PORT=$(printf '%s' "$PRE" | sed -n 's/.*P=\([^ ]*\).*/\1/p'); RUNSZ=$(printf '%s' "$PRE" | sed -n 's/.*R=\([^ ]*\).*/\1/p')
+case "$PORT" in ''|*[!0-9]*) ;; *) [ "$PORT" -lt 27183 ] && PORT="";; esac
 if [ "$JAR" != "jar" ] || [ "$HAVE" != "$WANT" ]; then
   IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1) || { sleep 2; IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1); } || fail install "Install failed (after 1 automatic retry): $(echo "$IR" | tr '\n"' '  ' | cut -c1-200)"
 fi

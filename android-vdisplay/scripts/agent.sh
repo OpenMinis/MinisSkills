@@ -15,21 +15,23 @@ ui_get() {
   esac
   printf '%s' "$_r"
 }
+# call <path>: like agent, but prints the reply and exits non-zero on {"ok":false...} (e.g. HTTP 423 human has control) or a transport failure.
+call() { _o=$(agent "$1"); _rc=$?; printf '%s\n' "$_o"; [ "$_rc" -ne 0 ] && exit "$_rc"; case "$_o" in "") exit 1;; *'"ok":false'*) exit 1;; esac; exit 0; }
 c=$1; shift
 case "$c" in
-  tap) agent "/tap?x=$1&y=$2&ref=$REF" ;;
-  swipe) agent "/swipe?x1=$1&y1=$2&x2=$3&y2=$4&ms=${5:-300}&ref=$REF" ;;
-  key) agent "/key?code=$1" ;;
-  text) agent "/text?s=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$1" 2>/dev/null || printf %s "$1")" ;;
-  start) agent "/start?pkg=$1" ;;
+  tap) call "/tap?x=$1&y=$2&ref=$REF" ;;
+  swipe) call "/swipe?x1=$1&y1=$2&x2=$3&y2=$4&ms=${5:-300}&ref=$REF" ;;
+  key) call "/key?code=$1" ;;
+  text) call "/text?s=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$1" 2>/dev/null || printf %s "$1")" ;;
+  start) call "/start?pkg=$1" ;;
   status) agent "/status" ;;
-  title) agent "/title?s=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$1" 2>/dev/null)" ;;
+  title) call "/title?s=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$1" 2>/dev/null)" ;;
   version) echo "$(version_info)"; agent "/version" ;;
-  resume) agent "/resume" ;;
-  takeover) agent "/takeover?on=$1" ;;
-  window) q=""; for kv in "$@"; do q="$q&$kv"; done; agent "/window?${q#&}" ;;
-  hide) agent "/window?hide=1" ;;
-  show) agent "/window?hide=0" ;;
+  resume) call "/resume" ;;
+  takeover) call "/takeover?on=$1" ;;
+  window) q=""; for kv in "$@"; do q="$q&$kv"; done; call "/window?${q#&}" ;;
+  hide) call "/window?hide=1" ;;
+  show) call "/window?hide=0" ;;
   shot) # agent.sh shot [out-file] [png|jpg|webp] [quality 30-100]   — jpg is ~2x faster and ~4x smaller than png (slightly lossy); default png
         FMT=${2:-png}; Q=${3:-80}; case "$FMT" in png) EXT=png;; jpg|jpeg) FMT=jpg; EXT=jpg;; webp) EXT=webp;; *) echo "ERR: format must be png|jpg|webp"; exit 2;; esac
         OUT=${1:-$STATE/shot.$EXT}; agent_to "/screenshot?w=$REF&fmt=$FMT&q=$Q" "$OUT"
