@@ -20,6 +20,13 @@ const { buildReport } = require(path.join(LIB, 'quantities'));
 const { buildPlanMeta } = require(path.join(LIB, 'plan-meta'));
 const AC = require(path.join(LIB, 'authored-ceiling'));
 const IA = require(path.join(LIB, 'interior-area'));
+const PS = require(path.join(LIB, 'plan-statistics'));
+const H = require(path.join(LIB, 'handoff'));
+/** ArchiPlan fixtures (repo + commit recorded in each file's _meta). */
+const STATS_FIXTURE = require(path.join(__dirname, 'fixtures', 'archiplan-plan-statistics.json'));
+const HANDOFF_FIXTURE = require(path.join(__dirname, 'fixtures', 'archiplan-handoff.json'));
+const statsCase = (id) => STATS_FIXTURE.cases.find((c) => c.id === id);
+const handoffCase = (id) => HANDOFF_FIXTURE.cases.find((c) => c.id === id);
 
 const TOL = 1e-4;
 const rows = [];
@@ -187,19 +194,57 @@ std_room: {
     members.length === 1 ? 'PASS' : 'FAIL',
     `method: ${members[0] ? members[0].method : 'n/a'}; engine boundary tolerance ${buildReport(cap, {}).conventions.roomBoundaryToleranceM} m`);
 
-  // the SPEC asks for a 0.25 m tolerance; the kernel advertises 0.02 m
+  // G-8b: DECIDED 2026-11-07 — the kernel tolerance stays 0.02 m. The 0.25 m
+  // value inherited from report-model.js is REJECTED (it would make a wall
+  // 25 cm outside a room a member of that room, which is a wrong takeoff, not a
+  // convenience). This row now asserts the accepted rule instead of pending on
+  // the rejected one; SPEC section 7 G-8b was corrected to 0.02 m.
   const outside = { ...boundary, transform: at(3, -0.25) };
-  const outsideMembers = buildReport({ kind: 'optimized', surfaces: [outside], objects: [], rooms: [room] }, {}).elements[0].roomMemberships.length;
-  pending('G-8b', 'room membership at tolerance 0.25 m', '1 member', outsideMembers === 1
-    ? 'membership found, but by the 0.02 m rule'
-    : `a wall centreline 0.25 m outside the room boundary is NOT a member (${outsideMembers}); the kernel uses conventions.roomBoundaryToleranceM = 0.02 m, SPEC section 7 asks for 0.25 m -> contradiction C-4`);
+  const outsideReport = buildReport({ kind: 'optimized', surfaces: [outside], objects: [], rooms: [room] }, {});
+  const outsideMembers = outsideReport.elements[0].roomMemberships.length;
+  const tol = outsideReport.conventions.roomBoundaryToleranceM;
+  fixed('G-8b', 'wall centreline 0.25 m outside the boundary: NOT a member (tolerance 0.02 m)', '0 members, tol 0.02',
+    `${outsideMembers} members, tol ${tol}`, outsideMembers === 0 && tol === 0.02 ? 'PASS' : 'FAIL',
+    'decision 2026-11-07: 0.02 m is the rule; report-model.js tolerated 0.25 m and that value is not adopted (SPEC section 7 G-8b corrected)');
 }
 
 // --------------------------------------------------------------- G-9 / G-10
-pending('G-9', 'ArchiPlan fixture: living 10.9725 m2, net walls 35 - 1.89 m2', '10.9725 / 33.11',
-  'ArchiPlan fixture not ported yet: planStatistics.ts (gross/net per level, living/gross, roomsWithoutArea) has no equivalent in scripts/lib and no fixture JSON for it exists in the package.');
-pending('G-10', 'handoff fixture: quantity keys present, gaps[] for missing areas', 'keys + gaps[]',
-  'handoff.ts not ported: scripts/lib has no handoff emitter, no quantity-key vocabulary and no gaps[] structure, so there is nothing to compare.');
+// G-9: the ArchiPlan studio fixture (4 x 3 m centreline, 0.15 m walls, 2.50 m
+// tall, one 0.90 x 2.10 m door) through the ported planStatistics. Expected
+// numbers are tests/planStatistics.test.ts assertions, carried in the fixture.
+{
+  const fixture = statsCase('studio-4x3-interior-face');
+  const stats = PS.planStatistics(fixture.input);
+  fixedNumbers('G-9', 'ArchiPlan fixture: living 10.9725 m2, net walls 35 - 1.89 m2', [10.9725, 35 - 1.89],
+    () => (stats.ok ? [stats.statistics.totals.livingArea, stats.statistics.totals.wallAreaNet] : [null, null]), TOL,
+    `plan-statistics.planStatistics on fixture case '${fixture.id}' (ArchiPlan ${STATS_FIXTURE._meta.commit.slice(0, 7)}); ` +
+    `gross ${stats.statistics ? stats.statistics.totals.grossArea : 'n/a'} = living + 14 x 0.15 / 2, wallAreaGross ${stats.statistics ? stats.statistics.totals.wallAreaGross : 'n/a'}, ` +
+    `roomsWithoutArea ${stats.statistics ? stats.statistics.totals.roomsWithoutArea : 'n/a'}`);
+}
+
+// G-10: the ArchiPlan native package through the ported handoff: the contracted
+// quantity keys, per-room boundary figures and gaps[] for what is missing.
+{
+  const handCase = handoffCase('native-project-package');
+  const hand = H.handoff(handCase.input);
+  const KEYS = ['floorArea', 'ceilingArea', 'wallAreaNetRoom', 'wallRunRoom', 'livingAreaLevel', 'wallAreaNetLevel', 'wallAreaGrossLevel', 'wallRunLevel', 'doors', 'windows'];
+  const presentKeys = hand.ok ? [...new Set(hand.scope.quantities.map((q) => q.key))].sort() : [];
+  const keysOk = JSON.stringify(presentKeys) === JSON.stringify([...KEYS].sort());
+  // a room the source cannot measure must produce a gap, not a zero quantity
+  const gapProbe = H.handoff({
+    walls: [{ id: 'w', start: { x: 0, y: 0 }, end: { x: 4, y: 0 }, height: 2.5, thickness: 0.15, level: 0 }],
+    openings: [], furniture: [], levels: [], rooms: [{ id: 'r', name: 'Label only', level: 0 }],
+  });
+  const gapsOk = gapProbe.ok && gapProbe.scope.gaps.some((g) => /has no measured floor area/.test(g)) &&
+    !gapProbe.scope.quantities.some((q) => q.room === 'Label only');
+  const level0 = hand.ok ? hand.scope.levels.find((l) => l.index === 0) : null;
+  fixed('G-10', 'handoff fixture: quantity keys present, gaps[] for missing areas', '10 keys + gaps[]',
+    `${presentKeys.length} keys${keysOk ? ' exact' : ''}, gaps ${gapsOk ? 'reported' : 'missing'}`,
+    keysOk && gapsOk ? 'PASS' : 'FAIL',
+    `handoff.handoff on fixture case '${handCase.id}' (ArchiPlan ${HANDOFF_FIXTURE._meta.commit.slice(0, 7)}); ` +
+    `level 0 net ${level0 && level0.wallAreaNet ? level0.wallAreaNet.value : 'n/a'} m2, run ${level0 && level0.wallRun ? level0.wallRun.value : 'n/a'} m; ` +
+    'ceilings come from reconstructCeilingForRoom with a method');
+}
 
 // ------------------------------------------------------------------ G-11
 // Paint area with the trade free-opening threshold (SPEC section 5, geometry.js
@@ -282,6 +327,13 @@ try {
   })(), `3 m2 opening -> paint 10, two 2 m2 openings -> paint 10 (per-opening rule, not a summed 4 m2)`);
   auxRow('A-12', 'G-11 paint never replaces net: net keeps the full geometric deduction', Math.abs(paintA.netAreaM2.value - 9) <= TOL && Math.abs(paintB.netAreaM2.value - 6) <= TOL && Math.abs(paintA.paintAreaM2.value - 10) <= TOL,
     `net ${paintA.netAreaM2.value}/${paintB.netAreaM2.value} paint ${paintA.paintAreaM2.value}/${paintB.paintAreaM2.value}; totals net ${paintReport.totals.wallNetAreaM2.value} paint ${paintReport.totals.paintAreaM2.value}`);
+  auxRow('A-14', 'G-8b decision: 0.02 m accepted, 0.25 m REJECTED, and the boundary is exactly at 0.02 m', (() => {
+    const room2 = { identifier: 'room-b', story: 0, vertices: [{ x: 0, z: 0 }, { x: 6, z: 0 }, { x: 6, z: 4 }, { x: 0, z: 4 }] };
+    const wallAt = (z) => ({ identifier: 'w-t', kind: 'wall', story: 0, dimensions: { x: 6, y: 2.5, z: 0.15 }, transform: at(3, z) });
+    const members = (z) => buildReport({ kind: 'optimized', surfaces: [wallAt(z)], objects: [], rooms: [room2] }, {}).elements[0].roomMemberships.length;
+    const inside = members(-0.02), justOutside = members(-0.03), farOutside = members(-0.25);
+    return inside === 1 && justOutside === 0 && farOutside === 0;
+  })(), 'inside 0.02 m -> member, 0.03 m -> not a member, 0.25 m -> not a member; the 0.25 m value from report-model.js is documented as NOT adopted (SPEC section 7 G-8b corrected to 0.02 m, no kernel change)');
   auxRow('A-13', 'D-1 evidence: 1.4400 m2 is the shoelace of a 1.20 m square, not of 1.00 m + 0.15 m walls', Math.abs(IA.centerlineArea(sq(1.2), []) - 1.44) <= TOL,
     `centerlineArea(1.20 m square)=${IA.centerlineArea(sq(1.2), [])}; 0.15 m walls give 1.15 m -> ${IA.centerlineArea(RING_CL, [])}`);
 } catch (e) {

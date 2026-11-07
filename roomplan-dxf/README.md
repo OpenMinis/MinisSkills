@@ -438,8 +438,10 @@ internal, nothing is fetched from the network) and versioned by the
 Check the contract locally — no dependencies, no network:
 
 ```sh
-node tests/test_schema.js         # both schemas + real capture/report output
-node tests/test_spec_golden.js    # SPEC §7 golden numbers, tolerance 1e-4
+node tests/test_schema.js            # both schemas + real capture/report output
+node tests/test_spec_golden.js       # SPEC §7 golden numbers, tolerance 1e-4
+node tests/test_plan_statistics.js   # G-9 against the ArchiPlan fixtures
+node tests/test_handoff.js           # G-10 (quantities[], gaps[], boundaries)
 ```
 
 `tests/test_schema.js` validates a synthetic capture pushed through the real
@@ -456,14 +458,18 @@ python3 -c "import json,jsonschema; \
 ```
 
 `tests/test_spec_golden.js` prints `ID | expected | actual | PASS/PENDING/FAIL`
-for G-1…G-12. A golden value the current kernel cannot produce is reported as
-**PENDING with the exact reason** (missing port, missing fixture, or a value that
-only matches when rounded) instead of passing silently or failing as a
-regression. Today G-1, G-2, G-3, G-4 and G-8 pass; G-5, G-6, G-7, G-9, G-10,
-G-11 and G-12 are pending — the reasons, and the places where SPEC and the
-current code contradict each other, are listed in the report accompanying this
-contract work. Nothing in the calculations or in the CLI was changed to make a
-schema or a golden number fit.
+for G-1…G-12 plus G-8b. A golden value the current kernel cannot produce is
+reported as **PENDING with the exact reason** instead of passing silently or
+failing as a regression. Today **all 13 rows pass** (G-1…G-12 and G-8b) and the
+14 auxiliary behaviour checks behind them pass too.
+
+G-9 and G-10 run the ArchiPlan fixtures in `tests/fixtures/archiplan-plan-statistics.json`
+and `tests/fixtures/archiplan-handoff.json` (extracted from ArchiPlan's own tests
+at commit `299ed31`; each file records its provenance in `_meta`). G-8b is the
+decided room-membership tolerance: **0.02 m**, with the 0.25 m value inherited
+from `report-model.js` documented as **not adopted** — see the change log in
+SPEC §7. Nothing in the calculations or in the CLI was changed to make a schema
+or a golden number fit.
 
 Practical rule for consumers: read `report-v1` (or `capture-v1`) and never
 re-derive geometry from a vendor JSON. A `partial` subtotal is not a building

@@ -135,9 +135,10 @@ Synthetic fixtures, all in metres, checked to 1e-4.
 | G-5 | authored ceiling, 4 vertices 2.0–2.6 m | area per vertex elevations; holes scaled by `ceilingArea/floorArea` |
 | G-6 | 1.00 × 1.00 m room, **0.20 m** walls on the inner face | interior **1.0000 m²** |
 | G-7 | same building written on wall centrelines (1.20 m polygon) | centerline **1.4400 m²** |
-| G-8 | wall on a room boundary | member of that room; kernel tolerance 0.02 m (stricter than report-model's 0.25 m) |
-| G-9 | ArchiPlan fixture | living **10.9725 m²**, net walls **35 − 1.89 m²** |
-| G-10 | handoff fixture | quantity keys present, `gaps[]` for missing areas |
+| G-8 | wall on a room boundary | member of that room; kernel tolerance 0.02 m |
+| G-8b | wall centreline 0.25 m outside the same boundary | **not** a member; tolerance is 0.02 m — decided 2026-11-07, the 0.25 m value inherited from `report-model.js` is **not** adopted |
+| G-9 | ArchiPlan fixture (`tests/fixtures/archiplan-plan-statistics.json`, ArchiPlan commit `299ed31`) | living **10.9725 m²**, net walls **35 − 1.89 m²** |
+| G-10 | handoff fixture (`tests/fixtures/archiplan-handoff.json`, ArchiPlan commit `299ed31`) | the 10 contracted quantity keys present, `gaps[]` for missing areas |
 | G-11 | openings 1 m² and 4 m², threshold 3 m² | paint **10 / 1 m²** |
 | G-12 | heading 193.7412°, alignment 7.9724° | sheet bearing **174.2312°** — user confirmed on site that this arrow points north (default `--north-flip`) |
 
@@ -148,6 +149,22 @@ appear 180° away from it; that discrepancy is recorded, not resolved, and no
 golden number may be changed back without a new on-site check.
 
 A change to any of these requires an explicit note in this file.
+
+### Change log
+
+- **2026-11-07 — G-8b added and G-8 corrected.** G-8 previously said the kernel
+  tolerance was "stricter than report-model's 0.25 m", which left the contract
+  ambiguous: G-8b was listed as PENDING on the 0.25 m reading. Decision: the
+  kernel tolerance is **0.02 m** and the 0.25 m value from `report-model.js` is
+  **rejected** — a wall 25 cm outside a room is not part of that room and
+  tolerating it silently adds its run and area to the wrong room's takeoff. G-8b
+  is now an executable row asserting that a wall centreline 0.25 m outside the
+  boundary is **not** a member, plus aux check A-14 (0.02 m in, 0.03 m out,
+  0.25 m out). The kernel was **not** changed.
+- **2026-11-07 — G-9 / G-10 made executable.** `planStatistics` (`scripts/lib/plan-statistics.js`)
+  and `handoffScope` (`scripts/lib/handoff.js`) are ported from ArchiPlan and
+  fixtures were extracted from its tests at commit `299ed31`. Both rows now run
+  real data instead of being PENDING.
 
 ## 8. Non-goals
 

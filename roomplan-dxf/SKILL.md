@@ -141,7 +141,10 @@ unavailable. This independent engine was not ported from or compared with the
 historical web reporting implementation. No survey accuracy is implied.
 
 Run `node tests/test_quantities.js` (net/paint/CSV safety), `node tests/test_authored_ceiling.js`
-(authored 3D ceiling, G-5) and `node tests/test_interior_area.js` (interior vs centreline
-area, G-6/G-7) for the numerical safety tests. Reports obey
+(authored 3D ceiling, G-5), `node tests/test_interior_area.js` (interior vs centreline
+area, G-6/G-7), `node tests/test_plan_statistics.js` (G-9: gross/net per level,
+living/gross, roomsWithoutArea from an ArchiPlan fixture) and `node tests/test_handoff.js`
+(G-10: per-room boundary figures, quantities[] keys, gaps[]) for the numerical safety tests.
+`node tests/test_spec_golden.js` runs all thirteen SPEC §7 golden rows. Reports obey
 existing output overwrite and source-alias protections. Report generation is
 local and does not require location lookup or an external review service.
