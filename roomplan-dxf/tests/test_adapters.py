@@ -51,18 +51,18 @@ class Adapters(unittest.TestCase):
     def test_legacy_missing_version_and_label(self):
         d=optimized();d.pop('format_version')
         r,s,o=self.run_capture(d,name='not-a-roomplan.txt');self.assertEqual(r.returncode,0,r.stderr)
-        c=self.capture(o);self.assertEqual(c['dialect']['name'],'optimized-legacy-unversioned');self.assertIsNone(c['rooms'][0]['label']);self.assertIsNone(c['rooms'][0]['floorHeight']);self.assertEqual(c['rooms'][0]['category'],'Other');self.assertIn('absent',c['rooms'][0]['labelProvenance'])
+        c=self.capture(o);self.assertEqual(c['source']['dialect'],'optimized-legacy-unversioned');self.assertIsNone(c['rooms'][0]['label']);self.assertIsNone(c['rooms'][0]['floorHeight']);self.assertEqual(c['rooms'][0]['category'],'Other');self.assertIn('absent',c['rooms'][0]['labelProvenance'])
         self.assertEqual(c['source']['sha256'],hashlib.sha256(s.read_bytes()).hexdigest())
         doc=ezdxf.readfile(next(o.glob('*.dxf')));audit=doc.audit();self.assertEqual((len(audit.errors),len(audit.fixes)),(0,0))
         texts=[e.dxf.text for e in doc.modelspace().query('TEXT')];self.assertTrue(any('[Other; id=room-id]' in t for t in texts));self.assertFalse(any('null  ' in t for t in texts))
     def test_explicit_v1_missing_label_and_version99_rejected(self):
-        d=optimized();r,s,o=self.run_capture(d);self.assertEqual(r.returncode,0,r.stderr);self.assertEqual(self.capture(o)['dialect']['name'],'optimized-v1')
+        d=optimized();r,s,o=self.run_capture(d);self.assertEqual(r.returncode,0,r.stderr);self.assertEqual(self.capture(o)['source']['dialect'],'optimized-v1')
         d['format_version']=99;r,s,o=self.run_capture(d);self.assertEqual(r.returncode,1);self.assertIn('version 99',r.stderr);self.assertFalse(o.exists())
         d['format_version']=None;r,s,o=self.run_capture(d);self.assertEqual(r.returncode,1)
     def test_fake_filename_shape_and_ambiguity(self):
         for bad in [{},{'rooms':[{'category':'Other'}]},{'walls':[]},{'objects':[]}]:
             r,s,o=self.run_capture(bad,name='optimized_roomplan.json');self.assertEqual(r.returncode,1);self.assertFalse(o.exists())
-        d=raw();r,s,o=self.run_capture(d,name='optimized_roomplan.json');self.assertEqual(r.returncode,0,r.stderr);self.assertEqual(self.capture(o)['dialect']['kind'],'raw')
+        d=raw();r,s,o=self.run_capture(d,name='optimized_roomplan.json');self.assertEqual(r.returncode,0,r.stderr);self.assertEqual(self.capture(o)['source']['dialectKind'],'raw')
         d['alignment_transform']=I;r,s,o=self.run_capture(d);self.assertEqual(r.returncode,1);self.assertIn('Ambiguous',r.stderr)
         d=optimized();d.pop('format_version');d.pop('openings');r,s,o=self.run_capture(d);self.assertEqual(r.returncode,1);self.assertIn('no raw fallback',r.stderr)
     def test_malformed_numeric_geometry_and_matrices(self):
@@ -85,14 +85,14 @@ class Adapters(unittest.TestCase):
             r,s,o=self.run_capture(data);self.assertEqual(r.returncode,0,r.stderr);c=self.capture(o);text=json.dumps(c)
             self.assertNotIn('SECRET-',text);self.assertNotIn('12.3456',text);self.assertNotIn('23.4567',text);self.assertNotIn('sourceTree',c);self.assertNotIn('originalFilename',c['source']);self.assertGreater(c['completeness']['lossInventory']['omittedFieldCount'],0)
             self.assertEqual(c['surfaces'][0]['parentIdentifier'],'parent-id');self.assertEqual(c['surfaces'][0]['confidence'],'high');self.assertEqual(c['surfaces'][0]['sourceStory'],0)
-            if c['dialect']['kind']=='raw':
+            if c['source']['dialectKind']=='raw':
                 self.assertTrue(c['completeness']['coreModel']['present']);self.assertEqual(c['rooms'][0]['identifier'],'raw-room');self.assertEqual(c['surfaces'][0]['sourceRoomIdentifier'],'raw-room')
                 self.assertEqual(c['sourceRecords']['rooms'][0]['walls'][0]['attributes']['StorageType'],'cabinet')
             else:self.assertEqual(c['meta']['orientation']['degrees'],42)
             r,s,o=self.run_capture(data,args=('--model','--geo'));self.assertEqual(r.returncode,0,r.stderr);c=self.capture(o);self.assertEqual(c['sourceTree'],data)
     def test_paths_overwrite_source_and_no_duplicate_alignment(self):
         d=optimized();r,s,o=self.run_capture(d);self.assertEqual(r.returncode,0,r.stderr);c=self.capture(o)
-        self.assertFalse(c['alignment']['applied']);self.assertEqual(c['surfaces'][0]['transform'],d['walls'][0]['transform']);self.assertEqual(c['alignment']['matrix'],d['alignment_transform']);self.assertEqual(c['rooms'][0]['vertices'][0],{'x':0,'z':0})
+        self.assertFalse(c['alignment']['applied']);self.assertEqual(c['surfaces'][0]['transform'],d['walls'][0]['transform']);self.assertEqual(c['alignment']['matrix'],d['alignment_transform']);self.assertEqual(c['rooms'][0]['polygonXZ'][0],{'x':0,'z':0})
         with_model_geometry=self.geometry_signature(o)
         cap=next(o.glob('*.capture.json'));before=cap.read_bytes()
         for p in list(o.glob('*.dxf'))+list(o.glob('*.roomplan.json')):p.unlink()

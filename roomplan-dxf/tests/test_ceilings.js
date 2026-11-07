@@ -50,12 +50,12 @@ const audit=cp.spawnSync('python3',['-c',`import ezdxf,sys,math\nd=ezdxf.readfil
 // Numerical rounding clips exactly, not an EPS widening; substantial spill stays unknown.
 const wall={identifier:'w',kind:'wall',story:0,transform:I,dimensions:{x:4,y:3,z:0}},opening={identifier:'o',kind:'opening',parentIdentifier:'w',story:0,transform:I.map((v,i)=>i===12?1.5000002:v),dimensions:{x:1,y:2,z:0}};
 const cap={kind:'raw',surfaces:[wall,opening],objects:[]},report=buildReport(cap),w=report.elements[0];
-check(()=>assert(Math.abs(w.netAreaM2.value-10.0000004)<1e-10));check(()=>assert.strictEqual(w.netAreaM2.coverage,'estimated'));check(()=>assert.strictEqual(w.openingDiagnostics[0].clippingApplied,true));
+check(()=>assert(Math.abs(w.netArea.value-10.0000004)<1e-10));check(()=>assert.strictEqual(w.netArea.status,'estimated'));check(()=>assert.strictEqual(w.openingDiagnostics[0].clippingApplied,true));
 check(()=>assert(Math.abs(w.openingDiagnostics[0].outsideAreaM2-4e-7)<1e-10));
 const bad=JSON.parse(JSON.stringify(cap));bad.surfaces[1].transform[12]=1.51;
-check(()=>assert.strictEqual(buildReport(bad).elements[0].netAreaM2.value,null));
+check(()=>assert.strictEqual(buildReport(bad).elements[0].netArea.value,null));
 const overlap=JSON.parse(JSON.stringify(cap));overlap.surfaces.push({...opening,identifier:'o2'});
-check(()=>assert.strictEqual(buildReport(overlap).elements[0].netAreaM2.value,null));
+check(()=>assert.strictEqual(buildReport(overlap).elements[0].netArea.value,null));
 const shared=JSON.parse(JSON.stringify(cap));shared.surfaces.push({...wall,sourceRoomIndex:1});
 check(()=>assert.strictEqual(buildReport(shared).elements.filter(e=>e.kind==='wall').length,1));
 console.log(`ceilings: ${checks} checks passed`);

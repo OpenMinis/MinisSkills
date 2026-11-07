@@ -4,6 +4,8 @@
  * All geometry is source-space; alignment and DXF sheet offsets are never used.
  */
 const ceilingReconstruct = require('./ceiling-reconstruct');
+const planStatistics = require('./plan-statistics');
+const handoffLib = require('./handoff');
 const EPS = 1e-7;
 const finite = v => typeof v === 'number' && Number.isFinite(v);
 const pos = v => finite(v) && v > 0;
@@ -12,8 +14,33 @@ const dot = (a,b) => a.reduce((s,v,i)=>s+v*b[i],0);
 const cross = (a,b) => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 const norm = a => Math.hypot(...a);
 const xyz = p => [p.x,p.y,p.z];
-const measure = (value,coverage,reason=null) => ({value:finite(value)?value:null,coverage:finite(value)?coverage:'unavailable',reason});
-const missing = reason => measure(null,'unavailable',reason);
+/**
+ * SPEC section 4 measure, one shape for the whole report:
+ *   { value, status, coverage, included, expected, reason }
+ * `status` is PROVENANCE only (supplied|computed|reconstructed|estimated|
+ * unavailable). `coverage` is COMPLETENESS only (complete|partial) and carries
+ * the counts behind it. The two were a single field until 2026-11-07 (defect
+ * C-6: `coverage` held 'computed', `status` held 'partial'), which made a
+ * partial subtotal look like a provenance class.
+ */
+const PROVENANCE = ['supplied', 'computed', 'reconstructed', 'estimated', 'unavailable'];
+const STATUS_ALIASES = { 'source-derived': 'supplied', 'complete': 'computed', 'partial': 'computed', 'explicit': 'supplied' };
+function measure(value, status, reason = null, counts = null) {
+  const ok = finite(value);
+  let st = STATUS_ALIASES[status] || status;
+  if (!PROVENANCE.includes(st)) st = ok ? 'computed' : 'unavailable';
+  if (!ok) st = 'unavailable';
+  const included = counts && finite(counts.included) ? counts.included : (ok ? 1 : 0);
+  const expected = counts && finite(counts.expected) ? counts.expected : (ok ? 1 : 1);
+  return {
+    value: ok ? value : null,
+    status: st,
+    coverage: ok && expected > 0 && included >= expected ? 'complete' : 'partial',
+    included, expected,
+    reason: ok ? (reason || null) : (reason || 'value unavailable'),
+  };
+}
+const missing = reason => measure(null, 'unavailable', reason);
 function world(p,t) { return [0,1,2].map(i=>t[i]*p[0]+t[4+i]*p[1]+t[8+i]*p[2]+t[12+i]); }
 function orient(a,b,c) { return (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]); }
 function onSegment(p,a,b,tol=EPS) {
@@ -142,7 +169,7 @@ function rawRooms(root) {
 /** Trade convention, NOT geometry: when a wall is painted, an opening up to this
  * size is not deducted at all — the time saved on the hole is spent right back
  * on its reveals, corners and masking. Above it only the excess comes off (a
- * 4 m2 opening deducts 1 m2). Paint area is a SEPARATE field: `netAreaM2` stays
+ * 4 m2 opening deducts 1 m2). Paint area is a SEPARATE field: `netArea` stays
  * the geometrically honest number and is what cross-checks against a survey;
  * this one is what goes into a quote. Ported from geometry.js
  * `PAINT_FREE_OPENING_M2` / `wallPaintArea` (SPEC section 5, G-11). */
@@ -158,14 +185,48 @@ function paintMeasure(grossMeasure,openings) {
  const estimated=grossMeasure.coverage==='estimated'||openings.some(o=>o&&o.coverage==='estimated');
  return measure(value,estimated?'estimated':'computed',`gross minus ${excess>0?'the excess above':'nothing (all openings at or below)'} PAINT_FREE_OPENING_M2=${PAINT_FREE_OPENING_M2} m2 per linked parent-linked opening; trade rule, not net area`);
 }
-function sum(rows,key) {
- if(!rows.length)return {value:null,status:'unavailable',coverage:'unavailable',included:0,expected:0,reasons:['no applicable source elements']};
+/**
+ * Subtotal measure. A subtotal is `complete` only when every expected row
+ * produced a value; otherwise `partial` with included/expected. `status` stays a
+ * provenance class (SPEC section 4) — partiality lives in `coverage`, never in
+ * `status`, so a consumer can never mistake an incomplete sum for a class of
+ * measurement.
+ */
+function sum(rows,key,label) {
+ const what=label||key;
+ if(!rows.length)return {...missing(`no applicable source elements for ${what}`),included:0,expected:0};
  const values=rows.map(r=>r[key]),ok=values.filter(q=>q&&finite(q.value));
  const reasons=[...new Set(values.filter(q=>!q||!finite(q.value)).map(q=>q?.reason||'missing measure'))];
- return {value:ok.length?ok.reduce((s,q)=>s+q.value,0):null,status:ok.length===rows.length?'complete':ok.length?'partial':'unavailable',coverage:ok.some(q=>q.coverage==='estimated')?'estimated':ok.length?'computed':'unavailable',included:ok.length,expected:rows.length,reasons};
+ if(!ok.length)return {value:null,status:'unavailable',coverage:'partial',included:0,expected:rows.length,
+  reason:`${what}: no measurable value (${reasons.join('; ')||'all reasons empty'})`};
+ const st=ok.some(q=>q.status==='estimated')?'estimated':ok.some(q=>q.status==='reconstructed')?'reconstructed':ok.every(q=>q.status==='supplied')?'supplied':'computed';
+ const complete=ok.length===rows.length;
+ return {value:ok.reduce((s,q)=>s+q.value,0),status:st,coverage:complete?'complete':'partial',included:ok.length,expected:rows.length,
+  reason:complete?`sum of ${ok.length} ${st} ${what} measure(s)`:`${what}: ${ok.length} of ${rows.length} measured; ${reasons.join('; ')}`};
+}
+/** Wall run length: source length first, polygonCorners span as the fallback. */
+function runLength(surface) {
+ const d=surface.dimensions||{};
+ if(pos(d.x))return measure(d.x,'supplied','source wall length (dimensions.x)');
+ const pr=wallProfile(surface);
+ if(pr&&pos(pr.W))return measure(pr.W,'computed','wall span read from the local polygonCorners profile');
+ return missing('wall run length unavailable: no dimensions.x and no polygonCorners profile');
 }
 function buildReport(capture,root={}) {
  const warnings=[],ceilingZones=ceilingReconstruct.zoneCeilings(capture);
+ /** Structured warning (SPEC section 3): message and severity are mandatory, a
+  * code is stable, extra fields (roomIdentifier, differenceM2) are kept. */
+ const warn=(code,message,severity='warning',extra={})=>{warnings.push({code,message,severity,...extra});};
+ let livingAreaInput=null;
+ /** SPEC section 3 assumptions[]: plain strings, one assumption each. The old
+  * conventions.caveat string lives here now (defect C-1). */
+ const assumptions=[
+  'Room-side quantities are references and not additive: a shared wall appears once in the totals and on both room sides.',
+  'No surveyed accuracy is claimed; source geometry is trusted only as far as the producer wrote it.',
+  'Ceiling areas are reconstructed from wall-top profiles unless the producer supplies a ceiling polygon; a supplied ceiling always wins.',
+  'Paint area follows a trade rule (an opening up to '+PAINT_FREE_OPENING_M2+' m2 is not deducted, above it only the excess); net area keeps the full geometric deduction.',
+  'No complete native-app support and no volume inference: volume stays null with a reason instead of a guess.',
+ ];
  /**
   * Ceiling measure for one room: explicit source polygon first, then the
   * wall-top reconstruction, then unavailable. `status` uses the ceiling
@@ -173,23 +234,41 @@ function buildReport(capture,root={}) {
   * unavailable); `coverage` keeps the report-wide vocabulary
   * (source-derived / computed / estimated / unavailable).
   */
+ /**
+  * Ceiling measure for one room: explicit source polygon first, then the
+  * wall-top reconstruction, then unavailable. `status` is provenance
+  * (supplied / reconstructed / estimated / unavailable); `coverage` is
+  * `complete` unless the reconstruction only covered part of the room.
+  * `method` is the SPEC section 3 enum: supplied|knee|section|extrusion|flat|unavailable.
+  */
  function ceilingMeasureFor(identifier,sourceRoomIndex){
   const zone=(identifier!=null?ceilingZones.find(z=>z.roomIdentifier===identifier):null)||
    (sourceRoomIndex!=null?ceilingZones.find(z=>z.sourceRoomIndex===sourceRoomIndex):null)||null;
-  if(!zone)return {...missing('no room/zone wall geometry to derive a ceiling from'),status:'unavailable',method:null,heightM:null};
-  const out={value:finite(zone.ceilingArea)?zone.ceilingArea:null,coverage:zone.coverage||'unavailable',status:zone.status||'unavailable',method:zone.method||null,
-   basis:zone.source==='explicit'?'explicit source ceiling polygon; wall-top reconstruction not run':'wall-profile ceiling reconstruction',reason:zone.reason||null,
+  const toMethod=(z)=>{
+   if(!z)return 'unavailable';
+   if(z.source==='explicit'||z.method==='explicit')return 'supplied';
+   return ['knee','section','extrusion','flat','supplied','unavailable'].includes(z.method)?z.method:'unavailable';
+  };
+  if(!zone)return {...missing('no room/zone wall geometry to derive a ceiling from'),method:toMethod(null),basis:null,heightM:null};
+  const m=measure(finite(zone.ceilingArea)?zone.ceilingArea:null,zone.status||'reconstructed',zone.reason||'ceiling area unavailable');
+  return {value:m.value,status:m.status,coverage:m.coverage,included:m.included,expected:m.expected,reason:m.reason,
+   method:m.value==null?'unavailable':toMethod(zone),
+   basis:zone.source==='explicit'?'explicit source ceiling polygon; wall-top reconstruction not run':'wall-profile ceiling reconstruction',
    heightM:finite(zone.heightMin)&&finite(zone.heightMax)?{min:zone.heightMin,max:zone.heightMax}:null};
-  if(!finite(zone.ceilingArea)&&!out.reason)out.reason='ceiling area unavailable';
-  return out;
  }
  const rooms=(capture.rooms||rawRooms(root)).map((r,i)=>{
-  const vertices=r.vertices||null, curved=r.curvedEdges?.length||r.curved_edges?.length;
-  const pg=vertices&&!curved?polygon3D(vertices.map(v=>[v.x,0,v.z])):{error:curved?'curved room boundary unsupported':'source room polygon absent'};
-  const declared=finite(r.area)?measure(r.area,'supplied','source room.area; separate from computed polygon'):missing('source room.area absent');
+  const polygonXZ=r.polygonXZ||r.vertices||null, curved=r.curvedEdges?.length||r.curved_edges?.length;
+  const pg=polygonXZ&&!curved?polygon3D(polygonXZ.map(v=>[v.x,0,v.z])):{error:curved?'curved room boundary unsupported':'source room polygon absent'};
+  const declaredValue=finite(r.declaredArea)?r.declaredArea:(finite(r.area)?r.area:null);
+  const declared=declaredValue!=null?measure(declaredValue,'supplied','source room area (declaredArea); separate from the computed polygon'):missing('source room area absent');
   const derived=pg.error?missing(pg.error):measure(pg.area,'computed','source XZ polygon; Newell area');
   const discrepancy=declared.value!=null&&derived.value!=null?derived.value-declared.value:null;
-  return {identifier:r.identifier??r.id??`source-room:${i}`,sourceRoomIndex:r.sourceRoomIndex??i,story:r.story??null,label:r.label??null,declaredAreaM2:declared,polygonAreaM2:derived,polygonMinusDeclaredM2:discrepancy,ceilingAreaM2:ceilingMeasureFor(r.identifier??r.id??null,r.sourceRoomIndex??i),volumeM3:missing('closed verified volume geometry unavailable'),_vertices:pg.error?null:vertices,_source:r};
+  const identifier=r.identifier??r.id??`source-room:${i}`;
+  return {id:identifier,identifier,sourceRoomIndex:r.sourceRoomIndex??i,story:r.story??null,label:r.label??null,
+   declaredArea:declared,polygonArea:derived,polygonMinusDeclared:discrepancy,
+   ceilingArea:ceilingMeasureFor(r.identifier??r.id??null,r.sourceRoomIndex??i),
+   volume:missing('closed verified volume geometry unavailable'),
+   _vertices:pg.error?null:polygonXZ,_source:r};
  });
  const all=[...(capture.surfaces||[]),...(capture.objects||[])],groups=new Map();
  all.forEach((s,i)=>{const key=s.identifier?`${s.kind||'object'}:${s.identifier}`:`anonymous:${i}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(s);});
@@ -201,7 +280,7 @@ function buildReport(capture,root={}) {
   if(stories.length!==1)g.error='same identifier assigned to conflicting stories';
   const slopeCut=kind==='wall'?slopeCutOf(s):null;
   const grossBase=g.error||!slopeCut?null:slopeCut;
-  const e={key,identifier:s.identifier??null,kind,category:s.category??null,story:stories.length===1?stories[0]:null,sourceStory:s.sourceStory??null,storyProvenance:s.sourceStoryProvenance||capture.storyAssignmentMethod||'source or decoder assignment',parentIdentifier:s.parentIdentifier??null,provenance:records.map(q=>({sourceRecordIndex:q.sourceRecordIndex??null,sourceRoomIndex:q.sourceRoomIndex??null,sourceRoomIdentifier:q.sourceRoomIdentifier??null})),count:1,roomMemberships:[],grossAreaM2:(()=>{
+  const e={id:key,identifier:s.identifier??null,kind,category:s.category??null,story:stories.length===1?stories[0]:null,sourceStory:s.sourceStory??null,storyProvenance:s.sourceStoryProvenance||capture.storyAssignmentMethod||'source or decoder assignment',parentIdentifier:s.parentIdentifier??null,sourceRecords:records.map(q=>({sourceRecordIndex:q.sourceRecordIndex??null,sourceRoomIndex:q.sourceRoomIndex??null,sourceRoomIdentifier:q.sourceRoomIdentifier??null})),count:1,roomRefs:[],length:runLength(s),area:(()=>{
    if(g.error)return missing(g.error);
    if(!slopeCut||slopeCut.correctedGrossArea==null)return measure(g.area,g.coverage,g.method);
    if(slopeCut.status==='computed'&&Math.abs(slopeCut.correctedGrossArea-g.area)<=0.02)
@@ -209,46 +288,46 @@ function buildReport(capture,root={}) {
    if(Math.abs((slopeCut.correctedGrossArea??g.area)-g.area)>0.02)
     return measure(g.area,'estimated',`slope-cut gross ${slopeCut.correctedGrossArea.toFixed(3)} m2 disagrees with the verified polygon area ${g.area.toFixed(3)} m2; polygon area kept, slope cut reported separately`);
    return measure(g.area,g.coverage,g.method);
-  })(),slopeCut,netAreaM2:missing(kind==='wall'?'not evaluated':'not applicable'),thicknessM:pos(s.wallThickness)?measure(s.wallThickness,'supplied','source.wallThickness'):pos(s.dimensions?.z)&&kind==='wall'?measure(s.dimensions.z,'supplied','source.dimensions.z'):missing('source thickness absent; DXF fallback not used'),warnings:[]};
-  if(g.error&&kind!=='object')e.warnings.push(g.error);
-  if(g.coverage==='estimated')e.warnings.push(g.method);
+  })(),slopeCut,netArea:missing(kind==='wall'?'not evaluated':'not applicable'),thickness:pos(s.wallThickness)?measure(s.wallThickness,'supplied','source.wallThickness'):pos(s.dimensions?.z)&&kind==='wall'?measure(s.dimensions.z,'supplied','source.dimensions.z'):missing('source thickness absent; DXF fallback not used'),notes:[]};
+  if(g.error&&kind!=='object')e.notes.push(g.error);
+  if(g.coverage==='estimated')e.notes.push(g.method);
   for(const room of rooms) {
    const sourceLink=records.some(q=>q.sourceRoomIndex!=null&&q.sourceRoomIndex===room.sourceRoomIndex || q.sourceRoomIdentifier!=null&&q.sourceRoomIdentifier===room.identifier);
    const rr=room._source;
    const explicit=(rr.edges||[]).flat(Infinity).includes(s.identifier)||['doorIdentifiers','windowIdentifiers','openingIdentifiers','doors','windows','openings'].some(k=>Array.isArray(rr[k])&&rr[k].includes(s.identifier));
-   if(sourceLink||explicit) {e.roomMemberships.push({roomIdentifier:room.identifier,coverage:'supplied',method:sourceLink?'source-room record linkage':'source room identifier references'});continue;}
+   if(sourceLink||explicit) {e.roomRefs.push({roomIdentifier:room.identifier,coverage:'supplied',method:sourceLink?'source-room record linkage':'source room identifier references'});continue;}
    if(capture.kind==='optimized'&&room._vertices&&room.story===e.story&&rigid(s.transform)) {
     const poly=room._vertices.map(v=>[v.x,v.z]), center=[s.transform[12],s.transform[14]];
     // Walls require both endpoints and midpoint, not centroid alone. Boundary
     // tolerance intentionally admits references to both adjacent rooms.
     const points=kind==='wall'&&pos(s.dimensions?.x)?[-0.5,0,0.5].map(t=>world([t*s.dimensions.x,0,0],s.transform)).map(p=>[p[0],p[2]]):[center];
-    if(points.every(p=>inPolygon(p,poly,0.02)))e.roomMemberships.push({roomIdentifier:room.identifier,coverage:'inferred',method:'source-space point-in-polygon; 0.02m boundary tolerance; not measured membership'});
+    if(points.every(p=>inPolygon(p,poly,0.02)))e.roomRefs.push({roomIdentifier:room.identifier,coverage:'inferred',method:'source-space point-in-polygon; 0.02m boundary tolerance; not measured membership'});
    }
   }
   elements.push(e);geometries.set(key,{g,s});
  }
  const apertures=elements.filter(e=>['door','window','opening'].includes(e.kind));
  for(const wall of elements.filter(e=>e.kind==='wall')) {
-  const {g}=geometries.get(wall.key),linked=apertures.filter(e=>e.parentIdentifier===wall.identifier&&wall.identifier!=null);
-  wall.openingKeys=linked.map(e=>e.key);
+  const {g}=geometries.get(wall.id),linked=apertures.filter(e=>e.parentIdentifier===wall.identifier&&wall.identifier!=null);
+  wall.openingIds=linked.map(e=>e.id);
   wall.openingDiagnostics=[];
-  if(!g.error&&!g.estimateOnly)for(const opening of linked){const og=geometries.get(opening.key).g;if(!og.error&&og.poly)wall.openingDiagnostics.push(require('./wall-diagnostics').diagnose(geometries.get(wall.key).s,geometries.get(opening.key).s,g,og,inPolygon));}
-  if(wall.slopeCut&&wall.slopeCut.status!=='computed'&&wall.slopeCut.status!=='unavailable')wall.warnings.push(`slope cut ${wall.slopeCut.status}: ${wall.slopeCut.note}`);
-  if(g.error||g.estimateOnly) {wall.netAreaM2=missing(g.error||'wall plane unavailable');continue;}
+  if(!g.error&&!g.estimateOnly)for(const opening of linked){const og=geometries.get(opening.id).g;if(!og.error&&og.poly)wall.openingDiagnostics.push(require('./wall-diagnostics').diagnose(geometries.get(wall.id).s,geometries.get(opening.id).s,g,og,inPolygon));}
+  if(wall.slopeCut&&wall.slopeCut.status!=='computed'&&wall.slopeCut.status!=='unavailable')wall.notes.push(`slope cut ${wall.slopeCut.status}: ${wall.slopeCut.note}`);
+  if(g.error||g.estimateOnly) {wall.netArea=missing(g.error||'wall plane unavailable');continue;}
   let failure=null; const projected=[];
   // Restrict subtraction to convex wall boundaries; concave clipping is not implemented.
   const turns=g.poly.map((p,i)=>orient(p,g.poly[(i+1)%g.poly.length],g.poly[(i+2)%g.poly.length])).filter(v=>Math.abs(v)>EPS);
   const convex=turns.every(v=>v>0)||turns.every(v=>v<0);
   if(linked.length&&!convex)failure='opening subtraction for concave wall unsupported';
   for(const opening of linked) {
-   const og=geometries.get(opening.key).g;
+   const og=geometries.get(opening.id).g;
    if(opening.story!==wall.story){failure='parent-linked opening on different story';break;}
    if(og.error||!og.poly){failure='parent-linked opening geometry unavailable';break;}
    // Opening local surfaces must be coplanar with wall, not merely have a matching ID.
    const points=og.poly.map(p=>og.origin.map((v,i)=>v+og.u[i]*p[0]+og.v[i]*p[1]));
    if(points.some(p=>Math.abs(dot(sub(p,g.origin),g.n))>0.01)) {failure='parent-linked opening not coplanar within 0.01m';break;}
    let poly=points.map(g.project),subtractionArea=og.area;
-   const diagnostic=wall.openingDiagnostics.find(d=>d.openingKey===opening.key);
+   const diagnostic=wall.openingDiagnostics.find(d=>d.openingKey===opening.id);
    if(!poly.every(p=>inPolygon(p,g.poly,EPS))) {
     // Do NOT increase EPS or silently subtract the full opening. For dimensional
     // rectangles only, exact convex intersection may repair sub-micrometre
@@ -257,7 +336,7 @@ function buildReport(capture,root={}) {
      poly=diagnostic.intersectionPolygonM;subtractionArea=diagnostic.intersectionAreaM2;
      diagnostic.netPolicy='exact convex intersection of dimensional rectangles; estimated geometry; only <=1e-6m overflow and <=1e-5m2 outside; original opening and outside area retained';
      diagnostic.clippingApplied=true;
-     wall.warnings.push('sub-micrometre dimensional rounding overflow: exact clipped intersection subtracted; outside area retained in openingDiagnostics');
+     wall.notes.push('sub-micrometre dimensional rounding overflow: exact clipped intersection subtracted; outside area retained in openingDiagnostics');
     }else {failure='parent-linked opening outside wall boundary';break;}
    }
    const box=[Math.min(...poly.map(p=>p[0])),Math.max(...poly.map(p=>p[0])),Math.min(...poly.map(p=>p[1])),Math.max(...poly.map(p=>p[1]))];
@@ -269,58 +348,164 @@ function buildReport(capture,root={}) {
   // Openings are subtracted from the CORRECTED gross (slope cut applied), not
   // from the full W*H rectangle: otherwise a gable wall's net is overstated by
   // whatever the roof cut away.
-  const netBase=finite(wall.grossAreaM2.value)?wall.grossAreaM2.value:g.area;
+  const netBase=finite(wall.area.value)?wall.area.value:g.area;
   const net=netBase-projected.reduce((s,q)=>s+q.area,0);
   if(net < -EPS)failure='negative net wall area refused';
-  wall.netAreaM2=failure?missing(failure):measure(Math.max(0,net),g.coverage==='estimated'||projected.some(q=>q.coverage==='estimated')?'estimated':'computed','gross minus verified contained or explicitly diagnostic-clipped dimensional-rounding intersections; coplanar parent-linked nonoverlapping openings');
-  if(failure)wall.warnings.push(failure);
+  wall.netArea=failure?missing(failure):measure(Math.max(0,net),g.coverage==='estimated'||projected.some(q=>q.coverage==='estimated')?'estimated':'computed','gross minus verified contained or explicitly diagnostic-clipped dimensional-rounding intersections; coplanar parent-linked nonoverlapping openings');
+  if(failure)wall.notes.push(failure);
  }
  for(const a of apertures) {
   const parents=elements.filter(e=>e.kind==='wall'&&e.identifier===a.parentIdentifier&&a.parentIdentifier!=null);
   a.parentLinkStatus=parents.length===1?'linked':parents.length?'ambiguous':'unlinked';
-  if(a.parentLinkStatus!=='linked')a.warnings.push('opening not subtracted: '+a.parentLinkStatus+' parentIdentifier');
+  if(a.parentLinkStatus!=='linked')a.notes.push('opening not subtracted: '+a.parentLinkStatus+' parentIdentifier');
  }
- // Paint area per wall: a SEPARATE field next to netAreaM2, never folded into it.
+ // Paint area per wall: a SEPARATE field next to netArea, never folded into it.
  // Same parent-linked openings as net (one wall, unambiguous parent); the trade
  // threshold is applied to each opening separately, so two 2 m2 openings deduct
  // nothing while one 4 m2 opening deducts 1 m2.
  for(const wall of elements.filter(e=>e.kind==='wall')) {
   const linked=apertures.filter(e=>e.parentIdentifier===wall.identifier&&wall.identifier!=null);
-  wall.paintAreaM2=paintMeasure(wall.grossAreaM2,linked.map(e=>({area:e.grossAreaM2.value,coverage:e.grossAreaM2.coverage})));
-  wall.paintRule={thresholdM2:PAINT_FREE_OPENING_M2,freeOpeningM2:PAINT_FREE_OPENING_M2,deductedM2:finite(wall.grossAreaM2.value)&&finite(wall.paintAreaM2.value)?wall.grossAreaM2.value-wall.paintAreaM2.value:null,policy:'an opening up to PAINT_FREE_OPENING_M2 is not deducted; above it only the excess is deducted; net area keeps the full geometric deduction'};
+  wall.paintArea=paintMeasure(wall.area,linked.map(e=>({area:e.area.value,coverage:e.area.coverage})));
+  wall.paintRule={thresholdM2:PAINT_FREE_OPENING_M2,freeOpeningM2:PAINT_FREE_OPENING_M2,deductedM2:finite(wall.area.value)&&finite(wall.paintArea.value)?wall.area.value-wall.paintArea.value:null,policy:'an opening up to PAINT_FREE_OPENING_M2 is not deducted; above it only the excess is deducted; net area keeps the full geometric deduction'};
  }
  /** Ceiling subtotal: only rooms/zones with an area contribute; anything
   * missing makes the subtotal 'partial' rather than silently complete. */
+ /**
+  * Ceiling subtotal: only rooms/zones with an area contribute; anything
+  * missing makes the subtotal `partial` rather than silently complete.
+  * `status` is the provenance of the contributing zones.
+  */
  function ceilingSummary(zones){
   const byStatus={};for(const z of zones)if(z.status)byStatus[z.status]=(byStatus[z.status]||0)+1;
   const known=zones.filter(z=>finite(z.ceilingArea));
-  if(!zones.length)return {value:null,status:'unavailable',coverage:'unavailable',included:0,expected:0,byStatus,reasons:['no room/zone geometry to derive a ceiling from']};
-  if(!known.length)return {value:null,status:'unavailable',coverage:'unavailable',included:0,expected:zones.length,byStatus,reasons:[...new Set(zones.map(z=>z.reason||'ceiling area unavailable'))]};
-  return {value:known.reduce((s,z)=>s+z.ceilingArea,0),status:known.length===zones.length?'complete':'partial',
-   coverage:known.some(z=>z.coverage==='estimated')?'estimated':known.every(z=>z.coverage==='source-derived')?'source-derived':'computed',
+  if(!zones.length)return {...missing('no room/zone geometry to derive a ceiling from'),included:0,expected:0,byStatus};
+  if(!known.length)return {value:null,status:'unavailable',coverage:'partial',included:0,expected:zones.length,byStatus,reason:[...new Set(zones.map(z=>z.reason||'ceiling area unavailable'))].join('; ')};
+  const suppliedOnly=known.every(z=>z.source==='explicit');
+  const anyEstimated=known.some(z=>z.status==='estimated');
+  const st=suppliedOnly?'supplied':anyEstimated?'estimated':'reconstructed';
+  const complete=known.length===zones.length;
+  return {value:known.reduce((s,z)=>s+z.ceilingArea,0),status:st,coverage:complete?'complete':'partial',
    included:known.length,expected:zones.length,byStatus,
-   reasons:[...new Set(zones.filter(z=>!finite(z.ceilingArea)).map(z=>z.reason||'ceiling area unavailable'))]};
+   reason:complete?`sum of ${known.length} ${st} ceiling area(s)`:known.length+' of '+zones.length+' ceilings measured; '+[...new Set(zones.filter(z=>!finite(z.ceilingArea)).map(z=>z.reason||'ceiling area unavailable'))].join('; ')};
  }
  function totals(list,story) {
   const zones=story===undefined?ceilingZones:ceilingZones.filter(z=>z.story===story);
-  const select=k=>list.filter(e=>e.kind===k),walls=select('wall'),unlinked=list.filter(e=>['door','window','opening'].includes(e.kind)&&e.parentLinkStatus!=='linked');
-  const net=sum(walls,'netAreaM2');
-  if(unlinked.length){net.status=net.value==null?'unavailable':'partial';net.reasons.push('unlinked/ambiguous openings excluded from subtraction; net coverage incomplete');}
-  const paint=sum(walls,'paintAreaM2');
-  if(unlinked.length){paint.status=paint.value==null?'unavailable':'partial';paint.reasons.push('unlinked/ambiguous openings cannot be deducted; paint coverage incomplete');}
-  return {uniqueElementCount:list.length,counts:Object.fromEntries(['wall','floor','door','window','opening','object'].map(k=>[k,select(k).length])),floorAreaM2:sum(select('floor'),'grossAreaM2'),wallGrossAreaM2:sum(walls,'grossAreaM2'),wallNetAreaM2:net,doorAreaM2:sum(select('door'),'grossAreaM2'),windowAreaM2:sum(select('window'),'grossAreaM2'),openingAreaM2:sum(select('opening'),'grossAreaM2'),paintAreaM2:paint,unlinkedOpeningKeys:unlinked.map(e=>e.key),ceilingAreaM2:ceilingSummary(zones),volumeM3:missing('verified closed volume geometry unavailable')};
+  const select=k=>list.filter(e=>e.kind===k),walls=select('wall');
+  const apertures=list.filter(e=>['door','window','opening'].includes(e.kind));
+  const unlinked=apertures.filter(e=>e.parentLinkStatus!=='linked');
+  const net=sum(walls,'netArea','wall net area');
+  if(unlinked.length){net.coverage='partial';net.reason=`${net.reason}; unlinked/ambiguous openings excluded from subtraction, so net coverage is incomplete`;}
+  const paint=sum(walls,'paintArea','paint area');
+  if(unlinked.length){paint.coverage='partial';paint.reason=`${paint.reason}; unlinked/ambiguous openings cannot be deducted, so paint coverage is incomplete`;}
+  const roomList=story===undefined?rooms:rooms.filter(r=>r.story===story);
+  const withoutArea=roomList.filter(r=>!(r.polygonArea&&finite(r.polygonArea.value))&&!(r.declaredArea&&finite(r.declaredArea.value))).length;
+  const living=(()=>{
+   if(story!==undefined)return missing('living area is reported per level in the statistics block; not re-derived per story here');
+   if(livingAreaInput&&finite(livingAreaInput.value))return measure(livingAreaInput.value,'computed','plan-statistics totals.livingArea: interior floor area per room, wall footprints removed (G-9)');
+   return missing(livingAreaInput&&livingAreaInput.reason?livingAreaInput.reason:'living area requires zone/type classification; see the statistics block');
+  })();
+  return {
+   floorArea:sum(select('floor'),'area','floor area'),
+   ceilingArea:ceilingSummary(zones),
+   wallAreaGross:sum(walls,'area','wall gross area'),
+   wallAreaNet:net,
+   openingArea:sum(apertures,'area','opening area'),
+   wallLength:sum(walls,'length','wall run length'),
+   paintArea:paint,
+   livingArea:living,
+   roomsWithoutArea:measure(withoutArea,'computed',`${withoutArea} of ${roomList.length} room(s) have neither a computed polygon area nor a declared area`,{included:roomList.length-withoutArea,expected:roomList.length}),
+   volume:missing('verified closed volume geometry unavailable'),
+   doorArea:sum(select('door'),'area','door area'),
+   windowArea:sum(select('window'),'area','window area'),
+   uniqueElementCount:list.length,
+   counts:{
+    roomCount:roomList.length,
+    wallCount:walls.length,
+    doorCount:select('door').length,
+    windowCount:select('window').length,
+    objectCount:select('object').length,
+    floorCount:select('floor').length,
+    openingCount:select('opening').length,
+    elementCount:list.length,
+   },
+   unlinkedOpeningIds:unlinked.map(e=>e.id),
+  };
  }
+ /** SPEC section 6: one kernel, many outputs. The statistics (G-9) and handoff
+  * (G-10) blocks are computed from the same capture and written INSIDE
+  * report-v1, so a consumer never has to re-derive them. A failure is a warning,
+  * never a silent omission and never a thrown report. */
+ let statisticsBlock=null,handoffBlock=null;
+ try{
+  const ps=planStatistics.planStatistics(capture);
+  if(ps&&ps.ok&&ps.statistics){
+   statisticsBlock=ps.statistics;
+   const la=ps.statistics.totals&&ps.statistics.totals.livingArea;
+   livingAreaInput=finite(la)?{value:la}:{reason:'plan-statistics could not measure a living area for this capture'};
+  }else livingAreaInput={reason:`plan-statistics refused the capture${ps&&ps.reason?`: ${ps.reason}`:''}`};
+ }catch(e){livingAreaInput={reason:`plan-statistics threw: ${e.message}`};warn('statistics-unavailable',`plan-statistics failed: ${e.message}`,'warning');}
+ try{
+  const ho=handoffLib.handoff(capture);
+  if(ho&&ho.ok)handoffBlock=ho.scope;
+  else warn('handoff-unavailable',`handoff refused the capture${ho&&ho.reason?`: ${ho.reason}`:''}`,'warning');
+ }catch(e){warn('handoff-unavailable',`handoff failed: ${e.message}`,'warning');}
+
  const storyIds=[...new Set([...elements.map(e=>e.story),...rooms.map(r=>r.story)])];
  const stories=storyIds.map(story=>({story,totals:totals(elements.filter(e=>e.story===story),story),rooms:rooms.filter(r=>r.story===story).map(r=>r.identifier)}));
  for(const room of rooms) {
-  const sides=elements.filter(e=>e.roomMemberships.some(m=>m.roomIdentifier===room.identifier));
-  room.elementKeys=sides.map(e=>e.key);room.roomSideCounts=Object.fromEntries(['wall','floor','door','window','opening','object'].map(k=>[k,sides.filter(e=>e.kind===k).length]));
-  room.roomSideWallGrossAreaM2=sum(sides.filter(e=>e.kind==='wall'),'grossAreaM2');
+  const sides=elements.filter(e=>e.roomRefs.some(m=>m.roomIdentifier===room.identifier));
+  room.elementIds=sides.map(e=>e.id);room.roomSideCounts=Object.fromEntries(['wall','floor','door','window','opening','object'].map(k=>[k,sides.filter(e=>e.kind===k).length]));
+  room.roomSideWallGrossAreaM2=sum(sides.filter(e=>e.kind==='wall'),'area');
   delete room._vertices;delete room._source;
-  if(room.polygonMinusDeclaredM2!=null&&Math.abs(room.polygonMinusDeclaredM2)>0.01)warnings.push({code:'room-area-discrepancy',roomIdentifier:room.identifier,differenceM2:room.polygonMinusDeclaredM2});
+  if(room.polygonMinusDeclared!=null&&Math.abs(room.polygonMinusDeclared)>0.01)warn('room-area-discrepancy',`room ${room.identifier}: computed polygon area differs from the declared area by ${room.polygonMinusDeclared.toFixed(3)} m2`,'warning',{roomIdentifier:room.identifier,differenceM2:room.polygonMinusDeclared});
  }
- const report={schemaVersion:'report1',engine:'independent conservative quantities engine; not ported or compared to unavailable ArchiDrawing web engine',source:{sha256:capture.sourceSHA256??capture.source?.sha256??null,byteCount:capture.sourceByteCount??capture.source?.byteCount??null,kind:capture.kind??capture.dialect?.kind??null},conventions:{units:'metres',areaUnits:'m2',coordinateSpace:'source space; local surface transforms applied; alignment and DXF sheet translations not used',roomMembership:'source links first; polygon inference explicitly inferred; shared walls have multiple room references but one unique total',coverage:'supplied=source value; computed=verified geometry; estimated=dimensional assumption; unavailable=null; complete/partial describe decoded element coverage, not whole-building completeness',netOpeningToleranceM:0.01,roomBoundaryToleranceM:0.02,paintFreeOpeningM2:PAINT_FREE_OPENING_M2,paintPolicy:'trade rule, separate from netAreaM2: an opening up to paintFreeOpeningM2 is not deducted, above it only the excess; never folded into net'},sourceReferences:{floorAreaSquareMetres:finite(root.floorAreaSquareMetres)?root.floorAreaSquareMetres:null,floorAreaPolicy:'metadata reference only; never added to geometry totals'},rooms,elements,stories,totals:totals(elements),warnings};
- report.summary={sourceSHA256:report.source.sha256,roomCount:rooms.length,ceilingAreaM2:report.totals.ceilingAreaM2,storyCount:stories.length,uniqueElementCount:elements.length,counts:report.totals.counts,floorAreaM2:report.totals.floorAreaM2,wallGrossAreaM2:report.totals.wallGrossAreaM2,wallNetAreaM2:report.totals.wallNetAreaM2,paintAreaM2:report.totals.paintAreaM2,warningCount:warnings.length+elements.reduce((n,e)=>n+e.warnings.length,0),caveat:'Room-side quantities are references and not additive. No surveyed accuracy, complete app support, ceiling inference or volume inference claimed.'};
+ /**
+  * report-v1 (SPEC section 3). Canonical names, canonical measure shape:
+  * totals are the building takeoff, elements are the flat line list, rooms and
+  * stories are the per-room view, assumptions[] is what we had to assume and
+  * warnings[] is what we could not measure. `statistics` and `handoff` are the
+  * two specialist blocks (G-9, G-10) carried inside the same document.
+  */
+ const report={
+  schemaVersion:'roomplan.report/1',
+  engine:'independent conservative quantities engine; not ported or compared to unavailable ArchiDrawing web engine',
+  source:{
+   sha256:capture.sourceSHA256??capture.source?.sha256??null,
+   byteCount:capture.sourceByteCount??capture.source?.bytes??capture.source?.byteCount??null,
+   dialect:capture.dialect?.name??capture.dialect?.kind??capture.source?.dialect??capture.kind??null,
+   captureSchema:'roomplan.capture/1',
+  },
+  conventions:{
+   units:'metres',areaUnits:'m2',
+   measureShape:'{value,status,coverage,included,expected,reason}; status=provenance supplied|computed|reconstructed|estimated|unavailable; coverage=completeness complete|partial with included/expected counts',
+   coordinateSpace:'source space; local surface transforms applied; alignment and DXF sheet translations not used',
+   roomMembership:'source links first; polygon inference explicitly inferred; shared walls have multiple room references but one unique total',
+   netOpeningToleranceM:0.01,roomBoundaryToleranceM:0.02,
+   paintFreeOpeningM2:PAINT_FREE_OPENING_M2,
+   paintPolicy:'trade rule, separate from netArea: an opening up to paintFreeOpeningM2 is not deducted, above it only the excess; never folded into net',
+  },
+  assumptions,
+  sourceReferences:{floorAreaSquareMetres:finite(root.floorAreaSquareMetres)?root.floorAreaSquareMetres:null,floorAreaPolicy:'metadata reference only; never added to geometry totals'},
+  rooms,elements,stories,
+  totals:totals(elements),
+  statistics:statisticsBlock,
+  handoff:handoffBlock,
+  warnings,
+ };
+ report.summary={
+  sourceSHA256:report.source.sha256,
+  roomCount:rooms.length,
+  ceilingArea:report.totals.ceilingArea,
+  storyCount:stories.length,
+  uniqueElementCount:elements.length,
+  counts:report.totals.counts,
+  floorArea:report.totals.floorArea,
+  wallAreaGross:report.totals.wallAreaGross,
+  wallAreaNet:report.totals.wallAreaNet,
+  paintArea:report.totals.paintArea,
+  warningCount:warnings.length+elements.reduce((n,e)=>n+e.notes.length,0),
+  caveat:'Room-side quantities are references and not additive. No surveyed accuracy, complete app support, ceiling inference or volume inference claimed.',
+ };
  return report;
 }
 /** Guard strings before RFC4180-style quoting; BOM and semicolon for spreadsheets. */
@@ -331,7 +516,7 @@ function csvCell(v) {
 }
 function quantitiesCSV(report) {
  const header=['Kat','Tip','ID','Izvorni_ID','Kategorija','Broj','Povrsina_bruto_m2','Bruto_pokrivenost','Povrsina_neto_m2','Neto_pokrivenost','Povrsina_bojanje_m2','Bojanje_pokrivenost','Bojanje_odbijeno_m2','Debljina_m','Debljina_pokrivenost','Sobe_reference','Provenance','Napomena'];
- const rows=report.elements.map(e=>[e.story,e.kind,e.key,e.identifier,e.category,e.count,e.grossAreaM2.value,e.grossAreaM2.coverage,e.netAreaM2.value,e.netAreaM2.coverage,e.paintAreaM2?e.paintAreaM2.value:null,e.paintAreaM2?e.paintAreaM2.coverage:null,e.paintRule?e.paintRule.deductedM2:null,e.thicknessM.value,e.thicknessM.coverage,e.roomMemberships,e.provenance,e.warnings.join(' | ')]);
+ const rows=report.elements.map(e=>[e.story,e.kind,e.id,e.identifier,e.category,e.count,e.id,e.identifier,e.category,e.count,e.area.value,e.area.status,e.netArea.value,e.netArea.status,e.paintArea?e.paintArea.value:null,e.paintArea?e.paintArea.status:null,e.paintRule?e.paintRule.deductedM2:null,e.thickness.value,e.thickness.status,e.roomRefs,e.sourceRecords,e.notes.join(' | ')]);
  return '\uFEFF'+[header,...rows].map(r=>r.map(csvCell).join(';')).join('\r\n')+'\r\n';
 }
 module.exports={buildReport,quantitiesCSV,csvCell,polygon3D,inPolygon,PAINT_FREE_OPENING_M2,paintMeasure};

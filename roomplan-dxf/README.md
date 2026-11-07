@@ -253,6 +253,12 @@ transform convention, story clustering and projection rules.
   `S<story>_<KIND>` (`WALL`, `FLOOR`, `DOOR`, `WINDOW`, `OPENING`, `OBJECT`,
   `ROOM`, `LABEL`) for the plan, plus `FRAME`/`TITLE`/`NORTH` for the sheet
   furniture (absent with `--no-frame`).
+- `<name>.md` — Markdown summary of `report-v1` (`--md`, implies `--report`):
+  project title, per-story floor / ceiling (with method) / walls gross+net /
+  paint, rooms with areas and warnings, `gaps[]` from the handoff block, the
+  `assumptions[]` list and a one-paragraph provenance legend. A `partial` total
+  is printed as `(partial 3/4)` and an unknown one as `n/a — <reason>`; there is
+  deliberately no table that would imply an accuracy we do not have.
 - `<name>.roomplan.json` — manifest: source SHA-256, dialect, input kind,
   `sourceMetadata`, story count and method, alignment, entity counts
   (`entityCount` incl. sheet furniture, `geometryEntityCount` plan only),
@@ -401,8 +407,38 @@ contributor's own work and was relicensed for this contribution.
 ## Quantities and area report
 
 Use `node scripts/roomplan-to-dxf.js scan.json out/ --report --no-place-lookup`
-to additionally write `scan.report.json` and `scan.quantities.csv`.
-Combine with `--model` for the normalized capture. CSV uses UTF-8 BOM and `;`.
+to additionally write `scan.report.json` and `scan.quantities.csv`; add `--md`
+for `scan.md`. Combine with `--model` for the normalized capture. CSV uses UTF-8
+BOM and `;` (CSV is written only with `--report`).
+
+`scan.report.json` is `report-v1` (SPEC §3) and carries, in one document:
+
+```
+schemaVersion  "roomplan.report/1"
+source         { sha256, byteCount, dialect, captureSchema: "roomplan.capture/1" }
+totals         floorArea, ceilingArea, wallAreaGross, wallAreaNet, openingArea,
+               wallLength, paintArea, livingArea, roomsWithoutArea,
+               counts{roomCount, wallCount, doorCount, windowCount, objectCount}
+elements[]     { id, kind, story, area, roomRefs[], slopeCut? }   (ids, not "keys")
+rooms[]        { id, identifier, story, declaredArea, polygonArea, ceilingArea{...method}, volume }
+warnings[]     { code, message, severity }   (extra fields allowed, those three are not)
+assumptions[]  [ string ]                     (was conventions.caveat)
+statistics     plan-statistics block (G-9) or null
+handoff        handoff block with quantities[] and gaps[] (G-10) or null
+```
+
+Every numeric field is one measure:
+
+```
+{ value, status, coverage, included, expected, reason }
+status   supplied | computed | reconstructed | estimated | unavailable   (provenance)
+coverage complete | partial   with included/expected                     (completeness)
+```
+
+The two used to share one field (a `coverage` that said `computed` and a
+`status` that said `partial`). They are now separate by contract: a `partial`
+subtotal is never a building quantity, and `unavailable` is `null` with a reason,
+never `0`.
 
 Read [quantities](references/quantities.md) before relying on totals. Source room
 areas, polygon-computed areas, dimension-estimated wall areas and unavailable
@@ -430,10 +466,15 @@ The two machine-readable schemas live next to the code they describe:
 |---|---|---|
 | `*.capture.json` (`--model`) | [`scripts/lib/schema/capture-v1.json`](scripts/lib/schema/capture-v1.json) | `scripts/lib/capture-export.js` → `buildCapture` |
 | `*.report.json` (`--report`) | [`scripts/lib/schema/report-v1.json`](scripts/lib/schema/report-v1.json) | `scripts/lib/quantities.js` → `buildReport` |
+| `*.md` (`--md`) | consumer of `report-v1`, not a producer | `scripts/lib/out-md.js` → `renderMarkdown` |
 
 Both are JSON Schema **draft 2020-12**, self-contained (every `$ref` is
 internal, nothing is fetched from the network) and versioned by the
-`schemaVersion` pattern `roomplan.capture/1` / `roomplan.report/1`.
+`schemaVersion` pattern `roomplan.capture/1` / `roomplan.report/1`. Since P4
+both schemas require the canonical names: `units`/`axes`/`stories`/`raw` and a
+per-record `provenance` on the capture, `totals.*` without an `M2` suffix,
+`elements[].id`/`area`/`roomRefs` and `assumptions[]` on the report. The schema
+contract has **0 pending** rows (`node tests/test_schema.js`).
 
 Check the contract locally — no dependencies, no network:
 

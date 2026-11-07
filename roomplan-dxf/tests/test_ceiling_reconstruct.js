@@ -172,24 +172,24 @@ const cap = {
 };
 const report = buildReport(cap, {});
 const rg = report.rooms.find((r) => r.identifier === 'g');
-check(() => assert(near(rg.ceilingAreaM2.value, 21.9317)));
-check(() => assert.strictEqual(rg.ceilingAreaM2.status, 'reconstructed'));
-check(() => assert.strictEqual(rg.ceilingAreaM2.method, 'knee'));
-check(() => assert(near(rg.ceilingAreaM2.heightM.min, 1.6)));
+check(() => assert(near(rg.ceilingArea.value, 21.9317)));
+check(() => assert.strictEqual(rg.ceilingArea.status, 'reconstructed'));
+check(() => assert.strictEqual(rg.ceilingArea.method, 'knee'));
+check(() => assert(near(rg.ceilingArea.heightM.min, 1.6)));
 const rn = report.rooms.find((r) => r.identifier === 'nowall');
-check(() => assert.strictEqual(rn.ceilingAreaM2.value, null));
-check(() => assert.strictEqual(rn.ceilingAreaM2.status, 'unavailable'));
+check(() => assert.strictEqual(rn.ceilingArea.value, null));
+check(() => assert.strictEqual(rn.ceilingArea.status, 'unavailable'));
 // totals: subtotal of what is available, flagged partial when not complete
-check(() => assert(near(report.totals.ceilingAreaM2.value, 21.9317)));
-check(() => assert.strictEqual(report.totals.ceilingAreaM2.status, 'partial'));
-check(() => assert.strictEqual(report.totals.ceilingAreaM2.included, 1));
-check(() => assert.strictEqual(report.totals.ceilingAreaM2.expected, 2));
-check(() => assert.deepStrictEqual(report.totals.ceilingAreaM2.byStatus, { reconstructed: 1, unavailable: 1 }));
+check(() => assert(near(report.totals.ceilingArea.value, 21.9317)));
+check(() => assert.strictEqual(report.totals.ceilingArea.coverage, 'partial'));
+check(() => assert.strictEqual(report.totals.ceilingArea.included, 1));
+check(() => assert.strictEqual(report.totals.ceilingArea.expected, 2));
+check(() => assert.deepStrictEqual(report.totals.ceilingArea.byStatus, { reconstructed: 1, unavailable: 1 }));
 // supplied ceiling keeps its source area and is never re-derived
 const supplied = buildReport({ kind: 'optimized', surfaces: [floorSurface], objects: [], rooms: [room] }, {});
-check(() => assert(near(supplied.rooms[0].ceilingAreaM2.value, 16, 1e-9)));
-check(() => assert.strictEqual(supplied.rooms[0].ceilingAreaM2.status, 'supplied'));
-check(() => assert.strictEqual(supplied.totals.ceilingAreaM2.status, 'complete'));
+check(() => assert(near(supplied.rooms[0].ceilingArea.value, 16, 1e-9)));
+check(() => assert.strictEqual(supplied.rooms[0].ceilingArea.status, 'supplied'));
+check(() => assert.strictEqual(supplied.totals.ceilingArea.coverage, 'complete'));
 
 // constants exported for callers/tests (parity with the archived engine)
 check(() => assert.strictEqual(R.SLOPE_PARALLEL_TOL_DEG, 15));

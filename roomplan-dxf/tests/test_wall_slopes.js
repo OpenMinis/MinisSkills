@@ -29,8 +29,8 @@ const el = (r, id) => r.elements.find((e) => e.identifier === id);
 // 1 ------------------------------------------- gable from the polygon: 8.2000
 const rg = report([wall('gable', [4, 2.5, 0.2], GABLE)]);
 const g = el(rg, 'gable');
-check(() => assert(near(g.grossAreaM2.value, 8.2), `gable ${g.grossAreaM2.value}`));
-check(() => assert.strictEqual(g.grossAreaM2.coverage, 'computed'));
+check(() => assert(near(g.area.value, 8.2), `gable ${g.area.value}`));
+check(() => assert.strictEqual(g.area.status, 'computed'));
 check(() => assert(near(g.slopeCut.cutArea, 1.8, 1e-9)));
 check(() => assert(near(g.slopeCut.ridgeHeight, 2.5, 1e-9)));
 check(() => assert(near(g.slopeCut.kneeHeight, 1.6, 1e-9)));
@@ -49,7 +49,7 @@ check(() => assert(near(sc.H, 2.5, 1e-9) && near(sc.W, 4, 1e-9)));
 // 3 -------------------------------------------------------- shed wall slope
 const rs = report([wall('shed', [4, 2.5, 0.2], SHED)]);
 const sh = el(rs, 'shed');
-check(() => assert(near(sh.grossAreaM2.value, 8.2), `shed ${sh.grossAreaM2.value}`));
+check(() => assert(near(sh.area.value, 8.2), `shed ${sh.area.value}`));
 check(() => assert.strictEqual(sh.slopeCut.triangles.length, 1));
 check(() => assert(near(sh.slopeCut.cutArea, 1.8, 1e-9)));
 check(() => assert(near(sh.slopeCut.correctedGrossArea, 8.2, 1e-9)));
@@ -57,7 +57,7 @@ check(() => assert(near(sh.slopeCut.correctedGrossArea, 8.2, 1e-9)));
 // 4 ------------------------------------- flat wall stays W * H, no slope cut
 const rf = report([wall('flat', [4, 2.5, 0.2], FLAT)]);
 const fl = el(rf, 'flat');
-check(() => assert(near(fl.grossAreaM2.value, 10, 1e-9)));
+check(() => assert(near(fl.area.value, 10, 1e-9)));
 check(() => assert.strictEqual(fl.slopeCut.cutArea, 0));
 check(() => assert.strictEqual(fl.slopeCut.slopeCount, 0));
 check(() => assert.strictEqual(fl.slopeCut.status, 'computed'));
@@ -66,7 +66,7 @@ check(() => assert.strictEqual(fl.slopeCut.ridgeHeight, 2.5));
 // dimension-only wall (no polygonCorners): rectangle, no slope evidence
 const rDim = report([{ identifier: 'dim', kind: 'wall', story: 0, dimensions: { x: 4, y: 2.5, z: 0 }, polygonCorners: [], transform: I }]);
 const dm = el(rDim, 'dim');
-check(() => assert(near(dm.grossAreaM2.value, 10, 1e-9)));
+check(() => assert(near(dm.area.value, 10, 1e-9)));
 check(() => assert.strictEqual(dm.slopeCut.status, 'unavailable'));
 check(() => assert.strictEqual(dm.slopeCut.cutArea, null));
 
@@ -76,18 +76,18 @@ const doorT = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1.0, 0, 1];
 const door = { identifier: 'd1', kind: 'door', story: 0, parentIdentifier: 'gable', dimensions: { x: 1.0, y: 1.6, z: 0 }, polygonCorners: pts([[-0.5, -0.8], [0.5, -0.8], [0.5, 0.8], [-0.5, 0.8]]), transform: doorT };
 const rn = report([wall('gable', [4, 2.5, 0.2], GABLE), door]);
 const gn = el(rn, 'gable');
-check(() => assert(near(gn.grossAreaM2.value, 8.2), String(gn.grossAreaM2.value)));
-check(() => assert(near(gn.netAreaM2.value, 6.6), `net ${gn.netAreaM2.value}`)); // NOT 10 - 1.6 = 8.4
-check(() => assert.strictEqual(gn.netAreaM2.coverage, 'computed'));
+check(() => assert(near(gn.area.value, 8.2), String(gn.area.value)));
+check(() => assert(near(gn.netArea.value, 6.6), `net ${gn.netArea.value}`)); // NOT 10 - 1.6 = 8.4
+check(() => assert.strictEqual(gn.netArea.status, 'computed'));
 
 // 6 --------------------------- invalid polygon keeps the strict refusal: null
 const nonPlanar = wall('bent', [4, 2.5, 0.2], [[-2, 0, 0], [2, 0, 0], [2, 2.5, 0.4], [-2, 2.5, 0]]);
 const rb = report([nonPlanar]);
 const bent = el(rb, 'bent');
-check(() => assert.strictEqual(bent.grossAreaM2.value, null));
-check(() => assert(/nonplanar/.test(bent.grossAreaM2.reason)));
+check(() => assert.strictEqual(bent.area.value, null));
+check(() => assert(/nonplanar/.test(bent.area.reason)));
 const selfCross = wall('cross', [4, 2.5, 0.2], [[-2, 0, 0], [2, 2.5, 0], [2, 0, 0], [-2, 2.5, 0]]);
-check(() => assert.strictEqual(el(report([selfCross]), 'cross').grossAreaM2.value, null));
+check(() => assert.strictEqual(el(report([selfCross]), 'cross').area.value, null));
 
 // 7 ---------------------------------- detectSlopedWalls from RAW local corners
 const detected = R.detectSlopedWalls([wall('gable', [4, 2.5, 0.2], GABLE), wall('flat', [4, 2.5, 0.2], FLAT), { identifier: 'x', kind: 'floor', polygonCorners: pts(FLAT) }]);

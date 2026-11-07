@@ -48,6 +48,7 @@ const { resolveInput, readMeta, applyMetaFallback } = require('./lib/source-inpu
 const { buildPlanMeta, storyLabel } = require('./lib/plan-meta');
 const {detectDialect} = require('./lib/dialect');
 const {buildCapture} = require('./lib/capture-export');
+const { renderMarkdown } = require('./lib/out-md');
 
 const USAGE = [
   'Usage: node roomplan-to-dxf.js <input.json|dir> [outDir] [options]',
@@ -56,7 +57,8 @@ const USAGE = [
   '  --model            also write source-space <name>.capture.json (geo redacted unless --geo)',
   '  --ceilings         explicit-source dashed orange ceiling annotations and verified floor-relative heights (default off)',
   '  --no-ceilings      disable ceiling annotations; later toggle wins',
-  '  --report           also write <name>.report.json and <name>.quantities.csv (areas, quantities, coverage)',
+  '  --report           also write <name>.report.json (totals, elements, statistics, handoff) and <name>.quantities.csv',
+  '  --md               also write <name>.md, a Markdown summary of report-v1 (implies --report)',
   '  --geo              include source location/compass (lat, lon in the title block)',
   '  --project <text>   title block project name',
   '  --author <text>    title block author (default: ARCHIFEST)',
@@ -120,6 +122,7 @@ function parseArgs(argv) {
     else if (arg === '--geo') geo = true;
     else if (arg === '--model') exportModel = true;
     else if (arg === '--report') flags.report = true;
+    else if (arg === '--md') flags.md = true;
     else if (arg === '--ceilings') flags.ceilings = true;
     else if (arg === '--no-ceilings') flags.ceilings = false;
     else if (arg === '--no-frame') noFrame = true;
@@ -270,7 +273,8 @@ function main() {
   const capturePath = path.join(outDir, `${baseName}.capture.json`);
   const reportPath = path.join(outDir, `${baseName}.report.json`);
   const csvPath = path.join(outDir, `${baseName}.quantities.csv`);
-  const targets = [dxfPath, manifestPath, ...(args.exportModel ? [capturePath] : []), ...(args.flags.report ? [reportPath, csvPath] : [])];
+  const mdPath = path.join(outDir, `${baseName}.md`);
+  const targets = [dxfPath, manifestPath, ...(args.exportModel ? [capturePath] : []), ...(args.flags.report || args.flags.md ? [reportPath, ...(args.flags.report ? [csvPath] : []), ...(args.flags.md ? [mdPath] : [])] : [])];
   const protectedFiles = [inputPath, resolved.metaPath].filter(Boolean).map(p => fs.realpathSync(p));
   for (const target of targets) {
     if (fs.existsSync(target) && protectedFiles.some(p => {
@@ -302,7 +306,8 @@ function main() {
 
   // DXF-export-only rotation: wall-length-weighted orthogonal circular mean,
   // rounded to the nearest 90 degrees. Stored geometry is never changed.
-  const quantityReport = args.flags.report ? buildReport(model, json) : null;
+  const wantReport = args.flags.report === true || args.flags.md === true;
+  const quantityReport = wantReport ? buildReport(model, json) : null;
   if (quantityReport && sourceMeta && Number.isFinite(sourceMeta.floorAreaSquareMetres)) {
     quantityReport.sourceReferences.floorAreaSquareMetres = sourceMeta.floorAreaSquareMetres;
   }
@@ -374,9 +379,27 @@ function main() {
   manifest.ceilingDiagnostics=dxfResult.ceilingDiagnostics;
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   if (quantityReport) {
+    // The manifest owns the warnings collected during decoding/conversion; the
+    // report-v1 contract requires them too. Merge once, with severity, so a
+    // consumer never reads "no warnings" while the manifest lists eight.
+    const seen = new Set((quantityReport.warnings || []).map((w) => `${w.code}|${w.message}`));
+    for (const w of manifest.warnings || []) {
+      const key = `${w.code}|${w.message}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      (quantityReport.warnings = quantityReport.warnings || []).push({
+        code: w.code,
+        message: w.message,
+        severity: w.severity || 'warning',
+      });
+    }
     fs.writeFileSync(reportPath, JSON.stringify(quantityReport, null, 2) + '\n');
-    fs.writeFileSync(csvPath, quantitiesCSV(quantityReport));
-    console.log(`Quantities report written: ${reportPath}; CSV: ${csvPath}`);
+    if (args.flags.report === true) fs.writeFileSync(csvPath, quantitiesCSV(quantityReport));
+    console.log(`Quantities report written: ${reportPath}${args.flags.report ? `; CSV: ${csvPath}` : ''}`);
+    if (args.flags.md) {
+      fs.writeFileSync(mdPath, renderMarkdown(quantityReport, { project: planMeta.titleBlock.project, date: planMeta.titleBlock.date }));
+      console.log(`Markdown summary written: ${mdPath}`);
+    }
   }
   if (normalizedCapture) fs.writeFileSync(capturePath, JSON.stringify(normalizedCapture, null, 2));
 

@@ -66,21 +66,38 @@ explicitly requested.
 
 ```
 schemaVersion: "roomplan.report/1"
-source: { sha256, dialect, captureSchema }
+source: { sha256, byteCount, dialect, captureSchema: "roomplan.capture/1" }
 totals: { floorArea, ceilingArea, wallAreaGross, wallAreaNet, openingArea,
-          wallLength, paintArea, livingArea?, roomCount, wallCount,
-          doorCount, windowCount, objectCount, roomsWithoutArea }
-stories: [ { story, label, totals, rooms: [ { id, label, floorArea,
-             ceilingArea, ceilingMethod, wallAreaNetBoundary, wallRun,
-             boundaryDoorCount, boundaryWindowCount } ] } ]
-elements: [ { id, kind, story, area, areaStatus, coverage, reason,
-              roomRefs[], slopeCut? } ]
+          wallLength, paintArea, livingArea, roomsWithoutArea,
+          counts { roomCount, wallCount, doorCount, windowCount, objectCount } }
+stories: [ { story, label, totals, rooms: [ id, ... ] } ]
+rooms:   [ { id, identifier, label, story, declaredArea, polygonArea,
+             polygonMinusDeclared, ceilingArea { ...method }, volume } ]
+elements: [ { id, kind, story, area, roomRefs[], slopeCut? } ]
+statistics: plan-statistics block (§5 G-9) | null
+handoff:    handoff block with quantities[] and gaps[] (§5 G-10) | null
 warnings: [ { code, message, severity } ]
 assumptions: [ string ]
 ```
 
-Every numeric field appears as `{ value, status, coverage, reason }` (see §4).
-`ceilingMethod` is `supplied | knee | section | extrusion | flat | unavailable`.
+Every numeric field appears as `{ value, status, coverage, included, expected,
+reason }` (see §4). `ceilingMethod` is `supplied | knee | section | extrusion |
+flat | unavailable`.
+
+`elements[]` carries the flat line list (`id`, not `key`; `roomRefs[]`, not
+`roomMemberships`); `area` is the gross measure and the specialist measures
+(`netArea`, `paintArea`, `length`, `thickness`) sit beside it.
+`roomRefs[]` are references and are never additive. `statistics` and `handoff`
+are the two specialist blocks from §5 and live in the same document so a
+consumer never re-derives them.
+
+### capture-v1 — top level
+
+The §3 block above is the whole document. Since the P4 cleanup the adapter
+emits `units`, `axes`, `stories` and `raw` at the top level, keeps `dialect`
+inside `source` (with `bytes`, not `byteCount`), and stamps a
+`provenance { status, coverage, reason }` on every surface, object and room.
+Rooms carry `polygonXZ` (not `vertices`) and `declaredArea` (not `area`).
 
 ## 4. Provenance model
 
@@ -161,6 +178,21 @@ A change to any of these requires an explicit note in this file.
   is now an executable row asserting that a wall centreline 0.25 m outside the
   boundary is **not** a member, plus aux check A-14 (0.02 m in, 0.03 m out,
   0.25 m out). The kernel was **not** changed.
+- **2026-11-07 — P4: the two contracts are now what the code emits.** The
+  canonical shapes above are no longer aspirational. `report-v1` is stamped
+  `roomplan.report/1`, totals lost their `M2` suffix and gained `wallLength`,
+  `paintArea`, `livingArea` and `roomsWithoutArea`, the counts moved under
+  `totals.counts`, elements use `id`/`area`/`roomRefs`, warnings carry
+  `message`+`severity` and `assumptions[]` replaced `conventions.caveat`.
+  `capture-v1` gained `units`/`axes`/`stories`/`raw`, a `source` block with
+  `bytes`+`dialect`+`dialectEvidence`, per-record `provenance`, and
+  `polygonXZ`/`declaredArea` on rooms. §4 was made literal: `status` is
+  provenance only and `coverage` is completeness only, with `included`/`expected`
+  counts on the measure — a `partial` subtotal is expressed by its coverage, not
+  by a `status` value (the old double use, defect C-6, is gone). A `--md`
+  consumer (`scripts/lib/out-md.js`) was added under §6 "one kernel, many
+  outputs". No golden number in §7 changed; the golden harness still reports
+  13 PASS / 0 PENDING / 0 FAIL.
 - **2026-11-07 — G-9 / G-10 made executable.** `planStatistics` (`scripts/lib/plan-statistics.js`)
   and `handoffScope` (`scripts/lib/handoff.js`) are ported from ArchiPlan and
   fixtures were extracted from its tests at commit `299ed31`. Both rows now run

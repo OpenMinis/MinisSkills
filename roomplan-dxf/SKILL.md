@@ -82,6 +82,8 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
 
 Add `--model --no-place-lookup` to write `<name>.capture.json`. It preserves source-space geometry separately from the unapplied alignment, dialect evidence, SHA256 provenance, known source attributes/sections and an explicit loss inventory. It is a subset, not a complete RoomPlan/mesh decode or a compatibility promise. Missing labels remain null; category/id provenance is retained. Unknown explicit versions still fail.
 
+The document is `capture-v1` (SPEC §3): `units:"metres"`, `axes:{world:"y-up",plan:"x,-z"}`, `stories[]`, `source{sha256,bytes,dialect,dialectEvidence}`, `raw{opaque,excluded}`, rooms as `polygonXZ`+`declaredArea`, and a `provenance{status,coverage,reason}` on every surface, object and room. `report-v1` (§3) uses `totals{floorArea, ceilingArea, wallAreaGross, wallAreaNet, openingArea, wallLength, paintArea, livingArea, roomsWithoutArea, counts{...}}`, `elements[].id/area/roomRefs`, `warnings[{code,message,severity}]`, `assumptions[]`, plus the `statistics` (G-9) and `handoff` (G-10) blocks in the same file. Every number is `{value,status,coverage,included,expected,reason}`: `status` is provenance, `coverage` is completeness — never mix them.
+
 Without `--geo`, recursive whitelisting omits location-like and unknown metadata. With `--model --geo`, a verbatim source tree is included and can expose private/opaque data. Keep it local. See [model-schema](references/model-schema.md). `--no-place-lookup` is supported explicitly in this public package too. Direction is retained with a reliability caveat.
 
 ## What the manifest tells you
@@ -129,6 +131,7 @@ a fixed 2.5 m. Raw input has no ceilings and is not reconstructed. See
 ## Quantities and area report
 
 Use `node scripts/roomplan-to-dxf.js scan.json out/ --report --no-place-lookup`
+(add `--md` for the Markdown summary `scan.md`)
 to additionally write `scan.report.json` and `scan.quantities.csv`.
 Combine with `--model` for the normalized capture. CSV uses UTF-8 BOM and `;`.
 

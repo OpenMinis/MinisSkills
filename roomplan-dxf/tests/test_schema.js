@@ -124,43 +124,48 @@ if (capture) {
     `surfaces=${capture.surfaces.length} objects=${capture.objects.length} rooms=${capture.rooms.length}`);
 }
 if (report) {
-  const known = ['floorAreaM2', 'wallGrossAreaM2', 'ceilingAreaM2'].every((k) => report.totals[k] && typeof report.totals[k].value === 'number');
-  record('V-REP.coverage', 'report totals carry numeric measures for floor/wall gross/ceiling',
-    known ? 'PASS' : 'FAIL', `floor=${report.totals.floorAreaM2.value} wallGross=${report.totals.wallGrossAreaM2.value} ceiling=${report.totals.ceilingAreaM2.value}`);
-  record('V-REP.measures', 'every element quantity is a {value, coverage, reason} measure object',
-    report.elements.every((e) => e.grossAreaM2 && 'value' in e.grossAreaM2 && 'coverage' in e.grossAreaM2 && 'reason' in e.grossAreaM2) ? 'PASS' : 'FAIL');
+  const known = ['floorArea', 'wallAreaGross', 'wallAreaNet', 'paintArea', 'ceilingArea'].every((k) => report.totals[k] && typeof report.totals[k].value === 'number');
+  record('V-REP.coverage', 'report totals carry numeric measures for floor/wall gross/wall net/paint/ceiling',
+    known ? 'PASS' : 'FAIL', `floor=${report.totals.floorArea.value} wallGross=${report.totals.wallAreaGross.value} wallNet=${report.totals.wallAreaNet.value} ceiling=${report.totals.ceilingArea.value}`);
+  record('V-REP.measures', 'every element quantity is a {value, status, coverage, included, expected, reason} measure',
+    report.elements.every((e) => e.area && ['value', 'status', 'coverage', 'included', 'expected', 'reason'].every((k) => k in e.area)) ? 'PASS' : 'FAIL');
   record('V-REP.null', 'unknown is null, never zero',
-    report.totals.openingAreaM2.value === null && report.totals.openingAreaM2.status === 'unavailable' ? 'PASS' : 'FAIL',
-    `openingAreaM2=${JSON.stringify(report.totals.openingAreaM2.value)} status=${report.totals.openingAreaM2.status}`);
+    report.totals.volume.value === null && report.totals.volume.status === 'unavailable' ? 'PASS' : 'FAIL',
+    `volume=${JSON.stringify(report.totals.volume.value)} status=${report.totals.volume.status}`);
 }
 
-// ------------------------------------------- 4. documented SPEC/engine gaps
-const pend = (id, what, reason) => record(id, what, 'PENDING', reason);
+// ---------------------- 4. the gaps P1 recorded are CLOSED (0 pending by design)
+// C-1 (report shape), C-2 (capture shape), C-5 (paintArea), C-6 (status vs
+// coverage) and C-7 (captureSchema) were fixed in P4. Nothing here may go back
+// to PENDING: a missing canonical field is a FAIL, because a PENDING row used to
+// hide a contract break behind a comment.
+const ok = (id, what, cond, detail) => record(id, what, cond ? 'PASS' : 'FAIL', detail || '');
 
 if (report) {
-  if (report.schemaVersion !== 'roomplan.report/1') {
-    pend('P-01', 'report schemaVersion is pattern "roomplan.report/1"', `engine emits "${report.schemaVersion}" (quantities.js buildReport literal); schema accepts both, code unchanged by instruction`);
-  } else record('P-01', 'report schemaVersion is pattern "roomplan.report/1"', 'PASS');
-
-  if (!('floorArea' in report.totals) && 'floorAreaM2' in report.totals) {
-    pend('P-02', 'totals use the SPEC §3 names (floorArea, wallAreaGross, wallAreaNet, openingArea, wallLength, paintArea, livingArea, roomCount, wallCount, …)',
-      'engine names them floorAreaM2/wallGrossAreaM2/wallNetAreaM2/openingAreaM2; wallLength, paintArea, livingArea and roomsWithoutArea are not computed at all');
-  } else record('P-02', 'totals use the SPEC §3 names', 'PASS');
-
-  const st = report.elements[0] && report.elements[0].grossAreaM2;
-  if (st && st.status === undefined) {
-    pend('P-03', 'every measure carries status (§4)', 'single-element measures carry {value, coverage, reason} only; status is added by sum() for subtotals');
-  } else record('P-03', 'every measure carries status (§4)', 'PASS');
-
-  if (!Array.isArray(report.assumptions)) {
-    pend('P-04', 'report carries assumptions[]', 'buildReport emits conventions.caveat instead of a top-level assumptions array');
-  } else record('P-04', 'report carries assumptions[]', 'PASS');
-
-  if (!report.warnings.length) {
-    record('P-05', 'warnings carry {code, message, severity}', 'PASS', 'fixture produced no warning (check vacuous)');
-  } else if (report.warnings.some((w) => w.message === undefined || w.severity === undefined)) {
-    pend('P-05', 'warnings carry {code, message, severity}', `engine warns ${JSON.stringify(report.warnings.map((w) => Object.keys(w)))}; message/severity absent, schema requires code only`);
-  } else record('P-05', 'warnings carry {code, message, severity}', 'PASS');
+  ok('P-01', 'report schemaVersion is exactly "roomplan.report/1"', report.schemaVersion === 'roomplan.report/1', report.schemaVersion);
+  const TOTAL_KEYS = ['floorArea', 'ceilingArea', 'wallAreaGross', 'wallAreaNet', 'openingArea', 'wallLength', 'paintArea', 'livingArea', 'roomsWithoutArea'];
+  const missingTotals = TOTAL_KEYS.filter((k) => !(report.totals[k] && 'value' in report.totals[k]));
+  ok('P-02', 'totals use the SPEC section 3 names', missingTotals.length === 0, missingTotals.length ? `missing ${missingTotals.join(', ')}` : TOTAL_KEYS.join(', '));
+  const COUNTS = ['roomCount', 'wallCount', 'doorCount', 'windowCount', 'objectCount'];
+  ok('P-02b', 'totals.counts carries roomCount/wallCount/doorCount/windowCount/objectCount',
+    COUNTS.every((k) => Number.isInteger(report.totals.counts[k])), JSON.stringify(report.totals.counts));
+  const MEASURE_KEYS = ['value', 'status', 'coverage', 'included', 'expected', 'reason'];
+  const allMeasures = [...Object.values(report.totals).filter((v) => v && typeof v === 'object' && 'status' in v), ...report.elements.map((e) => e.area)];
+  ok('P-03', 'every measure carries status/coverage/included/expected (section 4)',
+    allMeasures.every((m) => MEASURE_KEYS.every((k) => k in m)), `${allMeasures.length} measures checked`);
+  ok('P-04', 'report carries assumptions[] (strings)',
+    Array.isArray(report.assumptions) && report.assumptions.length > 0 && report.assumptions.every((a) => typeof a === 'string'),
+    `${(report.assumptions || []).length} assumption(s)`);
+  ok('P-05', 'warnings carry {code, message, severity}',
+    report.warnings.every((w) => w.code && w.message && w.severity), `${report.warnings.length} warning(s)`);
+  ok('P-06', 'element ids are `id`, never `key`', report.elements.every((e) => typeof e.id === 'string' && !('key' in e)),
+    report.elements.map((e) => e.id).slice(0, 3).join(', '));
+  ok('P-06b', 'element room references are `roomRefs`, never `roomMemberships`',
+    report.elements.every((e) => Array.isArray(e.roomRefs) && !('roomMemberships' in e)), 'roomRefs[]');
+  ok('P-07', 'report records the capture contract it consumed (C-7)',
+    report.source.captureSchema === 'roomplan.capture/1', `captureSchema=${report.source.captureSchema}`);
+  ok('P-09', 'statistics and handoff blocks are carried inside report-v1 (section 6)',
+    ('statistics' in report) && ('handoff' in report), `statistics=${report.statistics ? 'object' : 'null'} handoff=${report.handoff ? 'object' : 'null'}`);
 
   // an explicit (supplied) ceiling is not in the main fixture, so probe it
   const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -174,21 +179,25 @@ if (report) {
   };
   explicitCapture.rooms[0].ceilingCurrent = explicitCapture.rooms[0].ceiling;
   const explicitRoom = buildReport(explicitCapture, {}).rooms[0];
-  if (explicitRoom && explicitRoom.ceilingAreaM2 && explicitRoom.ceilingAreaM2.method === 'explicit') {
-    pend('P-06', 'ceilingMethod enum is supplied|knee|section|extrusion|flat|unavailable', `engine reports method 'explicit' for a supplied ceiling polygon (status '${explicitRoom.ceilingAreaM2.status}'); schema accepts it as the SPEC word 'supplied'`);
-  } else record('P-06', 'ceilingMethod enum contains only SPEC values', 'PASS', `explicit ceiling method=${explicitRoom && explicitRoom.ceilingAreaM2.method}`);
+  const CEIL_METHODS = ['supplied', 'knee', 'section', 'extrusion', 'flat', 'unavailable'];
+  const em = explicitRoom && explicitRoom.ceilingArea;
+  ok('P-08', 'ceilingMethod enum is supplied|knee|section|extrusion|flat|unavailable (a supplied ceiling is never called "explicit")',
+    em && CEIL_METHODS.includes(em.method) && (em.value === null ? em.method === 'unavailable' : em.method === 'supplied'),
+    `method=${em && em.method} value=${em && em.value} status=${em && em.status}`);
 }
 if (capture) {
   const missing = ['units', 'axes', 'stories', 'raw'].filter((k) => !(k in capture));
-  if (missing.length) {
-    pend('P-07', 'capture exposes units/axes/stories/raw (§3)', `adapter does not emit ${missing.join(', ')}; schema keeps them optional and the facts live in conventions/sourceAxes, surfaces[].story and completeness`);
-  } else record('P-07', 'capture exposes units/axes/stories/raw (§3)', 'PASS');
-  if (!cap_surfaceProvenance(capture)) {
-    pend('P-08', 'every capture surface carries provenance (§3/§4)', 'capture-export emits identifierProvenance/sourceStoryProvenance but no per-surface provenance{status,coverage,reason}');
-  } else record('P-08', 'every capture surface carries provenance', 'PASS');
-}
-function cap_surfaceProvenance(c) {
-  return (c.surfaces || []).every((s) => s.provenance && s.provenance.status);
+  ok('P-10', 'capture exposes units/axes/stories/raw (section 3)', missing.length === 0, missing.length ? `missing ${missing.join(', ')}` : `units=${capture.units} axes=${JSON.stringify(capture.axes)} stories=${capture.stories.length} raw.opaque=${capture.raw.opaque.length}`);
+  ok('P-11', 'capture source carries filename/sha256/bytes/dialect/dialectEvidence',
+    capture.source && typeof capture.source.sha256 === 'string' && 'bytes' in capture.source && 'dialect' in capture.source && Array.isArray(capture.source.dialectEvidence),
+    `dialect=${capture.source.dialect} bytes=${capture.source.bytes}`);
+  ok('P-12', 'dialect is inside source, never at the top level', !('dialect' in capture) && 'dialect' in capture.source, 'capture.dialect removed');
+  const everyProv = (list) => (list || []).every((r) => r.provenance && r.provenance.status && r.provenance.coverage && r.provenance.reason);
+  ok('P-13', 'every surface/object/room carries provenance{status,coverage,reason}',
+    everyProv(capture.surfaces) && everyProv(capture.objects) && everyProv(capture.rooms),
+    `surfaces=${capture.surfaces.length} objects=${capture.objects.length} rooms=${capture.rooms.length}`);
+  ok('P-14', 'rooms use polygonXZ/declaredArea, never vertices/area (C-2)',
+    capture.rooms.every((r) => ('polygonXZ' in r) && ('declaredArea' in r) && !('vertices' in r) && !('area' in r)), 'polygonXZ + declaredArea');
 }
 
 // ------------------------------------------------------------------- output

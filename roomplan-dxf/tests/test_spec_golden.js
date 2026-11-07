@@ -111,8 +111,8 @@ const gableReport = buildReport(raw([gableWall]), {});
 const gableElement = gableReport.elements[0];
 
 numeric('G-1', 'gable wall 4 x 2.5, ridge 2.5 -> 1.6: gross m2', 8.2,
-  () => gableElement.grossAreaM2.value,
-  `quantities.buildReport element grossAreaM2 (status ${gableElement.grossAreaM2.coverage})`);
+  () => gableElement.area.value,
+  `quantities.buildReport element area (status ${gableElement.area.coverage})`);
 
 numeric('G-2', 'same wall: slope cut triangle m2 removed', 1.8,
   () => gableElement.slopeCut.cutArea,
@@ -131,7 +131,7 @@ numeric('G-4', 'shed roof, same footprint: ceiling m2', 20.5,
 
 // ------------------------------------------------------------------- G-5
 // Authored ceiling: a plan polygon + one height per vertex (SPEC section 5,
-// PlanEditorModel.ceilingElevations / ceilingAreaM2 / netCeilingAreaM2).
+// PlanEditorModel.ceilingElevations / ceilingArea / netCeilingAreaM2).
 // The expectation is derived HERE, not read from the kernel: the surface is the
 // strip 4 m wide (x) by 5 m deep (y) tilted only in y, rising 2.00 -> 2.60 m
 // over 5 m, so its area is 4 * sqrt(5^2 + 0.6^2); a 1 m2 plan hole is scaled by
@@ -189,7 +189,7 @@ std_room: {
   const boundary = { identifier: 'w-boundary', kind: 'wall', story: 0, dimensions: { x: 6, y: 2.5, z: 0.15 }, transform: at(3, 0) };
   const cap = { kind: 'optimized', surfaces: [boundary], objects: [], rooms: [room] };
   const element = buildReport(cap, {}).elements[0];
-  const members = element.roomMemberships.filter((m) => m.roomIdentifier === 'room-a');
+  const members = element.roomRefs.filter((m) => m.roomIdentifier === 'room-a');
   fixed('G-8', 'wall on a room boundary: member of that room', '1 member', `${members.length} member`,
     members.length === 1 ? 'PASS' : 'FAIL',
     `method: ${members[0] ? members[0].method : 'n/a'}; engine boundary tolerance ${buildReport(cap, {}).conventions.roomBoundaryToleranceM} m`);
@@ -201,7 +201,7 @@ std_room: {
   // the rejected one; SPEC section 7 G-8b was corrected to 0.02 m.
   const outside = { ...boundary, transform: at(3, -0.25) };
   const outsideReport = buildReport({ kind: 'optimized', surfaces: [outside], objects: [], rooms: [room] }, {});
-  const outsideMembers = outsideReport.elements[0].roomMemberships.length;
+  const outsideMembers = outsideReport.elements[0].roomRefs.length;
   const tol = outsideReport.conventions.roomBoundaryToleranceM;
   fixed('G-8b', 'wall centreline 0.25 m outside the boundary: NOT a member (tolerance 0.02 m)', '0 members, tol 0.02',
     `${outsideMembers} members, tol ${tol}`, outsideMembers === 0 && tol === 0.02 ? 'PASS' : 'FAIL',
@@ -252,7 +252,7 @@ std_room: {
 // opening, one with a 4 m2 opening. An opening up to 3 m2 deducts nothing, so
 // wall A paints 10 m2; above the threshold only the excess comes off, so wall B
 // deducts 1 m2 and paints 9 m2. Net stays geometric (9 and 6): paint is a
-// SEPARATE field and never replaces netAreaM2.
+// SEPARATE field and never replaces netArea.
 const paintWall = (id, originX) => ({ identifier: id, kind: 'wall', story: 0, dimensions: { x: 4, y: 2.5, z: 0.2 }, transform: at(originX, 0) });
 const paintOpening = (id, parent, width, height, originX) => ({ identifier: id, kind: 'window', story: 0, parentIdentifier: parent, dimensions: { x: width, y: height, z: 0 }, transform: at(originX, 0) });
 const paintCapture = raw([paintWall('w-small', 0), paintOpening('o-1', 'w-small', 1, 1, 0), paintWall('w-large', 5), paintOpening('o-4', 'w-large', 2, 2, 5)]);
@@ -261,8 +261,8 @@ const paintWalls = paintReport.elements.filter((e) => e.kind === 'wall');
 const paintA = paintWalls.find((e) => e.identifier === 'w-small');
 const paintB = paintWalls.find((e) => e.identifier === 'w-large');
 fixedNumbers('G-11', 'openings 1 m2 and 4 m2, threshold 3 m2: paint on wall A / excess deducted on wall B (m2)', [10, 1],
-  () => [paintA.paintAreaM2.value, paintA.grossAreaM2.value - paintB.paintAreaM2.value], TOL,
-  `quantities.buildReport paintAreaM2, PAINT_FREE_OPENING_M2=${paintReport.conventions.paintFreeOpeningM2}; wall A paint 10.0000 (1 m2 opening free), wall B paint 9.0000 with 1.0000 deducted (4 - 3); net stays geometric ${paintA.netAreaM2.value.toFixed(4)} / ${paintB.netAreaM2.value.toFixed(4)}; totals.paintAreaM2=${paintReport.totals.paintAreaM2.value.toFixed(4)}`);
+  () => [paintA.paintArea.value, paintA.area.value - paintB.paintArea.value], TOL,
+  `quantities.buildReport paintArea, PAINT_FREE_OPENING_M2=${paintReport.conventions.paintFreeOpeningM2}; wall A paint 10.0000 (1 m2 opening free), wall B paint 9.0000 with 1.0000 deducted (4 - 3); net stays geometric ${paintA.netArea.value.toFixed(4)} / ${paintB.netArea.value.toFixed(4)}; totals.paintArea=${paintReport.totals.paintArea.value.toFixed(4)}`);
 
 // ------------------------------------------------------------------ G-12
 {
@@ -294,14 +294,14 @@ try {
   auxRow('A-1', 'G-3 method is "knee"', gableCeiling && gableCeiling.method === 'knee', `method=${gableCeiling && gableCeiling.method} status=${gableCeiling && gableCeiling.status}`);
   auxRow('A-2', 'G-3/G-4 ceiling >= floor footprint (arithmetic guard)', gableCeiling.ceilingArea > 20 && shedCeiling.ceilingArea > 20);
   auxRow('A-3', 'G-4 method is "knee"', shedCeiling && shedCeiling.method === 'knee', `method=${shedCeiling && shedCeiling.method}`);
-  auxRow('A-4', 'G-1 gross status is computed (not estimated)', gableElement.grossAreaM2.coverage === 'computed', `coverage=${gableElement.grossAreaM2.coverage}`);
+  auxRow('A-4', 'G-1 gross status is computed (not estimated)', gableElement.area.status === 'computed', `coverage=${gableElement.area.coverage}`);
   auxRow('A-5', 'G-2 slope cut reported, not silently folded away', gableElement.slopeCut.status === 'computed' && Math.abs(gableElement.slopeCut.flatGrossArea - 10) <= TOL);
   auxRow('A-6', 'fixture trap: dropping the lower vertices changes the gable gross (1.8 vs 8.2)', (() => {
     const noBottom = wall('nob', [4, 2.5, 0.2], [[2, 1.6], [0, 2.5], [-2, 1.6]], at(0, 0));
     const el = buildReport(raw([noBottom]), {}).elements[0];
     // H is then maxY-minY = 0.9 instead of the wall height 2.5, so W*H-1.8 = 1.8
-    noBottomGross = el.grossAreaM2.value;
-    return Math.abs(el.grossAreaM2.value - 8.2) > TOL;
+    noBottomGross = el.area.value;
+    return Math.abs(el.area.value - 8.2) > TOL;
   })(), 'gross without bottom vertices = ' + String(noBottomGross) + ' (wrong, which is why the fixtures keep them)');
   auxRow('A-7', 'G-3 ceiling is not silently taken from dimensions.y', Math.abs(gableCeiling.heightMin - 1.6) <= TOL && Math.abs(gableCeiling.heightMax - 2.5) <= TOL, `h ${gableCeiling.heightMin}-${gableCeiling.heightMax}`);
   const g6ClInterior = IA.interiorRoomArea(RING_CL, [], IA_CL_WALLS, { wallConvention: 'centerline' });
@@ -321,16 +321,16 @@ try {
       paintWall('w-pair', 5), paintOpening('p-1', 'w-pair', 2, 1, 5), paintOpening('p-2', 'w-pair', 2, 1, 5),
     ]);
     const walls = buildReport(cap, {}).elements.filter((e) => e.kind === 'wall');
-    const exact = walls.find((e) => e.identifier === 'w-exact').paintAreaM2.value;
-    const pair = walls.find((e) => e.identifier === 'w-pair').paintAreaM2.value;
+    const exact = walls.find((e) => e.identifier === 'w-exact').paintArea.value;
+    const pair = walls.find((e) => e.identifier === 'w-pair').paintArea.value;
     return Math.abs(exact - 10) <= TOL && Math.abs(pair - 10) <= TOL;
   })(), `3 m2 opening -> paint 10, two 2 m2 openings -> paint 10 (per-opening rule, not a summed 4 m2)`);
-  auxRow('A-12', 'G-11 paint never replaces net: net keeps the full geometric deduction', Math.abs(paintA.netAreaM2.value - 9) <= TOL && Math.abs(paintB.netAreaM2.value - 6) <= TOL && Math.abs(paintA.paintAreaM2.value - 10) <= TOL,
-    `net ${paintA.netAreaM2.value}/${paintB.netAreaM2.value} paint ${paintA.paintAreaM2.value}/${paintB.paintAreaM2.value}; totals net ${paintReport.totals.wallNetAreaM2.value} paint ${paintReport.totals.paintAreaM2.value}`);
+  auxRow('A-12', 'G-11 paint never replaces net: net keeps the full geometric deduction', Math.abs(paintA.netArea.value - 9) <= TOL && Math.abs(paintB.netArea.value - 6) <= TOL && Math.abs(paintA.paintArea.value - 10) <= TOL,
+    `net ${paintA.netArea.value}/${paintB.netArea.value} paint ${paintA.paintArea.value}/${paintB.paintArea.value}; totals net ${paintReport.totals.wallAreaNet.value} paint ${paintReport.totals.paintArea.value}`);
   auxRow('A-14', 'G-8b decision: 0.02 m accepted, 0.25 m REJECTED, and the boundary is exactly at 0.02 m', (() => {
     const room2 = { identifier: 'room-b', story: 0, vertices: [{ x: 0, z: 0 }, { x: 6, z: 0 }, { x: 6, z: 4 }, { x: 0, z: 4 }] };
     const wallAt = (z) => ({ identifier: 'w-t', kind: 'wall', story: 0, dimensions: { x: 6, y: 2.5, z: 0.15 }, transform: at(3, z) });
-    const members = (z) => buildReport({ kind: 'optimized', surfaces: [wallAt(z)], objects: [], rooms: [room2] }, {}).elements[0].roomMemberships.length;
+    const members = (z) => buildReport({ kind: 'optimized', surfaces: [wallAt(z)], objects: [], rooms: [room2] }, {}).elements[0].roomRefs.length;
     const inside = members(-0.02), justOutside = members(-0.03), farOutside = members(-0.25);
     return inside === 1 && justOutside === 0 && farOutside === 0;
   })(), 'inside 0.02 m -> member, 0.03 m -> not a member, 0.25 m -> not a member; the 0.25 m value from report-model.js is documented as NOT adopted (SPEC section 7 G-8b corrected to 0.02 m, no kernel change)');

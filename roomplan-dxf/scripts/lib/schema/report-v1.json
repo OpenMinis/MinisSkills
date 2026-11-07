@@ -2,284 +2,178 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:roomplan-dxf:schema:report-v1",
   "title": "roomplan-dxf report-v1 — computed result",
-  "description": "Computed quantities report produced by scripts/lib/quantities.js buildReport. Contract: SPEC.md section 3 (report-v1), section 4 (provenance). One kernel, many outputs: DXF, CSV, Markdown and apps consume this document and never re-derive geometry. Self-contained: every $ref points inside this document, no network reference.",
+  "description": "Computed quantities report produced by scripts/lib/quantities.js buildReport. Contract: SPEC.md section 3 (report-v1), section 4 (provenance). One kernel, many outputs: DXF, CSV, Markdown and apps consume this document and never re-derive geometry. Canonical names only: no M2 suffix, no legacy 'report1' token, no element 'key'. Self-contained: every $ref points inside this document.",
   "type": "object",
-  "required": ["schemaVersion", "source", "totals", "elements"],
+  "required": ["schemaVersion", "source", "totals", "elements", "warnings", "assumptions"],
   "additionalProperties": true,
   "properties": {
-    "schemaVersion": {
-      "enum": ["roomplan.report/1", "report1"],
-      "description": "SPEC section 3 mandates 'roomplan.report/1'. The current kernel still emits the legacy token 'report1'; both are accepted so that the schema describes what the engine actually produces today without any change to the calculations (REPORT.md contradiction C-1)."
-    },
+    "schemaVersion": { "const": "roomplan.report/1" },
     "engine": { "type": "string" },
     "source": {
       "type": "object",
+      "required": ["sha256", "byteCount", "dialect", "captureSchema"],
       "additionalProperties": true,
-      "description": "SPEC: source{sha256, dialect, captureSchema}. The engine knows sha256/byteCount/kind and does not stamp the capture schema it did not read.",
       "properties": {
-        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-fA-F]{0,64}$" },
+        "sha256": { "type": ["string", "null"] },
         "byteCount": { "type": ["integer", "null"], "minimum": 0 },
-        "kind": { "enum": ["raw", "optimized", null] },
         "dialect": { "type": ["string", "null"] },
-        "captureSchema": { "const": "roomplan.capture/1", "description": "Present once the kernel records the capture contract it consumed." }
+        "captureSchema": { "const": "roomplan.capture/1" }
       }
+    },
+    "conventions": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Units, coordinate space, membership rules, tolerances. Narrative only — never a place to hide a number."
+    },
+    "assumptions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "SPEC section 3: plain strings, one assumption each. Replaces the old conventions.caveat string."
     },
     "totals": {
       "type": "object",
       "additionalProperties": true,
-      "description": "SPEC: totals{floorArea, ceilingArea, wallAreaGross, wallAreaNet, openingArea, wallLength, paintArea, livingArea?, roomCount, wallCount, doorCount, windowCount, objectCount, roomsWithoutArea}. Every numeric field is a measure (value/status/coverage/reason). The engine names the areas with an M2 suffix and does not yet report wallLength, paintArea, livingArea or roomsWithoutArea (REPORT.md C-1).",
-      "required": ["floorAreaM2", "wallGrossAreaM2", "wallNetAreaM2", "ceilingAreaM2", "counts"],
+      "required": ["floorArea", "ceilingArea", "wallAreaGross", "wallAreaNet", "openingArea", "wallLength", "paintArea", "livingArea", "roomsWithoutArea", "counts"],
       "properties": {
-        "floorArea": { "$ref": "#/$defs/measure", "description": "SPEC name for floorAreaM2." },
-        "floorAreaM2": { "$ref": "#/$defs/measure" },
-        "ceilingArea": { "$ref": "#/$defs/measure", "description": "SPEC name for ceilingAreaM2." },
-        "ceilingAreaM2": { "$ref": "#/$defs/measure" },
-        "wallAreaGross": { "$ref": "#/$defs/measure", "description": "SPEC name for wallGrossAreaM2." },
-        "wallGrossAreaM2": { "$ref": "#/$defs/measure" },
-        "wallAreaNet": { "$ref": "#/$defs/measure", "description": "SPEC name for wallNetAreaM2." },
-        "wallNetAreaM2": { "$ref": "#/$defs/measure" },
-        "openingArea": { "$ref": "#/$defs/measure", "description": "SPEC name; engine splits it into doorAreaM2/windowAreaM2/openingAreaM2." },
-        "openingAreaM2": { "$ref": "#/$defs/measure" },
-        "doorAreaM2": { "$ref": "#/$defs/measure" },
-        "windowAreaM2": { "$ref": "#/$defs/measure" },
-        "wallLength": { "$ref": "#/$defs/measure", "description": "SPEC total; not computed by the current kernel." },
-        "paintArea": { "$ref": "#/$defs/measure", "description": "SPEC total (free-opening threshold); not computed by the current kernel." },
-        "livingArea": { "$ref": "#/$defs/measure", "description": "SPEC optional total (ArchiPlan planStatistics); not computed by the current kernel." },
-        "roomCount": { "type": "integer", "minimum": 0 },
-        "wallCount": { "type": "integer", "minimum": 0 },
-        "doorCount": { "type": "integer", "minimum": 0 },
-        "windowCount": { "type": "integer", "minimum": 0 },
-        "objectCount": { "type": "integer", "minimum": 0 },
-        "roomsWithoutArea": { "type": ["integer", "array"], "description": "SPEC: count (or list) of rooms with no floor area." },
+        "floorArea": { "$ref": "#/$defs/measure" },
+        "ceilingArea": { "$ref": "#/$defs/measure" },
+        "wallAreaGross": { "$ref": "#/$defs/measure" },
+        "wallAreaNet": { "$ref": "#/$defs/measure" },
+        "openingArea": { "$ref": "#/$defs/measure", "description": "doors + windows + unclassed openings, one subtotal" },
+        "wallLength": { "$ref": "#/$defs/measure", "description": "summed wall run length (dimensions.x or polygonCorners span)" },
+        "paintArea": { "$ref": "#/$defs/measure", "description": "trade rule with the free-opening threshold, never a replacement for wallAreaNet" },
+        "livingArea": { "$ref": "#/$defs/measure", "description": "plan-statistics totals.livingArea (interior areas, wall footprints removed, G-9); unavailable when the statistics block refused the capture" },
+        "roomsWithoutArea": { "$ref": "#/$defs/measure", "description": "count of rooms with neither a computed polygon area nor a declared area" },
+        "doorArea": { "$ref": "#/$defs/measure" },
+        "windowArea": { "$ref": "#/$defs/measure" },
+        "volume": { "$ref": "#/$defs/measure", "description": "always unavailable today; kept so a consumer cannot mistake absence for zero" },
+        "uniqueElementCount": { "type": "integer", "minimum": 0 },
+        "unlinkedOpeningIds": { "type": "array", "items": { "type": "string" } },
         "counts": {
           "type": "object",
           "additionalProperties": { "type": "integer", "minimum": 0 },
-          "description": "Engine element census per kind; supplies roomCount/wallCount/... in one place."
-        },
-        "uniqueElementCount": { "type": "integer", "minimum": 0 },
-        "unlinkedOpeningKeys": { "type": "array", "items": { "type": "string" } },
-        "volumeM3": { "$ref": "#/$defs/measure" }
-      }
-    },
-    "stories": {
-      "type": "array",
-      "description": "SPEC: stories[{story, label, totals, rooms[{id, label, floorArea, ceilingArea, ceilingMethod, wallAreaNetBoundary, wallRun, boundaryDoorCount, boundaryWindowCount}]}]. The engine's stories[].rooms is a list of room identifiers, and the per-room details live in the top-level 'rooms' (REPORT.md C-1).",
-      "items": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": ["story"],
-        "properties": {
-          "story": { "type": "integer" },
-          "label": { "type": ["string", "null"] },
-          "totals": { "type": "object", "additionalProperties": true },
-          "rooms": {
-            "type": "array",
-            "items": {
-              "oneOf": [
-                { "type": "string" },
-                { "$ref": "#/$defs/storyRoom" }
-              ]
-            }
+          "required": ["roomCount", "wallCount", "doorCount", "windowCount", "objectCount"],
+          "properties": {
+            "roomCount": { "type": "integer", "minimum": 0 },
+            "wallCount": { "type": "integer", "minimum": 0 },
+            "doorCount": { "type": "integer", "minimum": 0 },
+            "windowCount": { "type": "integer", "minimum": 0 },
+            "objectCount": { "type": "integer", "minimum": 0 }
           }
         }
       }
-    },
-    "rooms": {
-      "type": "array",
-      "description": "Engine per-room detail (the SPEC per-story room fields, flattened per story).",
-      "items": { "$ref": "#/$defs/room" }
     },
     "elements": {
       "type": "array",
       "items": { "$ref": "#/$defs/element" }
     },
-    "warnings": {
+    "rooms": {
       "type": "array",
-      "description": "SPEC: warnings[{code, message, severity}]. The engine emits code plus case-specific detail fields and omits message/severity (REPORT.md C-1).",
+      "items": { "$ref": "#/$defs/room" }
+    },
+    "stories": {
+      "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["code"],
+        "required": ["story", "totals", "rooms"],
         "properties": {
-          "code": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
-          "message": { "type": "string" },
-          "severity": { "enum": ["info", "warning", "error"] },
-          "roomIdentifier": { "type": ["string", "integer", "null"] },
-          "differenceM2": { "type": "number" },
-          "reason": { "type": "string" }
+          "story": { "type": ["integer", "null"] },
+          "totals": { "type": "object" },
+          "rooms": { "type": "array", "items": { "type": "string" } }
         }
       }
     },
-    "assumptions": {
+    "warnings": {
       "type": "array",
-      "items": { "type": "string" },
-      "description": "SPEC: assumptions[string]. Not emitted by the current kernel; conventions.caveat carries the same information today."
+      "items": { "$ref": "#/$defs/warning" },
+      "description": "Every entry carries code, message and severity; extra fields (roomIdentifier, differenceM2) are allowed and kept."
     },
-    "conventions": { "type": "object", "additionalProperties": true },
+    "statistics": {
+      "type": ["object", "null"],
+      "description": "plan-statistics.js block (G-9): totals, levels, rooms, costs. null when the module refused the capture; the refusal is then a warning."
+    },
+    "handoff": {
+      "type": ["object", "null"],
+      "description": "handoff.js scope (G-10): quantities[], gaps[], levels[], assumptions[], codesApplied. null when refused, with a warning."
+    },
     "sourceReferences": { "type": "object", "additionalProperties": true },
     "summary": { "type": "object", "additionalProperties": true }
   },
   "$defs": {
-    "provenanceStatus": {
-      "description": "SPEC section 4 provenance vocabulary.",
-      "enum": ["supplied", "computed", "reconstructed", "estimated", "unavailable"]
-    },
-    "coverage": {
-      "description": "SPEC section 4: complete | partial. NOTE the engine uses the same two words as *status* for subtotals and uses 'coverage' for the geometry class (computed/estimated/source-derived). Both vocabularies are accepted, see REPORT.md C-1.",
-      "enum": ["supplied", "complete", "partial", "computed", "estimated", "unavailable", "source-derived", "inferred"]
-    },
-    "status": {
-      "description": "Provenance status, plus the engine's subtotal words complete/partial.",
-      "enum": ["supplied", "computed", "reconstructed", "estimated", "unavailable", "complete", "partial"]
-    },
-    "ceilingMethod": {
-      "description": "SPEC section 3: supplied | knee | section | extrusion | flat | unavailable. 'explicit' is the engine's word for a supplied ceiling polygon (REPORT.md C-1).",
-      "enum": ["supplied", "knee", "section", "extrusion", "flat", "explicit", "unavailable", null]
-    },
     "measure": {
       "type": "object",
+      "description": "SPEC section 4. status = provenance ONLY; coverage = completeness ONLY with included/expected. The old single field that held both is defect C-6 and is gone.",
+      "required": ["value", "status", "coverage", "included", "expected", "reason"],
       "additionalProperties": true,
-      "description": "SPEC section 4: every numeric field appears as {value, status, coverage, reason}; unknown is never zero.",
-      "required": ["value", "coverage"],
       "properties": {
         "value": { "type": ["number", "null"] },
-        "status": { "$ref": "#/$defs/status" },
-        "coverage": { "$ref": "#/$defs/coverage" },
-        "reason": { "type": ["string", "null"] },
+        "status": { "enum": ["supplied", "computed", "reconstructed", "estimated", "unavailable"] },
+        "coverage": { "enum": ["complete", "partial"] },
         "included": { "type": "integer", "minimum": 0 },
         "expected": { "type": "integer", "minimum": 0 },
-        "reasons": { "type": "array", "items": { "type": "string" } },
-        "byStatus": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
-        "basis": { "type": "string" },
-        "method": { "$ref": "#/$defs/ceilingMethod" },
-        "heightM": {
-          "anyOf": [
-            { "type": "null" },
-            {
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {
-                "min": { "type": "number" },
-                "max": { "type": "number" }
-              }
-            }
-          ]
-        }
+        "reason": { "type": ["string", "null"], "minLength": 1 },
+        "method": { "type": ["string", "null"] },
+        "byStatus": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
       }
     },
-    "slopeCut": {
+    "warning": {
       "type": "object",
+      "required": ["code", "message", "severity"],
       "additionalProperties": true,
-      "description": "SPEC G-2: the triangle the roof takes out of the wall face, never silently applied.",
-      "required": ["status"],
       "properties": {
-        "status": { "enum": ["computed", "estimated", "unavailable", null] },
-        "cutArea": { "type": ["number", "null"] },
-        "triangles": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true,
-            "properties": {
-              "dW": { "type": "number" },
-              "dH": { "type": "number" },
-              "area": { "type": "number" }
-            }
-          }
-        },
-        "ridgeHeight": { "type": ["number", "null"] },
-        "kneeHeight": { "type": ["number", "null"] },
-        "slopeCount": { "type": "integer", "minimum": 0 },
-        "convex": { "type": "boolean" },
-        "flatGrossArea": { "type": ["number", "null"] },
-        "correctedGrossArea": { "type": ["number", "null"] },
-        "note": { "type": "string" }
-      }
-    },
-    "roomMembership": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["roomIdentifier"],
-      "properties": {
-        "roomIdentifier": { "type": ["string", "integer", "null"] },
-        "coverage": { "$ref": "#/$defs/coverage" },
-        "method": { "type": "string" }
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "severity": { "enum": ["info", "warning", "error"] }
       }
     },
     "element": {
       "type": "object",
+      "required": ["id", "kind", "story", "area", "roomRefs"],
       "additionalProperties": true,
-      "description": "SPEC: elements[{id, kind, story, area, areaStatus, coverage, reason, roomRefs[], slopeCut?}]. The engine keys elements by 'key' and reports grossAreaM2/netAreaM2 instead of a single 'area'.",
-      "required": ["key", "kind"],
       "properties": {
-        "key": { "type": "string", "minLength": 1 },
-        "id": { "type": ["string", "integer", "null"], "description": "SPEC name." },
-        "identifier": { "type": ["string", "integer", "null"], "description": "Engine name for id." },
+        "id": { "type": "string", "minLength": 1 },
         "kind": { "enum": ["wall", "floor", "door", "window", "opening", "object"] },
         "story": { "type": ["integer", "null"] },
         "category": { "type": ["string", "null"] },
-        "area": { "$ref": "#/$defs/measure", "description": "SPEC single area; engine keeps gross and net apart." },
-        "areaStatus": { "$ref": "#/$defs/status" },
-        "coverage": { "$ref": "#/$defs/coverage" },
-        "reason": { "type": ["string", "null"] },
-        "roomRefs": { "type": "array", "items": { "type": ["string", "integer", "null"] }, "description": "SPEC name." },
-        "roomMemberships": { "type": "array", "items": { "$ref": "#/$defs/roomMembership" } },
-        "grossAreaM2": { "$ref": "#/$defs/measure" },
-        "netAreaM2": { "$ref": "#/$defs/measure" },
-        "thicknessM": { "$ref": "#/$defs/measure" },
-        "slopeCut": { "anyOf": [{ "$ref": "#/$defs/slopeCut" }, { "type": "null" }] },
-        "parentIdentifier": { "type": ["string", "null"] },
-        "parentLinkStatus": { "enum": ["linked", "ambiguous", "unlinked"] },
-        "count": { "type": "integer", "minimum": 1 },
-        "provenance": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
-        "warnings": { "type": "array", "items": { "type": "string" } },
-        "sourceStory": { "type": ["integer", "null"] },
-        "storyProvenance": { "type": "string" },
-        "openingKeys": { "type": "array", "items": { "type": "string" } },
-        "openingDiagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
-      }
-    },
-    "storyRoom": {
-      "type": "object",
-      "additionalProperties": true,
-      "description": "SPEC per-story room row.",
-      "properties": {
-        "id": { "type": ["string", "integer", "null"] },
-        "label": { "type": ["string", "null"] },
-        "floorArea": { "$ref": "#/$defs/measure" },
-        "ceilingArea": { "$ref": "#/$defs/measure" },
-        "ceilingMethod": { "$ref": "#/$defs/ceilingMethod" },
-        "wallAreaNetBoundary": { "$ref": "#/$defs/measure" },
-        "wallRun": { "$ref": "#/$defs/measure" },
-        "boundaryDoorCount": { "type": "integer", "minimum": 0 },
-        "boundaryWindowCount": { "type": "integer", "minimum": 0 }
+        "area": { "$ref": "#/$defs/measure", "description": "gross area; was grossAreaM2" },
+        "netArea": { "$ref": "#/$defs/measure", "description": "geometric net after opening subtraction" },
+        "paintArea": { "$ref": "#/$defs/measure", "description": "trade paint area (free-opening threshold), never replaces netArea" },
+        "length": { "$ref": "#/$defs/measure", "description": "wall run length" },
+        "thickness": { "$ref": "#/$defs/measure" },
+        "roomRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["roomIdentifier", "coverage"],
+            "additionalProperties": true,
+            "properties": {
+              "roomIdentifier": { "type": "string" },
+              "coverage": { "enum": ["supplied", "inferred"] },
+              "method": { "type": ["string", "null"] }
+            }
+          },
+          "description": "was roomMemberships. References, NOT additive room-side quantities."
+        },
+        "slopeCut": { "type": ["object", "null"], "additionalProperties": true },
+        "sourceRecords": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
       }
     },
     "room": {
       "type": "object",
+      "required": ["identifier", "story", "declaredArea", "polygonArea", "ceilingArea"],
       "additionalProperties": true,
-      "description": "Per-room row of the engine report, plus the SPEC story-room names.",
-      "required": ["identifier"],
       "properties": {
-        "identifier": { "type": ["string", "integer", "null"] },
-        "id": { "type": ["string", "integer", "null"], "description": "SPEC name." },
-        "label": { "type": ["string", "null"] },
+        "id": { "type": "string" },
+        "identifier": { "type": "string" },
         "story": { "type": ["integer", "null"] },
-        "sourceRoomIndex": { "type": ["integer", "null"] },
-        "declaredAreaM2": { "$ref": "#/$defs/measure" },
-        "polygonAreaM2": { "$ref": "#/$defs/measure" },
-        "polygonMinusDeclaredM2": { "type": ["number", "null"] },
-        "floorArea": { "$ref": "#/$defs/measure", "description": "SPEC name for polygonAreaM2." },
-        "ceilingAreaM2": { "$ref": "#/$defs/measure" },
-        "ceilingArea": { "$ref": "#/$defs/measure", "description": "SPEC name for ceilingAreaM2." },
-        "wallAreaNetBoundary": { "$ref": "#/$defs/measure", "description": "SPEC per-story room field; engine reports roomSideWallGrossAreaM2." },
-        "roomSideWallGrossAreaM2": { "$ref": "#/$defs/measure" },
-        "wallRun": { "$ref": "#/$defs/measure" },
-        "boundaryDoorCount": { "type": "integer", "minimum": 0 },
-        "boundaryWindowCount": { "type": "integer", "minimum": 0 },
-        "elementKeys": { "type": "array", "items": { "type": "string" } },
-        "roomSideCounts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
-        "volumeM3": { "$ref": "#/$defs/measure" }
+        "label": { "type": ["string", "null"] },
+        "declaredArea": { "$ref": "#/$defs/measure", "description": "the producer's number; never added to a computed one" },
+        "polygonArea": { "$ref": "#/$defs/measure" },
+        "polygonMinusDeclared": { "type": ["number", "null"] },
+        "ceilingArea": { "$ref": "#/$defs/measure" },
+        "volume": { "$ref": "#/$defs/measure" }
       }
     }
   }
