@@ -139,6 +139,25 @@ function rawRooms(root) {
  if(Array.isArray(root.captureSessions))return root.captureSessions.flatMap(c=>c.roomplanSessions||[]);
  return [];
 }
+/** Trade convention, NOT geometry: when a wall is painted, an opening up to this
+ * size is not deducted at all — the time saved on the hole is spent right back
+ * on its reveals, corners and masking. Above it only the excess comes off (a
+ * 4 m2 opening deducts 1 m2). Paint area is a SEPARATE field: `netAreaM2` stays
+ * the geometrically honest number and is what cross-checks against a survey;
+ * this one is what goes into a quote. Ported from geometry.js
+ * `PAINT_FREE_OPENING_M2` / `wallPaintArea` (SPEC section 5, G-11). */
+const PAINT_FREE_OPENING_M2=3;
+/** Paint measure for one wall: gross minus the excess above the threshold, per
+ * opening, clamped at zero. Unknown opening area => null, never a free pass. */
+function paintMeasure(grossMeasure,openings) {
+ const areas=openings.map(o=>o&&o.area);
+ if(!grossMeasure||!finite(grossMeasure.value))return missing('gross wall area unavailable; paint area cannot be derived');
+ if(areas.some(a=>!finite(a)))return missing('parent-linked opening without a finite area; paint deduction unknown');
+ const excess=areas.reduce((s,a)=>s+Math.max(0,a-PAINT_FREE_OPENING_M2),0);
+ const value=Math.max(0,grossMeasure.value-Math.min(excess,grossMeasure.value));
+ const estimated=grossMeasure.coverage==='estimated'||openings.some(o=>o&&o.coverage==='estimated');
+ return measure(value,estimated?'estimated':'computed',`gross minus ${excess>0?'the excess above':'nothing (all openings at or below)'} PAINT_FREE_OPENING_M2=${PAINT_FREE_OPENING_M2} m2 per linked parent-linked opening; trade rule, not net area`);
+}
 function sum(rows,key) {
  if(!rows.length)return {value:null,status:'unavailable',coverage:'unavailable',included:0,expected:0,reasons:['no applicable source elements']};
  const values=rows.map(r=>r[key]),ok=values.filter(q=>q&&finite(q.value));
@@ -261,6 +280,15 @@ function buildReport(capture,root={}) {
   a.parentLinkStatus=parents.length===1?'linked':parents.length?'ambiguous':'unlinked';
   if(a.parentLinkStatus!=='linked')a.warnings.push('opening not subtracted: '+a.parentLinkStatus+' parentIdentifier');
  }
+ // Paint area per wall: a SEPARATE field next to netAreaM2, never folded into it.
+ // Same parent-linked openings as net (one wall, unambiguous parent); the trade
+ // threshold is applied to each opening separately, so two 2 m2 openings deduct
+ // nothing while one 4 m2 opening deducts 1 m2.
+ for(const wall of elements.filter(e=>e.kind==='wall')) {
+  const linked=apertures.filter(e=>e.parentIdentifier===wall.identifier&&wall.identifier!=null);
+  wall.paintAreaM2=paintMeasure(wall.grossAreaM2,linked.map(e=>({area:e.grossAreaM2.value,coverage:e.grossAreaM2.coverage})));
+  wall.paintRule={thresholdM2:PAINT_FREE_OPENING_M2,freeOpeningM2:PAINT_FREE_OPENING_M2,deductedM2:finite(wall.grossAreaM2.value)&&finite(wall.paintAreaM2.value)?wall.grossAreaM2.value-wall.paintAreaM2.value:null,policy:'an opening up to PAINT_FREE_OPENING_M2 is not deducted; above it only the excess is deducted; net area keeps the full geometric deduction'};
+ }
  /** Ceiling subtotal: only rooms/zones with an area contribute; anything
   * missing makes the subtotal 'partial' rather than silently complete. */
  function ceilingSummary(zones){
@@ -278,7 +306,9 @@ function buildReport(capture,root={}) {
   const select=k=>list.filter(e=>e.kind===k),walls=select('wall'),unlinked=list.filter(e=>['door','window','opening'].includes(e.kind)&&e.parentLinkStatus!=='linked');
   const net=sum(walls,'netAreaM2');
   if(unlinked.length){net.status=net.value==null?'unavailable':'partial';net.reasons.push('unlinked/ambiguous openings excluded from subtraction; net coverage incomplete');}
-  return {uniqueElementCount:list.length,counts:Object.fromEntries(['wall','floor','door','window','opening','object'].map(k=>[k,select(k).length])),floorAreaM2:sum(select('floor'),'grossAreaM2'),wallGrossAreaM2:sum(walls,'grossAreaM2'),wallNetAreaM2:net,doorAreaM2:sum(select('door'),'grossAreaM2'),windowAreaM2:sum(select('window'),'grossAreaM2'),openingAreaM2:sum(select('opening'),'grossAreaM2'),unlinkedOpeningKeys:unlinked.map(e=>e.key),ceilingAreaM2:ceilingSummary(zones),volumeM3:missing('verified closed volume geometry unavailable')};
+  const paint=sum(walls,'paintAreaM2');
+  if(unlinked.length){paint.status=paint.value==null?'unavailable':'partial';paint.reasons.push('unlinked/ambiguous openings cannot be deducted; paint coverage incomplete');}
+  return {uniqueElementCount:list.length,counts:Object.fromEntries(['wall','floor','door','window','opening','object'].map(k=>[k,select(k).length])),floorAreaM2:sum(select('floor'),'grossAreaM2'),wallGrossAreaM2:sum(walls,'grossAreaM2'),wallNetAreaM2:net,doorAreaM2:sum(select('door'),'grossAreaM2'),windowAreaM2:sum(select('window'),'grossAreaM2'),openingAreaM2:sum(select('opening'),'grossAreaM2'),paintAreaM2:paint,unlinkedOpeningKeys:unlinked.map(e=>e.key),ceilingAreaM2:ceilingSummary(zones),volumeM3:missing('verified closed volume geometry unavailable')};
  }
  const storyIds=[...new Set([...elements.map(e=>e.story),...rooms.map(r=>r.story)])];
  const stories=storyIds.map(story=>({story,totals:totals(elements.filter(e=>e.story===story),story),rooms:rooms.filter(r=>r.story===story).map(r=>r.identifier)}));
@@ -289,8 +319,8 @@ function buildReport(capture,root={}) {
   delete room._vertices;delete room._source;
   if(room.polygonMinusDeclaredM2!=null&&Math.abs(room.polygonMinusDeclaredM2)>0.01)warnings.push({code:'room-area-discrepancy',roomIdentifier:room.identifier,differenceM2:room.polygonMinusDeclaredM2});
  }
- const report={schemaVersion:'report1',engine:'independent conservative quantities engine; not ported or compared to unavailable ArchiDrawing web engine',source:{sha256:capture.sourceSHA256??capture.source?.sha256??null,byteCount:capture.sourceByteCount??capture.source?.byteCount??null,kind:capture.kind??capture.dialect?.kind??null},conventions:{units:'metres',areaUnits:'m2',coordinateSpace:'source space; local surface transforms applied; alignment and DXF sheet translations not used',roomMembership:'source links first; polygon inference explicitly inferred; shared walls have multiple room references but one unique total',coverage:'supplied=source value; computed=verified geometry; estimated=dimensional assumption; unavailable=null; complete/partial describe decoded element coverage, not whole-building completeness',netOpeningToleranceM:0.01,roomBoundaryToleranceM:0.02},sourceReferences:{floorAreaSquareMetres:finite(root.floorAreaSquareMetres)?root.floorAreaSquareMetres:null,floorAreaPolicy:'metadata reference only; never added to geometry totals'},rooms,elements,stories,totals:totals(elements),warnings};
- report.summary={sourceSHA256:report.source.sha256,roomCount:rooms.length,ceilingAreaM2:report.totals.ceilingAreaM2,storyCount:stories.length,uniqueElementCount:elements.length,counts:report.totals.counts,floorAreaM2:report.totals.floorAreaM2,wallGrossAreaM2:report.totals.wallGrossAreaM2,wallNetAreaM2:report.totals.wallNetAreaM2,warningCount:warnings.length+elements.reduce((n,e)=>n+e.warnings.length,0),caveat:'Room-side quantities are references and not additive. No surveyed accuracy, complete app support, ceiling inference or volume inference claimed.'};
+ const report={schemaVersion:'report1',engine:'independent conservative quantities engine; not ported or compared to unavailable ArchiDrawing web engine',source:{sha256:capture.sourceSHA256??capture.source?.sha256??null,byteCount:capture.sourceByteCount??capture.source?.byteCount??null,kind:capture.kind??capture.dialect?.kind??null},conventions:{units:'metres',areaUnits:'m2',coordinateSpace:'source space; local surface transforms applied; alignment and DXF sheet translations not used',roomMembership:'source links first; polygon inference explicitly inferred; shared walls have multiple room references but one unique total',coverage:'supplied=source value; computed=verified geometry; estimated=dimensional assumption; unavailable=null; complete/partial describe decoded element coverage, not whole-building completeness',netOpeningToleranceM:0.01,roomBoundaryToleranceM:0.02,paintFreeOpeningM2:PAINT_FREE_OPENING_M2,paintPolicy:'trade rule, separate from netAreaM2: an opening up to paintFreeOpeningM2 is not deducted, above it only the excess; never folded into net'},sourceReferences:{floorAreaSquareMetres:finite(root.floorAreaSquareMetres)?root.floorAreaSquareMetres:null,floorAreaPolicy:'metadata reference only; never added to geometry totals'},rooms,elements,stories,totals:totals(elements),warnings};
+ report.summary={sourceSHA256:report.source.sha256,roomCount:rooms.length,ceilingAreaM2:report.totals.ceilingAreaM2,storyCount:stories.length,uniqueElementCount:elements.length,counts:report.totals.counts,floorAreaM2:report.totals.floorAreaM2,wallGrossAreaM2:report.totals.wallGrossAreaM2,wallNetAreaM2:report.totals.wallNetAreaM2,paintAreaM2:report.totals.paintAreaM2,warningCount:warnings.length+elements.reduce((n,e)=>n+e.warnings.length,0),caveat:'Room-side quantities are references and not additive. No surveyed accuracy, complete app support, ceiling inference or volume inference claimed.'};
  return report;
 }
 /** Guard strings before RFC4180-style quoting; BOM and semicolon for spreadsheets. */
@@ -300,8 +330,8 @@ function csvCell(v) {
  return /[;"\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
 }
 function quantitiesCSV(report) {
- const header=['Kat','Tip','ID','Izvorni_ID','Kategorija','Broj','Povrsina_bruto_m2','Bruto_pokrivenost','Povrsina_neto_m2','Neto_pokrivenost','Debljina_m','Debljina_pokrivenost','Sobe_reference','Provenance','Napomena'];
- const rows=report.elements.map(e=>[e.story,e.kind,e.key,e.identifier,e.category,e.count,e.grossAreaM2.value,e.grossAreaM2.coverage,e.netAreaM2.value,e.netAreaM2.coverage,e.thicknessM.value,e.thicknessM.coverage,e.roomMemberships,e.provenance,e.warnings.join(' | ')]);
+ const header=['Kat','Tip','ID','Izvorni_ID','Kategorija','Broj','Povrsina_bruto_m2','Bruto_pokrivenost','Povrsina_neto_m2','Neto_pokrivenost','Povrsina_bojanje_m2','Bojanje_pokrivenost','Bojanje_odbijeno_m2','Debljina_m','Debljina_pokrivenost','Sobe_reference','Provenance','Napomena'];
+ const rows=report.elements.map(e=>[e.story,e.kind,e.key,e.identifier,e.category,e.count,e.grossAreaM2.value,e.grossAreaM2.coverage,e.netAreaM2.value,e.netAreaM2.coverage,e.paintAreaM2?e.paintAreaM2.value:null,e.paintAreaM2?e.paintAreaM2.coverage:null,e.paintRule?e.paintRule.deductedM2:null,e.thicknessM.value,e.thicknessM.coverage,e.roomMemberships,e.provenance,e.warnings.join(' | ')]);
  return '\uFEFF'+[header,...rows].map(r=>r.map(csvCell).join(';')).join('\r\n')+'\r\n';
 }
-module.exports={buildReport,quantitiesCSV,csvCell,polygon3D,inPolygon};
+module.exports={buildReport,quantitiesCSV,csvCell,polygon3D,inPolygon,PAINT_FREE_OPENING_M2,paintMeasure};

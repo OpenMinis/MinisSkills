@@ -133,8 +133,8 @@ Synthetic fixtures, all in metres, checked to 1e-4.
 | G-3 | gable room 20 m², eave 1.6, ridge 2.5, knee 5 m | ceiling **21.9317 m²**, method `knee` |
 | G-4 | shed roof, same footprint | ceiling **20.5000 m²**, method `knee` |
 | G-5 | authored ceiling, 4 vertices 2.0–2.6 m | area per vertex elevations; holes scaled by `ceilingArea/floorArea` |
-| G-6 | 1.00 × 1.00 m room, 0.15 m walls, reference edges | interior **1.0000 m²** |
-| G-7 | same walls, no reference edges | centerline **1.4400 m²** |
+| G-6 | 1.00 × 1.00 m room, **0.20 m** walls on the inner face | interior **1.0000 m²** |
+| G-7 | same building written on wall centrelines (1.20 m polygon) | centerline **1.4400 m²** |
 | G-8 | wall on a room boundary | member of that room; kernel tolerance 0.02 m (stricter than report-model's 0.25 m) |
 | G-9 | ArchiPlan fixture | living **10.9725 m²**, net walls **35 − 1.89 m²** |
 | G-10 | handoff fixture | quantity keys present, `gaps[]` for missing areas |

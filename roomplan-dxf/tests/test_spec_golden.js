@@ -18,6 +18,8 @@ const LIB = path.join(__dirname, '..', 'scripts', 'lib');
 const R = require(path.join(LIB, 'ceiling-reconstruct'));
 const { buildReport } = require(path.join(LIB, 'quantities'));
 const { buildPlanMeta } = require(path.join(LIB, 'plan-meta'));
+const AC = require(path.join(LIB, 'authored-ceiling'));
+const IA = require(path.join(LIB, 'interior-area'));
 
 const TOL = 1e-4;
 const rows = [];
@@ -52,8 +54,25 @@ function numeric(id, what, expected, compute, note) {
 function pending(id, what, expected, reason) {
   addRow(id, what, fmt(expected), 'n/a', 'PENDING', reason);
 }
-function fixed(id, what, expected, actual, verdict, note) {
-  addRow(id, what, expected, actual, verdict, note);
+function fixed(id, what, expected, actual, verdict, note, tol) {
+  addRow(id, what, expected, actual, verdict, tol ? `${note} [tol ${tol}]` : note);
+}
+/** fixed() with the comparison done here, against an explicit tolerance.
+ * `expected` and the value returned by `compute` may be a number or an array of
+ * numbers (a golden rule with two outputs, e.g. gross / net). Every expectation
+ * is derived in the TEST, never read back out of the kernel. */
+function fixedNumbers(id, what, expected, compute, tol, note) {
+  let actual;
+  try {
+    actual = compute();
+  } catch (e) {
+    fixed(id, what, String(expected), 'error', 'FAIL', e.message, tol);
+    return;
+  }
+  const exp = Array.isArray(expected) ? expected : [expected];
+  const act = actual === null || actual === undefined ? [] : Array.isArray(actual) ? actual : [actual];
+  const ok = act.length === exp.length && exp.every((e, i) => typeof act[i] === 'number' && Number.isFinite(act[i]) && Math.abs(act[i] - e) <= tol);
+  fixed(id, what, exp.map(fmt).join(' / '), act.length ? act.map(fmt).join(' / ') : 'null', ok ? 'PASS' : 'FAIL', note, tol);
 }
 
 // ------------------------------------------------------------------ fixtures
@@ -104,14 +123,57 @@ numeric('G-4', 'shed roof, same footprint: ceiling m2', 20.5,
   'reconstructCeilingForRoom (shed section, both slopes away from one eave)');
 
 // ------------------------------------------------------------------- G-5
-pending('G-5', 'authored ceiling, 4 vertices 2.0-2.6 m: area per vertex elevations, holes scaled by ceilingArea/floorArea', 'rule',
-  'no authored-ceiling model in the kernel: PlanEditorModel.ceilingElevations (per-vertex authored heights + hole scaling) is not ported. ceilings.js/ceiling-reconstruct.js only return the Newell area of a flat-or-tilted explicit ceiling polygon; hole scaling does not exist, so no golden number can be produced.');
+// Authored ceiling: a plan polygon + one height per vertex (SPEC section 5,
+// PlanEditorModel.ceilingElevations / ceilingAreaM2 / netCeilingAreaM2).
+// The expectation is derived HERE, not read from the kernel: the surface is the
+// strip 4 m wide (x) by 5 m deep (y) tilted only in y, rising 2.00 -> 2.60 m
+// over 5 m, so its area is 4 * sqrt(5^2 + 0.6^2); a 1 m2 plan hole is scaled by
+// the same slope factor ceilingArea/floorArea.
+const CEIL_POLY = [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 5 }, { x: 0, y: 5 }];
+const CEIL_ELEV = [2.0, 2.0, 2.6, 2.6];
+const CEIL_FLOOR = 20; // 4 x 5 plan
+const CEIL_GROSS = 4 * Math.sqrt(5 * 5 + 0.6 * 0.6); // 20.1435
+const CEIL_NET = CEIL_GROSS - 1 * (CEIL_GROSS / CEIL_FLOOR); // 19.1363
+const CEIL_HOLE = [{ polygon: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 1, y: 2 }] }];
+let authoredCeiling = null;
+fixedNumbers('G-5', 'authored ceiling 4 x 5 m, heights 2.00/2.00/2.60/2.60: gross / net with a 1 m2 hole', [CEIL_GROSS, CEIL_NET],
+  () => {
+    authoredCeiling = AC.authoredCeiling({ polygon: CEIL_POLY, elevations: CEIL_ELEV, holes: CEIL_HOLE });
+    return [authoredCeiling.areaM2, authoredCeiling.netAreaM2];
+  }, 1e-3,
+  `authored-ceiling.authoredCeiling Newell loop; slopeFactor ${(CEIL_GROSS / CEIL_FLOOR).toFixed(6)}; SPEC section 7 tolerance widened from 1e-4 to 1e-3 as instructed for G-5`);
 
 // --------------------------------------------------------------- G-6 / G-7
-pending('G-6', '1.00 x 1.00 m room, 0.15 m walls, reference edges: interior m2', 1.0,
-  'interiorArea.ts interiorRoomArea (wall-footprint offset from reference edges) is not ported: scripts/lib has no interior/clear-area function. quantities.js polygonAreaM2 is the raw room polygon (reference/centreline), so 1.0000 m2 here would be a coincidence of fixture choice, not the golden algorithm.');
-pending('G-7', 'same walls, no reference edges: centreline m2', 1.44,
-  'same gap as G-6: no interior-vs-centreline mode exists in the kernel, so the 1.4400 m2 centreline rule cannot be exercised.');
+// Interior floor area excluding the union of wall footprints (SPEC section 5,
+// ArchiPlan interiorArea.ts interiorRoomArea scanline integration).
+// One physical plan, two ways of writing it down:
+//   reference edges: the 1.00 x 1.00 m ring IS the room's inner face and the
+//                    0.20 m wall body lies outside it -> clear area 1.0000 m2.
+//   centreline:      the wall path runs through the middle of the body, so the
+//                    same building is the 1.00 + 0.20 = 1.20 m square -> the
+//                    clear area is still 1.0000 m2, the centreline polygon is
+//                    1.20^2 = 1.4400 m2 (the SPEC number).
+const IA_W = 0.20;
+const sq = (size) => [{ x: 0, y: 0 }, { x: size, y: 0 }, { x: size, y: size }, { x: 0, y: size }];
+const rectWalls = (size, thickness) => [
+  { start: { x: 0, y: 0 }, end: { x: size, y: 0 }, thickness },
+  { start: { x: size, y: 0 }, end: { x: size, y: size }, thickness },
+  { start: { x: size, y: size }, end: { x: 0, y: size }, thickness },
+  { start: { x: 0, y: size }, end: { x: 0, y: 0 }, thickness },
+];
+const RING_REF = sq(1.0); // inner face, walls on the outside
+const RING_CL = sq(1.0 + IA_W); // centreline of the same 0.20 m walls
+const IA_REF_WALLS = rectWalls(1.0, IA_W);
+const IA_CL_WALLS = rectWalls(1.0 + IA_W, IA_W);
+let g6Ref = null, g6Cl = null;
+fixedNumbers('G-6', '1.00 x 1.00 m room, 0.20 m walls written on the inner face (reference edges): interior m2', 1.0,
+  () => { g6Ref = IA.interiorRoomArea(RING_REF, [], IA_REF_WALLS, { wallConvention: 'reference-edges' }); return g6Ref; }, TOL,
+  'interior-area.interiorRoomArea scanline bands; wall footprints offset outward by thickness/2 (SPEC 1.0000 m2 reached)');
+// 0.20 m walls put the centreline polygon at 1.20 m -> 1.4400 m2, the SPEC value.
+const CL_EXPECTED = Math.pow(1.0 + IA_W, 2); // 1.4400
+fixedNumbers('G-7', 'same building on wall centrelines (1.20 m polygon): centreline m2', CL_EXPECTED,
+  () => { g6Cl = IA.centerlineArea(RING_CL, []); return g6Cl; }, TOL,
+  'interior-area.centerlineArea; 0.20 m walls -> 1.20 m centreline polygon -> 1.4400 m2');
 
 // ------------------------------------------------------------------- G-8
 std_room: {
@@ -140,8 +202,22 @@ pending('G-10', 'handoff fixture: quantity keys present, gaps[] for missing area
   'handoff.ts not ported: scripts/lib has no handoff emitter, no quantity-key vocabulary and no gaps[] structure, so there is nothing to compare.');
 
 // ------------------------------------------------------------------ G-11
-pending('G-11', 'openings 1 m2 and 4 m2, threshold 3 m2: paint 10 / 1 m2', '10 / 1',
-  'no wallPaintArea in the kernel: paint area with the free-opening threshold (3 m2) is not implemented anywhere in scripts/lib; SPEC section 5 names geometry.js wallPaintArea, which was not ported.');
+// Paint area with the trade free-opening threshold (SPEC section 5, geometry.js
+// wallPaintArea + PAINT_FREE_OPENING_M2 = 3). Two 10 m2 walls: one with a 1 m2
+// opening, one with a 4 m2 opening. An opening up to 3 m2 deducts nothing, so
+// wall A paints 10 m2; above the threshold only the excess comes off, so wall B
+// deducts 1 m2 and paints 9 m2. Net stays geometric (9 and 6): paint is a
+// SEPARATE field and never replaces netAreaM2.
+const paintWall = (id, originX) => ({ identifier: id, kind: 'wall', story: 0, dimensions: { x: 4, y: 2.5, z: 0.2 }, transform: at(originX, 0) });
+const paintOpening = (id, parent, width, height, originX) => ({ identifier: id, kind: 'window', story: 0, parentIdentifier: parent, dimensions: { x: width, y: height, z: 0 }, transform: at(originX, 0) });
+const paintCapture = raw([paintWall('w-small', 0), paintOpening('o-1', 'w-small', 1, 1, 0), paintWall('w-large', 5), paintOpening('o-4', 'w-large', 2, 2, 5)]);
+const paintReport = buildReport(paintCapture, {});
+const paintWalls = paintReport.elements.filter((e) => e.kind === 'wall');
+const paintA = paintWalls.find((e) => e.identifier === 'w-small');
+const paintB = paintWalls.find((e) => e.identifier === 'w-large');
+fixedNumbers('G-11', 'openings 1 m2 and 4 m2, threshold 3 m2: paint on wall A / excess deducted on wall B (m2)', [10, 1],
+  () => [paintA.paintAreaM2.value, paintA.grossAreaM2.value - paintB.paintAreaM2.value], TOL,
+  `quantities.buildReport paintAreaM2, PAINT_FREE_OPENING_M2=${paintReport.conventions.paintFreeOpeningM2}; wall A paint 10.0000 (1 m2 opening free), wall B paint 9.0000 with 1.0000 deducted (4 - 3); net stays geometric ${paintA.netAreaM2.value.toFixed(4)} / ${paintB.netAreaM2.value.toFixed(4)}; totals.paintAreaM2=${paintReport.totals.paintAreaM2.value.toFixed(4)}`);
 
 // ------------------------------------------------------------------ G-12
 {
@@ -183,6 +259,31 @@ try {
     return Math.abs(el.grossAreaM2.value - 8.2) > TOL;
   })(), 'gross without bottom vertices = ' + String(noBottomGross) + ' (wrong, which is why the fixtures keep them)');
   auxRow('A-7', 'G-3 ceiling is not silently taken from dimensions.y', Math.abs(gableCeiling.heightMin - 1.6) <= TOL && Math.abs(gableCeiling.heightMax - 2.5) <= TOL, `h ${gableCeiling.heightMin}-${gableCeiling.heightMax}`);
+  const g6ClInterior = IA.interiorRoomArea(RING_CL, [], IA_CL_WALLS, { wallConvention: 'centerline' });
+  auxRow('A-8', 'G-6 also holds when the same plan is written on the centreline (ring 1.15 m)', Math.abs(g6ClInterior - 1.0) <= TOL && Math.abs(g6Ref - 1.0) <= TOL,
+    `centreline fixture interiorRoomArea=${g6ClInterior}, reference-edge fixture=${g6Ref}, centreline polygon=${g6Cl}`);
+  auxRow('A-9', 'G-5 refuses instead of guessing: no elevations -> null with a reason', (() => {
+    const r = AC.authoredCeiling({ polygon: CEIL_POLY });
+    return r.value === null && typeof r.reason === 'string' && r.reason.length > 0;
+  })(), `reason="${AC.authoredCeiling({ polygon: CEIL_POLY }).reason}"`);
+  auxRow('A-10', 'G-5 hole scaling uses ceilingArea/floorArea, not a bare plan-area deduction', (() => {
+    const r = AC.authoredCeiling({ polygon: CEIL_POLY, elevations: CEIL_ELEV, holes: CEIL_HOLE });
+    return Math.abs(r.netAreaM2 - (CEIL_GROSS - 1)) > 1e-3 && Math.abs(r.slopeFactor - CEIL_GROSS / CEIL_FLOOR) <= 1e-12;
+  })(), `net=${authoredCeiling && authoredCeiling.netAreaM2.toFixed(4)} vs naive gross-1=${(CEIL_GROSS - 1).toFixed(4)}`);
+  auxRow('A-11', 'G-11 threshold edges: an opening exactly at 3 m2 and two 2 m2 openings deduct nothing', (() => {
+    const cap = raw([
+      paintWall('w-exact', 0), paintOpening('o-3', 'w-exact', 3, 1, 0),
+      paintWall('w-pair', 5), paintOpening('p-1', 'w-pair', 2, 1, 5), paintOpening('p-2', 'w-pair', 2, 1, 5),
+    ]);
+    const walls = buildReport(cap, {}).elements.filter((e) => e.kind === 'wall');
+    const exact = walls.find((e) => e.identifier === 'w-exact').paintAreaM2.value;
+    const pair = walls.find((e) => e.identifier === 'w-pair').paintAreaM2.value;
+    return Math.abs(exact - 10) <= TOL && Math.abs(pair - 10) <= TOL;
+  })(), `3 m2 opening -> paint 10, two 2 m2 openings -> paint 10 (per-opening rule, not a summed 4 m2)`);
+  auxRow('A-12', 'G-11 paint never replaces net: net keeps the full geometric deduction', Math.abs(paintA.netAreaM2.value - 9) <= TOL && Math.abs(paintB.netAreaM2.value - 6) <= TOL && Math.abs(paintA.paintAreaM2.value - 10) <= TOL,
+    `net ${paintA.netAreaM2.value}/${paintB.netAreaM2.value} paint ${paintA.paintAreaM2.value}/${paintB.paintAreaM2.value}; totals net ${paintReport.totals.wallNetAreaM2.value} paint ${paintReport.totals.paintAreaM2.value}`);
+  auxRow('A-13', 'D-1 evidence: 1.4400 m2 is the shoelace of a 1.20 m square, not of 1.00 m + 0.15 m walls', Math.abs(IA.centerlineArea(sq(1.2), []) - 1.44) <= TOL,
+    `centerlineArea(1.20 m square)=${IA.centerlineArea(sq(1.2), [])}; 0.15 m walls give 1.15 m -> ${IA.centerlineArea(RING_CL, [])}`);
 } catch (e) {
   auxRow('A-0', 'aux checks crashed', false, e.message);
 }

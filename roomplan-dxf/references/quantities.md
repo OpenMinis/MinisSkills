@@ -88,3 +88,21 @@ konveksnog zidnog poligona. Jedna iznimka je numerički dokazana: za
 **dimenzijske pravokutnike** smije se odbiti točan konveksni presjek kad je
 prekoračenje ≤ 1 µm i vanjska površina ≤ 1e-5 m² (`clippingApplied: true`).
 Sve veće ili poligonalno odstupanje ostaje `null`, bez proširenja EPS-a.
+
+## Bojanje — trade površina (7.11.2026)
+
+`wall.paintAreaM2` je **zasebno** polje uz `netAreaM2`; neto ostaje geometrijski
+točan broj. Prag je imenovana konstanta `PAINT_FREE_OPENING_M2 = 3` (izvoz iz
+`quantities.js`): otvor do praga se **ne odbija**, iznad praga odbija se samo
+višekratnik preko praga (otvor 4 m² → odbija se 1 m²). Pravilo se primjenjuje po
+otvoru, ne na zbroj (dva otvora po 2 m² ne odbijaju ništa). `wall.paintRule` nosi
+`thresholdM2`, `deductedM2` i politiku; `totals.paintAreaM2` je zbroj s
+`{value, status, coverage, reasons}` i postaje `partial` kad ima nevezanih otvora.
+CSV dobiva tri kolone: `Povrsina_bojanje_m2`, `Bojanje_pokrivenost`,
+`Bojanje_odbijeno_m2`. Nepoznata površina otvora → `null` s razlogom, nikad
+besplatno bojanje. Konvencija je u `report.conventions.paintFreeOpeningM2`.
+
+Dodatni moduli istog ugovora: `authored-ceiling.js` (strop zadan poligonom i
+visinom po vrhu, Newell 3D, rupe skalirane faktorom `ceilingArea/floorArea`) i
+`interior-area.js` (`interiorRoomArea` scanline bez otisaka zidova te
+`centerlineArea`).

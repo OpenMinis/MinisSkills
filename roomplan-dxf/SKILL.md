@@ -140,6 +140,8 @@ subtract only validated parent-linked openings; incomplete coverage yields a
 unavailable. This independent engine was not ported from or compared with the
 historical web reporting implementation. No survey accuracy is implied.
 
-Run `node tests/test_quantities.js` for numerical/CSV safety tests. Reports obey
+Run `node tests/test_quantities.js` (net/paint/CSV safety), `node tests/test_authored_ceiling.js`
+(authored 3D ceiling, G-5) and `node tests/test_interior_area.js` (interior vs centreline
+area, G-6/G-7) for the numerical safety tests. Reports obey
 existing output overwrite and source-alias protections. Report generation is
 local and does not require location lookup or an external review service.

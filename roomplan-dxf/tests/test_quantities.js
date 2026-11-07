@@ -55,4 +55,26 @@ const fbox=buildReport(capture([{...floor,polygonCorners:[],dimensions:{x:4,y:0,
 check(()=>assert.strictEqual(fbox.totals.floorAreaM2.value,12));
 check(()=>assert.strictEqual(fbox.elements[0].grossAreaM2.coverage,'estimated'));
 check(()=>assert.strictEqual(buildReport(capture([{...floor,polygonCorners:[],dimensionsProvenance:'DXF placeholder'}])).totals.floorAreaM2.value,null));
+// paint (trade) area: a SEPARATE field beside netAreaM2, free-opening threshold
+const pw={identifier:'pw',kind:'wall',story:0,dimensions:{x:4,y:2.5,z:.15},transform:I};
+const win=(id,area)=>({identifier:id,kind:'window',story:0,parentIdentifier:'pw',dimensions:{x:area,y:1,z:0},transform:I});
+const paintOf=(...openings)=>buildReport(capture([pw,...openings]));
+const small=paintOf(win('pa',1));
+check(()=>assert.strictEqual(small.elements[0].paintAreaM2.value,10));
+check(()=>assert.strictEqual(small.elements[0].netAreaM2.value,9));
+const big=paintOf(win('pb',4));
+check(()=>assert.strictEqual(big.elements[0].paintAreaM2.value,9));
+check(()=>assert.strictEqual(big.elements[0].netAreaM2.value,6));
+check(()=>assert.strictEqual(big.elements[0].paintRule.deductedM2,1));
+check(()=>assert.strictEqual(paintOf(win('pc',3)).elements[0].paintAreaM2.value,10));
+check(()=>assert.strictEqual(paintOf(win('pd',2),win('pe',2)).elements[0].paintAreaM2.value,10));
+check(()=>assert.strictEqual(buildReport(capture([pw])).elements[0].paintAreaM2.value,10));
+check(()=>assert.strictEqual(buildReport(capture([pw])).totals.paintAreaM2.value,10));
+check(()=>assert.strictEqual(big.totals.paintAreaM2.value,9));
+check(()=>assert.strictEqual(big.totals.wallNetAreaM2.value,6));
+check(()=>assert.strictEqual(buildReport(capture([pw])).conventions.paintFreeOpeningM2,3));
+check(()=>assert.strictEqual(require('../scripts/lib/quantities').PAINT_FREE_OPENING_M2,3));
+check(()=>assert.strictEqual(buildReport(capture([])).totals.paintAreaM2.value,null));
+check(()=>assert.strictEqual(buildReport(capture([pw,{...win('pf',4),parentIdentifier:null}])).totals.paintAreaM2.status,'partial'));
+check(()=>assert(quantitiesCSV(big).includes('Povrsina_bojanje_m2')));
 console.log(`quantities: ${checks} checks passed`);
