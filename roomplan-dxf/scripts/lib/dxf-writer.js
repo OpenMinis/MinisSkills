@@ -67,9 +67,15 @@ function polygonDXF(localPoints, surfaceTransform, alignmentMatrix) {
 
 /**
  * @param {object} model decoded + story-assigned + architecturally-aligned model
+ * @param {object} [opts] { noFrame, planMeta } — planMeta is the title-block
+ *   metadata from lib/plan-meta.js; when it is present (and noFrame is not
+ *   set) the FRAME/TITLE/NORTH layers are declared here so that dxf-emit.py
+ *   can draw sheet furniture around the untouched plan geometry.
  * @returns {{ plan: object, layers: string[], entityCount: number }}
  */
-function buildDXF(model) {
+function buildDXF(model, opts) {
+  const options = opts || {};
+  const frame = !options.noFrame;
   const entities = [];
   const layerSet = new Set();
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -151,10 +157,20 @@ function buildDXF(model) {
 
   if (!Number.isFinite(minX)) { minX = maxX = minY = maxY = 0; }
 
+  // Sheet furniture lives on its own layers; the plan geometry above is
+  // already complete and is never modified by the frame.
+  if (frame) {
+    layerSet.add('FRAME');
+    layerSet.add('TITLE');
+    layerSet.add('NORTH');
+  }
+
   const plan = {
     bounds: { minX, maxX, minZ: minY, maxZ: maxY },
     layers: Array.from(layerSet).sort(),
     entities,
+    frame,
+    meta: frame && options.planMeta ? (options.planMeta.dxfMeta || options.planMeta) : null,
   };
 
   return { plan, layers: plan.layers, entityCount: entities.length };

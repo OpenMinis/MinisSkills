@@ -2,12 +2,17 @@
 
 Convert Apple RoomPlan JSON scans (raw `CapturedRoom`/`CapturedStructure`, or
 an optimized `format_version: 1` export) into a 2D DXF floor plan in metres,
-with a manifest that states every loss and assumption. Includes an offline DXF
-audit helper and a self-test. No network access, no upload, no capture.
+with a manifest that states every loss and assumption. A whole project
+directory can be passed instead of a file: the scan and an optional
+`meta.json` are found by rule. The sheet can carry a frame, a title block and
+a north arrow. Includes an offline DXF audit helper and a self-test. No
+network access, no upload, no capture.
 
 ```
-scan.json ──► roomplan-to-dxf.js ──► scan.dxf + scan.roomplan.json
-                                          │
+scan.json ─┐
+meta.json ─┴─► roomplan-to-dxf.js ──► scan.dxf + scan.roomplan.json
+                (or a directory)          │  ├─ frame + title block (FRAME/TITLE)
+                                          │  └─ north arrow (NORTH)
                                           └──► inspect_dxf.py (audit)
 ```
 
@@ -62,9 +67,22 @@ node scripts/roomplan-to-dxf.js scan.json build/ --force
 # Also copy source location/compass metadata into the manifest (opt-in)
 node scripts/roomplan-to-dxf.js scan.json build/ --geo
 
+# Convert a whole project directory (scan + optional meta.json found by rule)
+node scripts/roomplan-to-dxf.js "My scan project/" build/
+
+# Title block: project/author/scale/sheet, and switching the sheet furniture off
+node scripts/roomplan-to-dxf.js "My scan project/" build/ \
+  --project "Kuca HH" --author "Ana" --scale "1:100" --sheet A-101
+node scripts/roomplan-to-dxf.js scan.json build/ --no-frame
+
 # Audit the result
 python3 -B scripts/inspect_dxf.py build/scan.dxf
 ```
+
+Options: `--force`, `--geo`, `--project <text>`, `--author <text>`,
+`--scale <text>`, `--sheet <text>`, `--no-frame`. Unknown options and missing
+option values are rejected with exit 1; an existing output without `--force`
+exits 2.
 
 `--geo` never georeferences the drawing. It only copies `latLonAlt` and compass
 values present in an optimized source into `sourceGeo` (including the 0–1
@@ -100,8 +118,65 @@ audit reports errors or fixes, and 2 when the file cannot be read. A clean
 audit only proves that the file parses and is internally consistent; it does
 not prove dimensional accuracy.
 
+## Project directories and `meta.json`
+
+A directory may be passed instead of a file. Nothing is guessed silently:
+
+- **scan**, first match wins:
+  `optimized_roomplan.json` → `roomplan.json` → `data/scan.json` → `scan.json`;
+- **metadata**: `meta.json`, else `data/meta.json`.
+
+If a directory holds more than one scan candidate the winner is used and the
+loser is named in the `roomplan.directory-multiple-scans` warning. A directory
+with no candidate is an error, never an empty drawing. Outputs default to
+`<dir>/out`, so pass an explicit output directory when the input is read-only
+(a mounted folder, for example).
+
+`meta.json` (Polycam-style project metadata) is read for:
+
+| field | used for |
+|---|---|
+| `name` | default title-block project name |
+| `latitude`, `longitude` | **fallback only** when the scan has no `latLonAlt` |
+| `headingDegrees` | **fallback only** when the scan has no `orientation` |
+| `floorAreaSquareMetres`, `roomCount` | copied to `sourceMeta` in the manifest |
+| `createdAt` | title-block date (`YYYY-MM-DD`) |
+
+`createdAt` is accepted either as Unix epoch seconds or as Apple/Core Data
+reference-date seconds (the observed Polycam convention); the manifest records
+which convention was detected. Scan values always win over `meta.json` — the
+metadata is a fallback, never an override. When values are taken from it the
+manifest sets `sourceMetadata: "meta.json"`, lists them in
+`metadataFallbackFields` and emits `roomplan.meta-metadata-fallback` plus, for
+the heading, `roomplan.heading-from-meta`.
+
+## Title block and north arrow
+
+Unless `--no-frame` is passed, the DXF gains a frame, a title block in the
+bottom-right and a north arrow in the top-right, on the separate layers
+`FRAME`, `TITLE` and `NORTH`. Room geometry, units and transforms are not
+touched. Full details: [references/title-block.md](references/title-block.md).
+
+- Title block rows: **Projekt / Lokacija / Mjerilo / Datum + list / Nacrtao**
+  (`by ARCHIFEST` by default).
+- **The scale is text.** It defaults to `NTS`; `--scale 1:100` only labels the
+  sheet. Nothing is rescaled and no paper scale is claimed — this is a
+  model-space plan, not a plottable layout.
+- **Location** prints `lat, lon` only with `--geo`; otherwise the cell reads
+  `location withheld` and no coordinate appears anywhere in the DXF.
+- **North** uses the scan's `orientation.orientation_degrees`, else
+  `meta.json headingDegrees`, and is drawn with or without `--geo`
+  (orientation is not a location). It is labelled `N` whenever a bearing
+  exists, `N?` only when there is none, and is marked `approx` in the manifest
+  when it comes from metadata or from low-confidence compass data. The
+  rotation convention and its verification against the vendor's own PDF and
+  DXF are documented in
+  [references/title-block.md](references/title-block.md#north-arrow).
+
 ## Inputs supported
 
+- a project directory containing one of the scan filenames listed above,
+  optionally with `meta.json`/`data/meta.json`;
 - raw Apple RoomPlan: a single `CapturedRoom`, a `CapturedStructure`
   (`rooms[]`), or a wrapper with `captureSessions[].roomplanSessions[]`;
 - optimized exports with integer `format_version: 1`, `rooms[]` carrying
@@ -121,9 +196,12 @@ transform convention, story clustering and projection rules.
 
 - `<name>.dxf` — DXF R2018 (`AC1032`), modelspace, metres, layers
   `S<story>_<KIND>` (`WALL`, `FLOOR`, `DOOR`, `WINDOW`, `OPENING`, `OBJECT`,
-  `ROOM`, `LABEL`).
-- `<name>.roomplan.json` — manifest: source SHA-256, dialect, story count and
-  method, alignment, entity count, layers, `lossy: true`, warnings.
+  `ROOM`, `LABEL`) for the plan, plus `FRAME`/`TITLE`/`NORTH` for the sheet
+  furniture (absent with `--no-frame`).
+- `<name>.roomplan.json` — manifest: source SHA-256, dialect, input kind,
+  `sourceMetadata`, story count and method, alignment, entity counts
+  (`entityCount` incl. sheet furniture, `geometryEntityCount` plan only),
+  layers, `titleBlock`, `northArrow`, `lossy: true`, warnings.
 
 ## What the DXF contains
 
@@ -171,6 +249,11 @@ sample data, and it does not claim CAD-certified or survey-grade output.
 - The optimized source may contain `latLonAlt` and compass metadata. It is
   ignored unless `--geo` is passed; then it is copied to `sourceGeo` and marked
   sensitive. Keep such manifests local.
+- The title block is annotation only. Its scale is text (`NTS` by default) and
+  the DXF is not a paper layout; plot scale must be established independently.
+- The north arrow comes from project/scan metadata. It is `approx` whenever it
+  is derived from `meta.json` or from a compass reading below 0.8 confidence;
+  a few degrees of error cannot be excluded and it is not a surveying bearing.
 
 ## DWG
 
@@ -194,10 +277,14 @@ truth and is sufficient for most CAD/BIM imports.
 python3 -B -m unittest discover -s tests -p 'selftest.py' -v
 ```
 
-The suite ships **no fixture files**: both inputs are generated in a fresh
-temporary directory on every run, so no real scan data is distributed. Unknown
-options are rejected, and the suite asserts that no external review or network
-code path is present.
+The suite ships **no fixture files**: every input (raw, optimized, project
+directory with `meta.json`) is generated in a fresh temporary directory on
+every run, so no real scan data is distributed. It covers directory input,
+scan priority, `meta.json` fallback, the title block (project/scale/date/
+location withheld, `--geo`, `--project`/`--author`/`--scale`/`--sheet`,
+`--no-frame`) and the north arrow rotation at 0° and 90°. Unknown options are
+rejected, and the suite asserts that no external review or network code path
+is present.
 
 `check-drift.sh` compares the vendored converter against an optional private
 reference tree; with no `ROOMPLAN_DXF_UPSTREAM` set it only prints local

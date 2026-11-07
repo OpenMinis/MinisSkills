@@ -1,6 +1,6 @@
 ---
 name: roomplan-dxf
-description: 'Convert Apple RoomPlan raw or optimized JSON scans into a metres DXF plan plus lossy manifest, then audit units, entities and layers. No capture, cloud or DWG writing.'
+description: 'Convert Apple RoomPlan raw or optimized JSON scans (file or project directory with meta.json) into a metres DXF plan with frame, title block and north arrow, plus a lossy manifest; then audit units, entities and layers. No capture, cloud or DWG writing.'
 ---
 
 # RoomPlan scan to DXF
@@ -14,9 +14,32 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
 
    ```sh
    node scripts/roomplan-to-dxf.js scan.json out/
+   node scripts/roomplan-to-dxf.js "My scan project/" out/   # whole project directory
    ```
 
-   Writes `out/scan.dxf` (R2018/AC1032, metres, `$INSUNITS = 6`) and `out/scan.roomplan.json`. The input is opened read-only. Existing outputs are refused; add `--force` only after confirming the destination. Add `--geo` only when the recipient needs the source location/compass point: it copies existing metadata into `sourceGeo` and adds a privacy warning; it does not georeference the drawing.
+   Writes `out/scan.dxf` (R2018/AC1032, metres, `$INSUNITS = 6`) and `out/scan.roomplan.json`. The input is opened read-only. Existing outputs are refused; add `--force` only after confirming the destination.
+
+   A **directory** is accepted too: the scan is taken from
+   `optimized_roomplan.json`, `roomplan.json`, `data/scan.json` or `scan.json`
+   (first match wins, losers are named in a warning) and `meta.json` /
+   `data/meta.json` supplies the project name, date, and — only as a fallback
+   when the scan has none — latitude/longitude and heading. Scan values always
+   win; fallbacks are recorded as `sourceMetadata: "meta.json"` with
+   `metadataFallbackFields` and warning codes. Outputs default to `<dir>/out`,
+   so give an explicit output directory for read-only inputs.
+
+   The DXF is a **sheet**, not just geometry: `--project`, `--author`
+   (default `ARCHIFEST`), `--scale` (default `NTS`), `--sheet` (default
+   `A-01`) fill the title block; `--no-frame` removes the frame, title block
+   and north arrow. The scale is text only — nothing is rescaled and no paper
+   scale is implied. Location prints `lat, lon` only with `--geo`, otherwise
+   `location withheld`; the north arrow uses the scan orientation or the
+   `meta.json` heading **without** `--geo` and is marked `approx` when it comes
+   from metadata. Details: [references/title-block.md](references/title-block.md).
+
+   Add `--geo` only when the recipient needs the source location point: it
+   copies existing metadata into `sourceGeo`, prints coordinates in the title
+   block and adds a privacy warning; it does not georeference the drawing.
 3. **Audit before trusting the result:**
 
    ```sh

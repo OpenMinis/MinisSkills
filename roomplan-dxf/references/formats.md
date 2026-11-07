@@ -9,6 +9,57 @@ All numbers are metres. Transforms are 4x4 **column-major** arrays of 16
 numbers: `m[0..2]` = X axis, `m[4..6]` = Y, `m[8..10]` = Z, `m[12..14]` =
 translation. Elevation of an element is `m[13]`.
 
+## Project directory input
+
+A directory replaces a single file; the choice is by rule, never by guesswork:
+
+| role | candidates, first match wins |
+|---|---|
+| scan | `optimized_roomplan.json`, `roomplan.json`, `data/scan.json`, `scan.json` |
+| metadata | `meta.json`, `data/meta.json` |
+
+Any further scan candidate present is reported in
+`roomplan.directory-multiple-scans`. An empty directory is an error (exit 1),
+never an empty drawing.
+
+`meta.json` (Polycam-style project metadata) fields read — everything else is
+ignored:
+
+| field | type | used as |
+|---|---|---|
+| `name` | string | default title-block project name |
+| `latitude`, `longitude` | number | fallback for `latLonAlt` when the scan has none |
+| `headingDegrees` | number | fallback for `orientation.orientation_degrees` |
+| `floorAreaSquareMetres` | number | `sourceMeta.floorAreaSquareMetres` |
+| `wallAreaSquareMetres` | number | read, not written |
+| `roomCount` | integer | `sourceMeta.roomCount` |
+| `createdAt` | number | title-block date; Unix epoch seconds **or** Apple reference-date seconds (≥ 1e9 = Unix) |
+| `id` | string | `sourceMeta` only |
+
+Rules:
+
+1. **Scan values always win.** `meta.json` only fills fields the scan lacks, so
+   a drawing is never georeferenced by assumption.
+2. Every fallback is recorded: `sourceMetadata: "meta.json"`,
+   `metadataFallbackFields: ["latitude","longitude","orientationDegrees"]`,
+   plus `roomplan.meta-metadata-fallback` and `roomplan.heading-from-meta`.
+3. `meta.json` carries **no confidence** for its heading; anything derived from
+   it is therefore `approx` in `northArrow`, never `source-provided`.
+4. `createdAt` is normalised to `YYYY-MM-DD`; implausible values (before 1990
+   or after 2200) are dropped rather than printed.
+
+### Polycam raw variant (`scan.json` with `rooms[0].coreModel`)
+
+`data/scan.json` in a Polycam project is a `CapturedStructure`-shaped wrapper
+whose room record carries extra keys — `coreModel` (an opaque base64 mesh),
+`version`, `story`, `sections`, `referenceOriginTransform`,
+`completedEdges`, `curve: null`. `decode-raw.js` already accepts this shape:
+`roomRecords()` returns `root.rooms`, and the per-element decoder reads only
+the fields it documents, ignoring the rest. Verified on a real project
+directory (one room, 10 walls, 5 doors, 2 windows, 14 objects, 1 floor): the
+conversion succeeds with no special-casing, so no normalisation layer was
+added. `coreModel` is never decoded or uploaded.
+
 ## Dialect detection
 
 | Signal | Dialect |

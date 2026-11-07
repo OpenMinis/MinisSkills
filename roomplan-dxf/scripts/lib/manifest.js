@@ -7,6 +7,9 @@
  */
 
 function buildManifest(model, dxfResult, opts) {
+  const options = opts || {};
+  const planMeta = options.planMeta || null;
+  const sourceMeta = options.sourceMeta || null;
   const warnings = [];
 
   if (model.kind === 'raw' && model.storyAssignmentMethod && model.storyAssignmentMethod.startsWith('multiroom floor-elevation')) {
@@ -45,23 +48,76 @@ function buildManifest(model, dxfResult, opts) {
     });
   }
 
-  const manifest = {
+  if (sourceMeta) {
+    if (options.metaFallbackFields && options.metaFallbackFields.length > 0) {
+      warnings.push({
+        code: 'roomplan.meta-metadata-fallback',
+        message: `The scan carries no ${options.metaFallbackFields.join('/')}; those values were taken from ${options.metaRelative || 'meta.json'}.`,
+      });
+    }
+    if (options.metaFallbackFields && options.metaFallbackFields.includes('orientationDegrees')) {
+      warnings.push({
+        code: 'roomplan.heading-from-meta',
+        message: `Orientation (${sourceMeta.headingDegrees}°) comes from meta.json headingDegrees, not from the scan's own compass reading — the north arrow is drawn from it and marked approximate, not a surveyed bearing.`,
+      });
+    }
+  }
+  if (options.otherScanCandidates && options.otherScanCandidates.length > 0) {
+    warnings.push({
+      code: 'roomplan.directory-multiple-scans',
+      message: `The input directory holds more than one scan candidate; ${options.scanRelative} was used by the documented priority and these were ignored: ${options.otherScanCandidates.join(', ')}.`,
+    });
+  }
+  if (planMeta && planMeta.warnings) {
+    for (const warning of planMeta.warnings) warnings.push(warning);
+  }
+  if (!planMeta) {
+    warnings.push({
+      code: 'roomplan.no-title-block',
+      message: 'No sheet frame/title block was drawn (--no-frame); the DXF contains plan geometry only.',
+    });
+  }
+
+  const out = {
     tool: 'roomplan-dxf',
     sourceFormat: model.kind,
     sourceFilename: model.originalFilename,
     sourceSHA256: model.sourceSHA256,
+    inputKind: options.inputWasDirectory ? 'directory' : 'file',
+    sourceMetadata: sourceMeta ? 'meta.json' : null,
+    sourceMetadataFile: sourceMeta ? (options.metaRelative || 'meta.json') : null,
+    metadataFallbackFields: options.metaFallbackFields && options.metaFallbackFields.length > 0 ? options.metaFallbackFields : [],
+    sourceMeta: sourceMeta ? {
+      name: sourceMeta.name,
+      roomCount: sourceMeta.roomCount,
+      floorAreaSquareMetres: sourceMeta.floorAreaSquareMetres,
+      createdAt: sourceMeta.createdAt ? sourceMeta.createdAt.iso : null,
+      createdAtConvention: sourceMeta.createdAt ? sourceMeta.createdAt.convention : null,
+      headingDegrees: sourceMeta.headingDegrees,
+    } : null,
     storyCount: model.meta && model.meta.storyCount != null ? model.meta.storyCount : (model.rooms ? new Set(model.rooms.map((r) => r.story)).size : 1),
     storyAssignmentMethod: model.storyAssignmentMethod,
     architecturalAlignment: model.architecturalAlignment,
-    entityCount: dxfResult.entityCount,
+    entityCount: options.emitted && options.emitted.entityCount != null ? options.emitted.entityCount : dxfResult.entityCount,
+    geometryEntityCount: dxfResult.entityCount,
     layers: dxfResult.layers,
+    titleBlock: planMeta ? planMeta.titleBlock : null,
+    northArrow: planMeta ? planMeta.north : null,
+    frame: planMeta ? planMeta.titleBlock.frame : false,
+    sheetFurniture: options.emitted && planMeta ? {
+      frameBounds: options.emitted.frame || null,
+      titleBlockBounds: options.emitted.titleBlock || null,
+      northArrow: options.emitted.northArrow || null,
+    } : null,
     lossy: true,
     warnings,
   };
 
   // Location and compass are sensitive: they are written only on explicit
   // request (--geo) and never used to georeference the drawing geometry.
-  if (opts && opts.includeGeo && model.meta) {
+  // The north arrow is separate: it uses the heading regardless of --geo,
+  // because orientation is not a location.
+  if (options.includeGeo && model.meta) {
     const geo = {};
     for (const [key, value] of Object.entries({
       latitude: model.meta.latitude,
@@ -74,15 +130,15 @@ function buildManifest(model, dxfResult, opts) {
       if (value != null) geo[key] = value;
     }
     if (Object.keys(geo).length > 0) {
-      manifest.sourceGeo = geo;
-      manifest.warnings.push({
+      out.sourceGeo = geo;
+      out.warnings.push({
         code: 'roomplan.geo-metadata-included',
         message: 'Source location/compass metadata was requested and copied into this manifest; treat it as sensitive and do not publish it unredacted. It does not georeference the DXF.',
       });
     }
   }
 
-  return manifest;
+  return out;
 }
 
 module.exports = { buildManifest };
