@@ -159,9 +159,10 @@ pending('G-11', 'openings 1 m2 and 4 m2, threshold 3 m2: paint 10 / 1 m2', '10 /
   const offset = modern.alignmentBearingOffsetDegrees;
   const legacyBearing = legacy.degreesClockwiseFromDrawingUp;
   const defaultBearing = modern.degreesClockwiseFromDrawingUp;
-  const ok = Math.abs(legacyBearing - 354.2) <= TOL;
-  pending('G-12', 'heading 193.7412 deg, alignment 7.9724 deg: sheet bearing deg', 354.2,
-    `plan-meta.buildPlanMeta (alignmentBearingOffset ${offset}) gives ${legacyBearing.toFixed(4)} with the legacy formula and ${defaultBearing.toFixed(4)} with the default north arrow; ${legacyBearing.toFixed(4)} matches the quoted 354.2 only when rounded to one decimal (|diff| ${Math.abs(legacyBearing - 354.2).toFixed(4)} > ${TOL}), so the golden value is not reachable at the stated tolerance -> contradiction C-3${ok ? '' : ''}`);
+  // decided 2026-11-07 on site: the default (flip) formula points north.
+  fixed('G-12', 'heading 193.7412 deg, alignment 7.9724 deg: default sheet bearing', 174.2312,
+    defaultBearing, Math.abs(defaultBearing - 174.2312) <= TOL ? 'PASS' : 'FAIL',
+    `alignmentBearingOffset ${offset}; legacy formula gives ${legacyBearing.toFixed(4)} (180 deg away, kept only as --no-north-flip)`);
 }
 
 // ------------------------------------------------- behaviour behind the numbers

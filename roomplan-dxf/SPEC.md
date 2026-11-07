@@ -135,11 +135,17 @@ Synthetic fixtures, all in metres, checked to 1e-4.
 | G-5 | authored ceiling, 4 vertices 2.0–2.6 m | area per vertex elevations; holes scaled by `ceilingArea/floorArea` |
 | G-6 | 1.00 × 1.00 m room, 0.15 m walls, reference edges | interior **1.0000 m²** |
 | G-7 | same walls, no reference edges | centerline **1.4400 m²** |
-| G-8 | wall on a room boundary | member of that room at tolerance 0.25 m |
+| G-8 | wall on a room boundary | member of that room; kernel tolerance 0.02 m (stricter than report-model's 0.25 m) |
 | G-9 | ArchiPlan fixture | living **10.9725 m²**, net walls **35 − 1.89 m²** |
 | G-10 | handoff fixture | quantity keys present, `gaps[]` for missing areas |
 | G-11 | openings 1 m² and 4 m², threshold 3 m² | paint **10 / 1 m²** |
-| G-12 | heading 193.7412°, alignment 7.9724° | sheet bearing **354.2°** |
+| G-12 | heading 193.7412°, alignment 7.9724° | sheet bearing **174.2312°** — user confirmed on site that this arrow points north (default `--north-flip`) |
+
+North convention (decided 2026-11-07): the default is `--north-flip`,
+`bearing = (alignmentOffset - heading) mod 360`. The owner verified on site
+that this arrow points north. Vendor PDF/DXF artefacts for the same project
+appear 180° away from it; that discrepancy is recorded, not resolved, and no
+golden number may be changed back without a new on-site check.
 
 A change to any of these requires an explicit note in this file.
 
