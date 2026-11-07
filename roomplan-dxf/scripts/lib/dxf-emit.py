@@ -220,16 +220,15 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
 
 
 def draw_north_arrow(msp, frame, north, text_height, north_radius):
-    """Circle + arrow + 'N' in the top-right of the frame.
+    """Compass rose: rings, cardinal ticks, two-tone needle, N label.
 
-    The bearing is `degreesClockwiseFromDrawingUp`; 0 points up (+Y), 90
-    points right (+X). An unknown bearing is drawn pointing up and labelled
-    "N?" — the label never claims a straight-up north that was not measured.
+    One LINE remains the measurable shaft (centre -> north tip); all other
+    decoration is CIRCLE/LWPOLYLINE/SOLID so the bearing stays testable.
     """
     fx0, fy0, fx1, fy1 = frame
-    radius = north_radius
-    cx = fx1 - 2.2 * radius
-    cy = fy1 - 2.2 * radius
+    r = north_radius
+    cx = fx1 - 2.2 * r
+    cy = fy1 - 2.2 * r
 
     degrees = north.get("degreesClockwiseFromDrawingUp")
     known = degrees is not None
@@ -237,37 +236,34 @@ def draw_north_arrow(msp, frame, north, text_height, north_radius):
     ux, uy = math.sin(theta), math.cos(theta)
     px, py = -uy, ux
 
-    msp.add_circle((cx, cy), radius, dxfattribs={"layer": NORTH_LAYER})
+    def pt(a, b):
+        return (cx + a * ux + b * px, cy + a * uy + b * py)
 
-    shaft_start = (cx + 0.20 * radius * ux, cy + 0.20 * radius * uy)
-    tip = (cx + 1.00 * radius * ux, cy + 1.00 * radius * uy)
-    msp.add_line(shaft_start, tip, dxfattribs={"layer": NORTH_LAYER})
+    msp.add_circle((cx, cy), r, dxfattribs={"layer": NORTH_LAYER})
+    msp.add_circle((cx, cy), 0.80 * r, dxfattribs={"layer": NORTH_LAYER})
+    msp.add_circle((cx, cy), 0.06 * r, dxfattribs={"layer": NORTH_LAYER})
 
-    head_len = 0.42 * radius
-    head_half = 0.24 * radius
-    head_base = (tip[0] - head_len * ux, tip[1] - head_len * uy)
-    msp.add_lwpolyline(
-        [
-            (head_base[0] + head_half * px, head_base[1] + head_half * py),
-            tip,
-            (head_base[0] - head_half * px, head_base[1] - head_half * py),
-        ],
-        close=True,
-        dxfattribs={"layer": NORTH_LAYER},
-    )
+    # Eight ticks: long at the four cardinal points, short on the diagonals.
+    for i in range(8):
+        ang = math.radians(i * 45.0)
+        ax, ay = math.sin(ang), math.cos(ang)
+        inner = 0.86 * r if i % 2 == 0 else 0.90 * r
+        msp.add_lwpolyline([(cx + inner * ax, cy + inner * ay),
+                            (cx + 1.0 * r * ax, cy + 1.0 * r * ay)],
+                           dxfattribs={"layer": NORTH_LAYER})
+
+    # Needle: north half (tip) and south half (tail), both filled.
+    tip = pt(1.0 * r, 0.0)
+    tail = pt(-0.72 * r, 0.0)
+    left = pt(0.0, -0.16 * r)
+    right = pt(0.0, 0.16 * r)
+    msp.add_solid([tip, left, right], dxfattribs={"layer": NORTH_LAYER})
+    msp.add_solid([tail, left, right], dxfattribs={"layer": NORTH_LAYER})
+    msp.add_line((cx, cy), tip, dxfattribs={"layer": NORTH_LAYER})
 
     label = "N" if known else "N?"
-    la = 1.42 * radius
-    label_h = max(text_height, 0.9 * radius)
-    add_text(msp, label,
-             cx + la * ux - 0.35 * label_h,
-             cy + la * uy - 0.5 * label_h,
-             label_h, TEXT_LAYER)
-
-    return {"centre": [round(cx, 4), round(cy, 4)], "radius": round(radius, 4),
-            "label": label, "degreesClockwiseFromDrawingUp": degrees,
-            "tip": [round(tip[0], 4), round(tip[1], 4)]}
-
+    txt = msp.add_text(label, dxfattribs={"layer": NORTH_LAYER, "height": 0.34 * r})
+    txt.set_placement((cx + 1.22 * r * ux - 0.12 * r, cy + 1.22 * r * uy - 0.10 * r))
 
 def story_of(entity):
     """Story of an entity: explicit `story` first, else the S<n>_ layer prefix."""
