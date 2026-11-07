@@ -182,8 +182,15 @@ function buildDXF(model, opts) {
       const centerDXF = projectLocal({ x: r.centerX, y: 0, z: r.centerZ }, [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1], alignment);
       track(centerDXF.x, centerDXF.y);
       trackStory(centerDXF.x, centerDXF.y);
-      push({ type: 'text', layer: labelLayer, pos: [centerDXF.x, centerDXF.y], height: 0.18, value: `${r.label}  ${r.area.toFixed(2)} m2` });
+      push({ type: 'text', layer: labelLayer, pos: [centerDXF.x, centerDXF.y], height: 0.18, value: `${r.label ?? `[${r.category}; id=${r.identifier}]`}  ${r.area.toFixed(2)} m2` });
     }
+  }
+
+  let ceilingDiagnostics = {enabled:false,reason:'conservative default off; use --ceilings'};
+  if(options.ceilings){
+    const result=require('./ceilings').addCeilings(model,entities);
+    ceilingDiagnostics=result.diagnostics;
+    for(const entity of result.annotations){currentStory=entity.story;layerSet.add(entity.layer);const pts=entity.type==='line'?[entity.a,entity.b]:[entity.pos];trackAll(pts);trackAllStory(pts);push(entity);}
   }
 
   if (!Number.isFinite(minX)) { minX = maxX = minY = maxY = 0; }
@@ -223,7 +230,7 @@ function buildDXF(model, opts) {
     meta: frame && options.planMeta ? (options.planMeta.dxfMeta || options.planMeta) : null,
   };
 
-  return { plan, layers: plan.layers, entityCount: entities.length, stories: plan.stories };
+  return { plan, layers: plan.layers, entityCount: entities.length, stories: plan.stories, ceilingDiagnostics };
 }
 
 module.exports = { buildDXF, layerFor };

@@ -1,6 +1,7 @@
 'use strict';
 /**
- * Decoder for Apple's RoomPlan JSON (CapturedRoom / CapturedStructure export).
+ * Decoder for Apple's own RoomPlan JSON (CapturedRoom / CapturedStructure export),
+ * ported from Sources/RoomPlanRaw/AppleRoomPlanJSONDecoder.swift.
  *
  * Accepts:
  *  - a single CapturedRoom object: { walls, floors, doors, windows, openings, objects, story? }
@@ -8,11 +9,14 @@
  *  - an app-specific wrapper: { captureSessions: [ { roomplanSessions: [CapturedRoom, ...] } ] }
  *
  * IMPORTANT: polygonCorners and transform are kept exactly as decoded (local,
- * untransformed) — transform is applied at projection time, composed with
- * the alignment transform, not at decode time. Pre-applying transform here
- * would double-transform once align.js/dxf-writer.js run.
+ * untransformed) — Swift's RoomPlanRawProjector applies `surface.transform`
+ * and the architectural-alignment transform together at projection time
+ * (composed(alignment, surface.transform)), not at decode time. Pre-applying
+ * transform here would double-transform once align.js/dxf-writer.js run.
  */
 const crypto = require('crypto');
+const validate = require('./validate');
+const {detectDialect} = require('./dialect');
 
 function sha256(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
@@ -34,6 +38,12 @@ function str(v, path) {
   if (typeof v !== 'string' || v.length === 0) throw new Error(`Malformed raw RoomPlan JSON at ${path}`);
   return v;
 }
+function tagged(v,path,fallback=null) {
+  if(v==null) return fallback;
+  if(typeof v==='string' && v.length) return v;
+  if(v && typeof v==='object' && !Array.isArray(v) && Object.keys(v).length===1) return Object.keys(v)[0];
+  throw new Error(`Malformed raw RoomPlan JSON at ${path}: expected unambiguous tag`);
+}
 function dims(v, path) {
   const a = nums(v, 3, path);
   return { x: a[0], y: a[1], z: a[2] };
@@ -48,7 +58,7 @@ function points(arr, path) {
 
 /**
  * Locate the room-record list inside whatever wrapper shape the source uses.
- * Room-record discovery across the supported wrapper shapes.
+ * Ported from AppleRoomPlanJSONDecoder.roomRecords(in:).
  */
 function roomRecords(root) {
   if (root.walls) return [root];
@@ -79,7 +89,7 @@ function median(values) {
 /**
  * Per-room floor elevation estimate: median of floor transform world-Y
  * (translation row 13), falling back to median wall-bottom Y when a room has
- * no floors.
+ * no floors. Ported from AppleRoomPlanJSONDecoder.floorElevation(_:).
  */
 function floorElevation(room) {
   const floors = Array.isArray(room.floors) ? room.floors : [];
@@ -100,7 +110,7 @@ function floorElevation(room) {
 }
 
 /**
- * Per-room story assignment. Returns
+ * Ported from AppleRoomPlanJSONDecoder.storyAssignments(for:). Returns
  * { stories: (number|null)[], method: string|null } — one entry per room.
  * A single-room capture always gets story=null (per-surface `story` field,
  * if present, is used as-is by surface()/object() below).
@@ -153,12 +163,10 @@ function storyAssignments(rooms) {
 }
 
 function decodeSurface(record, kind, path, storyOverride) {
+  validate.element(record,path);
   const identifier = str(record.identifier, `${path}.identifier`);
-  const category = record.category && typeof record.category === 'object' ? Object.keys(record.category)[0] : kind;
-  let confidence = null;
-  if (record.confidence && typeof record.confidence === 'object') {
-    confidence = Object.keys(record.confidence)[0] || null;
-  }
+  const category = tagged(record.category,`${path}.category`,kind);
+  const confidence = tagged(record.confidence,`${path}.confidence`);
   const story = storyOverride != null ? storyOverride : num(record.story, `${path}.story`);
   const transform = nums(record.transform, 16, `${path}.transform`);
   let curve = null;
@@ -177,10 +185,13 @@ function decodeSurface(record, kind, path, storyOverride) {
   }
   return {
     identifier,
+    sourceRecordIndex: path,
     parentIdentifier: record.parentIdentifier || null,
     kind: kind.replace(/s$/, ''), // 'walls' -> 'wall'
     category,
     confidence,
+    sourceStory: record.story ?? null,
+    sourceStoryProvenance: record.story == null ? 'absent' : 'source record',
     story,
     dimensions: dims(record.dimensions, `${path}.dimensions`),
     transform, // kept local/untransformed — see module docstring
@@ -191,18 +202,19 @@ function decodeSurface(record, kind, path, storyOverride) {
 }
 
 function decodeObject(record, path, storyOverride) {
+  validate.element(record,path);
   const identifier = str(record.identifier, `${path}.identifier`);
-  const category = record.category && typeof record.category === 'object' ? Object.keys(record.category)[0] : 'object';
-  let confidence = null;
-  if (record.confidence && typeof record.confidence === 'object') {
-    confidence = Object.keys(record.confidence)[0] || null;
-  }
+  const category = tagged(record.category,`${path}.category`,'object');
+  const confidence = tagged(record.confidence,`${path}.confidence`);
   const story = storyOverride != null ? storyOverride : num(record.story, `${path}.story`);
   return {
     identifier,
+    sourceRecordIndex: path,
     parentIdentifier: record.parentIdentifier || null,
     category,
     confidence,
+    sourceStory: record.story ?? null,
+    sourceStoryProvenance: record.story == null ? 'absent' : 'source record',
     story,
     dimensions: dims(record.dimensions, `${path}.dimensions`),
     transform: nums(record.transform, 16, `${path}.transform`),
@@ -216,8 +228,16 @@ function decodeObject(record, path, storyOverride) {
 function decode(data, originalFilename) {
   const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'utf8');
   const root = JSON.parse(buf.toString('utf8'));
+  const dialect = detectDialect(root);
+  if(dialect.kind !== 'raw') throw new Error('Expected raw Apple RoomPlan geometry');
+  validate.geo(root);
 
   const rooms = roomRecords(root);
+  validate.sourceGeometry(rooms);
+  rooms.forEach((room,i)=>{
+    for(const key of [...SURFACE_KINDS,'objects']) if(room[key]!=null&&!Array.isArray(room[key])) validate.fail(`rooms[${i}].${key}`,'expected array');
+    if(room.referenceOriginTransform!=null) validate.matrix(room.referenceOriginTransform,`rooms[${i}].referenceOriginTransform`);
+  });
   const assignment = storyAssignments(rooms);
 
   let surfaces = [];
@@ -227,14 +247,26 @@ function decode(data, originalFilename) {
     const storyOverride = assignment.stories[i];
     for (const kind of SURFACE_KINDS) {
       const arr = Array.isArray(room[kind]) ? room[kind] : [];
-      arr.forEach((r, j) => surfaces.push(decodeSurface(r, kind, `${prefix}${kind}[${j}]`, storyOverride)));
+      arr.forEach((r, j) => {
+        const surface = decodeSurface(r, kind, `${prefix}${kind}[${j}]`, storyOverride);
+        surface.sourceRoomIndex = i;
+        surface.sourceRoomIdentifier = room.identifier ?? room.id ?? null;
+        surfaces.push(surface);
+      });
     }
     const objs = Array.isArray(room.objects) ? room.objects : [];
-    objs.forEach((r, j) => objects.push(decodeObject(r, `${prefix}objects[${j}]`, storyOverride)));
+    objs.forEach((r, j) => {
+      const object = decodeObject(r, `${prefix}objects[${j}]`, storyOverride);
+      object.sourceRoomIndex = i;
+      object.sourceRoomIdentifier = room.identifier ?? room.id ?? null;
+      objects.push(object);
+    });
   });
 
   return {
     kind: 'raw',
+    dialect: dialect.dialect,
+    dialectEvidence: dialect.evidence,
     sourceByteCount: buf.length,
     sourceSHA256: sha256(buf),
     originalFilename: originalFilename || null,
@@ -242,7 +274,9 @@ function decode(data, originalFilename) {
     surfaces,
     objects,
     rooms: null, // raw format has no pre-computed room polygons/labels
-    meta: { roomCount: rooms.length },
+    meta: { roomCount: rooms.length,
+      latitude: root.latLonAlt?.latitude ?? null, longitude: root.latLonAlt?.longitude ?? null, altitude: root.latLonAlt?.altitude ?? null,
+      orientationDegrees: root.orientation?.orientation_degrees ?? null, orientationUncertaintyDegrees: root.orientation?.uncertainty_degrees ?? null, orientationConfidence: root.orientation?.confidence ?? null },
   };
 }
 

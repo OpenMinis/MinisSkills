@@ -30,4 +30,9 @@
  * Room = { identifier, label, category, story, area, floorHeight, centerX, centerZ,
  *          vertices: {x,z}[], edges: string[][] }
  */
-module.exports = {};
+// Interchange schema: references/model-schema.md. Source-space canonical
+// records plus an unapplied alignment, never a complete mesh/coreModel decode.
+// Missing optimized labels remain null; generated floor dimensions/IDs are
+// marked with provenance. Source fields are whitelisted unless --geo opts in
+// to a verbatim sourceTree (which may contain private metadata).
+module.exports = require('./capture-export');

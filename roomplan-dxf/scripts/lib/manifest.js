@@ -133,6 +133,8 @@ function buildManifest(model, dxfResult, opts) {
   const out = {
     tool: 'roomplan-dxf',
     sourceFormat: model.kind,
+    sourceDialect: model.dialect || null,
+    dialectEvidence: model.dialectEvidence || [],
     sourceFilename: model.originalFilename,
     sourceSHA256: model.sourceSHA256,
     inputKind: options.inputWasDirectory ? 'directory' : 'file',

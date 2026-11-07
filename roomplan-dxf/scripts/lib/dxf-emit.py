@@ -224,7 +224,7 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
 def draw_north_arrow(msp, frame, north, text_height, north_radius):
     """Professional compass rose.
 
-    Outer ring is broken at the top so the upright letter N sits in the gap
+    Outer ring is broken on the north bearing so the upright letter N sits in the gap
     between the two rings. The needle is a slim diamond: north half filled,
     south half outlined. One LINE remains the measurable shaft.
     """
@@ -245,12 +245,14 @@ def draw_north_arrow(msp, frame, north, text_height, north_radius):
     # Outer ring: two arcs leave a 24-degree gap at the top for the letter.
     gap = 12.0
     lw = {"layer": NORTH_LAYER}
-    msp.add_arc((cx, cy), r, 90.0 + gap, 450.0 - gap, dxfattribs=lw)
+    north_angle = 90.0 - math.degrees(theta)
+    msp.add_arc((cx, cy), r, (north_angle + gap) % 360,
+                (north_angle - gap) % 360, dxfattribs=lw)
     msp.add_circle((cx, cy), 0.78 * r, dxfattribs=lw)
 
     # Ticks on the inter-cardinal and cardinal points, north omitted.
     for i in range(1, 8):
-        ang = math.radians(i * 45.0)
+        ang = theta + math.radians(i * 45.0)
         ax, ay = math.sin(ang), math.cos(ang)
         inner = 0.83 * r if i % 2 == 0 else 0.87 * r
         msp.add_lwpolyline([(cx + inner * ax, cy + inner * ay),
@@ -267,11 +269,11 @@ def draw_north_arrow(msp, frame, north, text_height, north_radius):
     msp.add_circle((cx, cy), 0.045 * r, dxfattribs=lw)
     msp.add_line((cx, cy), tip, dxfattribs=lw)
 
-    # N upright in the ring gap: part of the rose, never rotated with the needle.
+    # N stays upright for readability, but its centre follows the north bearing.
     label = "N" if known else "N?"
     txt = msp.add_text(label, dxfattribs={"layer": NORTH_LAYER, "height": 0.20 * r})
     from ezdxf.enums import TextEntityAlignment
-    txt.set_placement((cx, cy + 0.89 * r), align=TextEntityAlignment.MIDDLE_CENTER)
+    txt.set_placement(pt(0.89 * r, 0.0), align=TextEntityAlignment.MIDDLE_CENTER)
 
     return {"centre": [round(cx, 4), round(cy, 4)], "radius": round(r, 4),
             "label": label, "degreesClockwiseFromDrawingUp": degrees,
@@ -358,6 +360,7 @@ def main():
     msp = doc.modelspace()
 
     LAYER_COLORS = {
+        "CEILING": 30, # orange ceiling annotations only
         "WALL": 7,     # black/white — primary structure, full contrast
         "FLOOR": 8,    # dark gray — visible but recessive vs. walls
         "DOOR": 3,     # green — standard architectural convention
@@ -369,6 +372,7 @@ def main():
         "NORTH": 7,    # north arrow
     }
     LAYER_LINEWEIGHT = {
+        "CEILING": 9,  # 0.09mm dashed annotation, never wall thickness
         "WALL": 35,    # ~0.35mm — walls read as the thickest lines
         "FLOOR": 13,
         "DOOR": 18,
@@ -388,10 +392,15 @@ def main():
         kind = layer_name.split("_", 1)[-1] if "_" in layer_name else layer_name
         return LAYER_LINEWEIGHT.get(kind, 13)
 
+    if "CEILING_DASHED" not in doc.linetypes:
+        doc.linetypes.new("CEILING_DASHED", dxfattribs={"description": "Ceiling annotation 8cm dash 4cm gap", "pattern": [0.12, 0.08, -0.04]})
     for name in plan.get("layers", []):
         if name not in doc.layers:
             doc.layers.add(name=name, color=color_for(name))
             doc.layers.get(name).lineweight = lineweight_for(name)
+            if name.endswith("_CEILING"):
+                doc.layers.get(name).dxf.linetype = "CEILING_DASHED"
+                doc.layers.get(name).dxf.true_color = 0xFF8000
 
     sheets, single_mode = plan_sheets(plan)
     translations = {}

@@ -32,6 +32,7 @@
  * The input file is opened read-only and never modified. Existing outputs
  * are refused unless --force is given.
  */
+const { buildReport, quantitiesCSV } = require('./lib/quantities');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -45,11 +46,17 @@ const { buildDXF } = require('./lib/dxf-writer');
 const { buildManifest } = require('./lib/manifest');
 const { resolveInput, readMeta, applyMetaFallback } = require('./lib/source-input');
 const { buildPlanMeta, storyLabel } = require('./lib/plan-meta');
+const {detectDialect} = require('./lib/dialect');
+const {buildCapture} = require('./lib/capture-export');
 
 const USAGE = [
   'Usage: node roomplan-to-dxf.js <input.json|dir> [outDir] [options]',
   'Options:',
   '  --force            overwrite existing outputs',
+  '  --model            also write source-space <name>.capture.json (geo redacted unless --geo)',
+  '  --ceilings         explicit-source dashed orange ceiling annotations and verified floor-relative heights (default off)',
+  '  --no-ceilings      disable ceiling annotations; later toggle wins',
+  '  --report           also write <name>.report.json and <name>.quantities.csv (areas, quantities, coverage)',
   '  --geo              include source location/compass (lat, lon in the title block)',
   '  --project <text>   title block project name',
   '  --author <text>    title block author (default: ARCHIFEST)',
@@ -72,24 +79,7 @@ const VALUE_OPTIONS = {
   '--place': 'place',
 };
 
-function detectFormat(json) {
-  // Optimized/Polycam: top-level "rooms" array where each room carries a
-  // pre-computed "label"/"category" and usually "meshInfo".
-  if (Array.isArray(json.rooms) && json.rooms.length > 0 &&
-      (json.rooms[0].label !== undefined || json.rooms[0].category !== undefined || json.rooms[0].meshInfo !== undefined)) {
-    return 'optimized';
-  }
-  // App-specific export wrapper around raw Apple RoomPlan sessions.
-  if (json.captureSessions && Array.isArray(json.captureSessions)) {
-    return 'raw';
-  }
-  // Raw Apple RoomPlan: CapturedStructure-style wrapper (multi-room/story)
-  // or a single CapturedRoom (walls/floors/doors/windows/objects at top level).
-  if (Array.isArray(json.rooms) || json.walls || json.surfaces || json.objects) {
-    return 'raw';
-  }
-  throw new Error('Unrecognized RoomPlan JSON shape: expected raw CapturedRoom/CapturedStructure (optionally wrapped in captureSessions[].roomplanSessions[]) or optimized "rooms[]" with label/category/meshInfo.');
-}
+function detectFormat(json) { return detectDialect(json).kind; }
 
 function sha256(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
@@ -100,6 +90,7 @@ function parseArgs(argv) {
   const flags = {};
   let force = false;
   let geo = false;
+  let exportModel = false;
   let noFrame = false;
   // North-flip is ON by default: the unflipped formula drew the arrow 180 deg
   // wrong on a real drawing checked against the vendor plan.
@@ -127,15 +118,20 @@ function parseArgs(argv) {
       flags[VALUE_OPTIONS[key]] = value;
     } else if (arg === '--force') force = true;
     else if (arg === '--geo') geo = true;
+    else if (arg === '--model') exportModel = true;
+    else if (arg === '--report') flags.report = true;
+    else if (arg === '--ceilings') flags.ceilings = true;
+    else if (arg === '--no-ceilings') flags.ceilings = false;
     else if (arg === '--no-frame') noFrame = true;
     else if (arg === '--place-lookup') placeLookup = true;
+    else if (arg === '--no-place-lookup') placeLookup = false;
     else if (arg === '--north-flip') northFlip = true;
     else if (arg === '--no-north-flip') northFlip = false;
     else if (arg === '-h' || arg === '--help') return { help: true };
     else if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}\n${USAGE}`);
     else positional.push(arg);
   }
-  return { inputPath: positional[0], outDir: positional[1], force, geo, noFrame, northFlip,
+  return { inputPath: positional[0], outDir: positional[1], force, geo, exportModel, noFrame, northFlip,
            placeLookup, flags, extra: positional.slice(2) };
 }
 
@@ -271,7 +267,16 @@ function main() {
   const dxfPath = path.join(outDir, `${baseName}.dxf`);
   const manifestPath = path.join(outDir, `${baseName}.roomplan.json`);
 
-  for (const target of [dxfPath, manifestPath]) {
+  const capturePath = path.join(outDir, `${baseName}.capture.json`);
+  const reportPath = path.join(outDir, `${baseName}.report.json`);
+  const csvPath = path.join(outDir, `${baseName}.quantities.csv`);
+  const targets = [dxfPath, manifestPath, ...(args.exportModel ? [capturePath] : []), ...(args.flags.report ? [reportPath, csvPath] : [])];
+  const protectedFiles = [inputPath, resolved.metaPath].filter(Boolean).map(p => fs.realpathSync(p));
+  for (const target of targets) {
+    if (fs.existsSync(target) && protectedFiles.some(p => {
+      const a=fs.statSync(p), b=fs.statSync(target);
+      return fs.realpathSync(target)===p || (a.dev===b.dev && a.ino===b.ino);
+    })) throw new Error('Refusing output alias of source input/metadata, even with --force');
     if (fs.existsSync(target) && !args.force) {
       console.error(`Refusing to overwrite existing file: ${target}\nUse --force or choose another output directory.`);
       process.exit(2);
@@ -297,7 +302,12 @@ function main() {
 
   // DXF-export-only rotation: wall-length-weighted orthogonal circular mean,
   // rounded to the nearest 90 degrees. Stored geometry is never changed.
+  const quantityReport = args.flags.report ? buildReport(model, json) : null;
+  if (quantityReport && sourceMeta && Number.isFinite(sourceMeta.floorAreaSquareMetres)) {
+    quantityReport.sourceReferences.floorAreaSquareMetres = sourceMeta.floorAreaSquareMetres;
+  }
   const alignment = applyArchitecturalAlignment(model);
+  const normalizedCapture = args.exportModel ? buildCapture(model, json, {includeGeo:args.geo, metaFallbackFields, metaBytes:resolved.metaPath ? fs.readFileSync(resolved.metaPath) : null}) : null;
 
   // Optional one-shot reverse geocode (opt-in, local Apple helper only).
   let placeLookup = null;
@@ -328,7 +338,9 @@ function main() {
   planMeta.placeLookup = placeLookup;
   for (const w of placeLookupWarnings(placeLookup)) planMeta.warnings.push(w);
 
-  const dxfResult = buildDXF(model, { noFrame: args.noFrame, planMeta });
+  const dxfResult = buildDXF(model, { noFrame: args.noFrame, planMeta, ceilings:args.flags.ceilings===true });
+  if(quantityReport)quantityReport.ceilingDiagnostics=dxfResult.ceilingDiagnostics;
+  for(const warning of dxfResult.ceilingDiagnostics.warnings||[])planMeta.warnings.push(warning);
 
   // Story labels for the title block's "Kat" row and for the per-story sheets.
   // The single-sheet case must know its floor BEFORE the sheet is emitted, and
@@ -359,11 +371,19 @@ function main() {
     inputWasDirectory: resolved.inputWasDirectory,
     emitted,
   });
+  manifest.ceilingDiagnostics=dxfResult.ceilingDiagnostics;
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  if (quantityReport) {
+    fs.writeFileSync(reportPath, JSON.stringify(quantityReport, null, 2) + '\n');
+    fs.writeFileSync(csvPath, quantitiesCSV(quantityReport));
+    console.log(`Quantities report written: ${reportPath}; CSV: ${csvPath}`);
+  }
+  if (normalizedCapture) fs.writeFileSync(capturePath, JSON.stringify(normalizedCapture, null, 2));
 
   console.log(`Input: ${inputPath}${resolved.inputWasDirectory ? ' (from directory)' : ''}`);
   if (sourceMeta) console.log(`Metadata: ${resolved.metaRelative} (${metaFallbackFields.length > 0 ? `fallback: ${metaFallbackFields.join(', ')}` : 'no fallback needed'})`);
-  console.log(`Format detected: ${format}`);
+  console.log(`Format detected: ${format} (${model.dialect})`);
+  if (normalizedCapture) console.log(`Normalized model written: ${capturePath}`);
   console.log(`Stories: ${manifest.storyCount} (${model.storyAssignmentMethod})`);
   const angleDeg = alignment.angleRad != null ? (alignment.angleRad * 180 / Math.PI).toFixed(2) + '°' : 'n/a';
   console.log(`Architectural alignment: ${angleDeg} (${alignment.method})`);

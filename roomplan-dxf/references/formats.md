@@ -5,7 +5,7 @@ engineered working contract, not an official Apple or vendor schema, and not
 a promise that every export from every iOS version will decode. Unsupported
 shapes fail loudly; nothing is guessed silently.
 
-All numbers are metres. Transforms are 4x4 **column-major** arrays of 16
+Geometry lengths are metres, areas square metres, direction angles degrees unless explicitly named radians, and confidence/quality metrics retain source conventions. Transforms are 4x4 **column-major** arrays of 16
 numbers: `m[0..2]` = X axis, `m[4..6]` = Y, `m[8..10]` = Z, `m[12..14]` =
 translation. Elevation of an element is `m[13]`.
 
@@ -60,16 +60,22 @@ directory (one room, 10 walls, 5 doors, 2 windows, 14 objects, 1 floor): the
 conversion succeeds with no special-casing, so no normalisation layer was
 added. `coreModel` is never decoded or uploaded.
 
-## Dialect detection
+## Dialect detection (content, not filenames)
 
-| Signal | Dialect |
-|---|---|
-| `rooms[0].label` / `.category` / `.meshInfo` present | optimized |
-| `captureSessions[]` present | raw |
-| `rooms[]` array, or root `walls`/`surfaces`/`objects` | raw |
+- Explicit `format_version: 1` selects optimized-v1; its geometry must validate.
+- Any other explicit `format_version` (including null/string/99) is rejected;
+  it is never guessed to be 1 and never falls back to raw.
+- Legacy **unversioned** optimized requires all six element arrays, nonempty
+  walls and rooms, and alignment_transform. Numeric room polygons/centres,
+  element dimensions and matrices must validate. Its dialect remains
+  `optimized-legacy-unversioned`, not v1.
+- Raw requires nonempty element arrays at the root or in each supported
+  room/session wrapper. Mixed/ambiguous shapes fail clearly. Isolated
+  category/label/meshInfo, a filename or an empty walls array is not evidence.
 
-The filename is irrelevant. `meshInfo` only participates in detection; it is
-never decoded. Nothing is downloaded.
+`sourceDialect` and `dialectEvidence` are recorded in the manifest and the
+optional capture model. Directory filename priority only chooses a file:
+content determines its dialect. Nothing is downloaded.
 
 ## Raw Apple export
 
@@ -83,8 +89,8 @@ Accepted wrappers, flattened into one element list:
 Empty `rooms`, empty `captureSessions` or a session without
 `roomplanSessions` is an error, never an empty drawing.
 
-Element fields read: `identifier`, `parentIdentifier`, `category` (first key),
-`confidence` (first key), `story`, `dimensions [x,y,z]`, `transform`,
+Element fields read: `identifier`, `parentIdentifier`, `category` (string or a single tagged key),
+`confidence` (string or a single tagged key), `story`, `dimensions [x,y,z]`, `transform`,
 `polygonCorners`, `curve`, and `category.door.isOpen` for doors. Objects carry
 the same fields minus corners/curve.
 
@@ -113,16 +119,14 @@ Per-surface `story` values from raw exports are unreliable (a real export can
 carry `story: 0` on upper-floor elements), so clustering deliberately
 overrides them.
 
-## Optimized export (`format_version: 1`)
+## Optimized export (explicit v1 or positively recognized unversioned legacy)
 
 This dialect is a **third-party post-processed export**, commonly produced by
 Polycam-style tools. It is not an Apple `CapturedRoom`/`CapturedStructure`
 schema, and the field names below are an observed contract from real files
-rather than a published vendor specification. Treat unknown keys and versions
-as unsupported.
+rather than a published vendor specification. Unknown keys are not silently interpreted; unknown explicit versions are unsupported.
 
-`format_version` must be the integer `1`; any other value is rejected without
-fallback. Elements live in `walls`, `floors`, `doors`, `windows`, `openings`,
+`format_version`, when present, must be the integer `1`; other explicit values are rejected without fallback. An absent version is accepted only via the strict legacy adapter above. Elements live in `walls`, `floors`, `doors`, `windows`, `openings`,
 `objects`; rooms in `rooms[]`.
 
 Fields read:
@@ -141,14 +145,12 @@ Differences from raw:
 
 - `story` is taken from the source; no clustering
   (`storyAssignmentMethod: "source-provided"`).
-- `floor` elements are synthetic: identifier `floor-<story>`, dimensions
-  `{x:1,y:0,z:0}`. Their geometry still comes from `polygonCorners`.
+- A floor identifier is retained if supplied, otherwise generated with provenance from story/record path. Dimensions `{x:1,y:0,z:0}` are marked DXF placeholders, not measurements; geometry comes from polygonCorners and sourceRecords preserves supplied dimensions.
 - alignment is the source's own `alignment_transform`, used verbatim; it is
   never recomputed.
-- room polygons and labels are exported (outline + `label  area m2` text).
-- `source`, `ceiling*`, `edges` and the content of `joints` are not used.
-- `latLonAlt` and `orientation` are copied into the manifest metadata. Treat
-  them as location-sensitive.
+- Room polygons and labels are exported. Missing label_automated stays null in the model; DXF prints `[category; id=...]` plus area rather than inventing a room name. Null floor_height is retained as unknown.
+- `ceiling*`, edges, curves, joints, attributes and sections are not fully rendered in DXF; recognized fields can be preserved in the optional capture model/sourceRecords.
+- Direction is available without --geo (with a source-confidence caveat). Location metadata is opt-in; --model --geo additionally embeds a potentially private verbatim source tree.
 
 ## Projection and output geometry
 
@@ -178,6 +180,7 @@ and lineweights per kind.
 ## Output contract
 
 - DXF R2018 (`AC1032`), `$INSUNITS = 6` (metres), modelspace entities only.
+- Optional `--model`: `<name>.capture.json`, source-space normalized subset with explicit loss/privacy inventory. See [model-schema.md](model-schema.md).
 - Manifest `<name>.roomplan.json`: `lossy: true`, source SHA-256, dialect,
   story count/method, alignment, entity count, layers, warnings.
 - Raw input never yields room polygons, labels, ceiling or mesh geometry.
@@ -199,3 +202,7 @@ file structure only.
 - <https://developer.apple.com/documentation/roomplan/capturedstructure>
 
 Framework context only; JSON encoding stability is not guaranteed by Apple.
+
+## Validation limits
+
+See [model-schema.md](model-schema.md) for finite numeric bounds, affine/nonsingular matrix checks, nullable fields and privacy. Validation is structural, not a topology or survey certificate.

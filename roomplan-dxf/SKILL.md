@@ -9,7 +9,7 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
 
 ## One flow
 
-1. **Identify the dialect.** Raw Apple export (`walls`/`floors`/`doors`, optionally `rooms[]` or `captureSessions[]`) or optimized `format_version: 1` (`rooms[]` with `label_automated`/`vertices_x`). Raw is Apple's own `CapturedRoom`/`CapturedStructure` encoding; “optimized” is a third-party post-processed export (commonly Polycam-style) whose field names are an observed contract, not an Apple schema. Do not guess from the filename; read the structure. See [formats](references/formats.md).
+1. **Identify the dialect.** Raw Apple export (`walls`/`floors`/`doors`, optionally `rooms[]` or `captureSessions[]`) or optimized explicit v1 / positively validated unversioned legacy (`rooms[]` with numeric polygons; labels optional). Raw is Apple's own `CapturedRoom`/`CapturedStructure` encoding; “optimized” is a third-party post-processed export (commonly Polycam-style) whose field names are an observed contract, not an Apple schema. Do not guess from the filename; read the structure. See [formats](references/formats.md).
 2. **Convert** from this package directory:
 
    ```sh
@@ -78,6 +78,12 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
    Expect exit 0, audit errors/fixes 0, `insunits` 6, and entity/layer counts matching the manifest. Compare bounds and room labels against the scan, not just counts. A clean audit proves file structure, not survey accuracy.
 4. **DWG only if the recipient insists.** There is no reliable free DWG writer here. Use ODA File Converter outside this environment (see README) and keep the audited DXF as the source of truth. DWG is not required for the workflow.
 
+## Optional normalized capture model
+
+Add `--model --no-place-lookup` to write `<name>.capture.json`. It preserves source-space geometry separately from the unapplied alignment, dialect evidence, SHA256 provenance, known source attributes/sections and an explicit loss inventory. It is a subset, not a complete RoomPlan/mesh decode or a compatibility promise. Missing labels remain null; category/id provenance is retained. Unknown explicit versions still fail.
+
+Without `--geo`, recursive whitelisting omits location-like and unknown metadata. With `--model --geo`, a verbatim source tree is included and can expose private/opaque data. Keep it local. See [model-schema](references/model-schema.md). `--no-place-lookup` is supported explicitly in this public package too. Direction is retained with a reliability caveat.
+
 ## What the manifest tells you
 
 `lossy` is always `true`. Read `warnings`, `storyAssignmentMethod`, `architecturalAlignment` and `sourceSHA256`. Expect:
@@ -92,7 +98,7 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
   separated into their own frames (they are not when `--no-frame` is used);
 - `northArrow.flip180` records which bearing formula was used.
 
-Coordinates are metres in the source frame. Export applies only a rigid alignment rotation; the source file is untouched. Keep scans and manifests local: optimized sources can carry `latLonAlt` and compass metadata into the manifest.
+Coordinates are metres in the source frame. DXF applies a computed raw rotation or the source-provided optimized affine alignment; the source file is untouched. Keep scans and manifests local: optimized sources can carry `latLonAlt` and compass metadata into the manifest.
 
 ## Rules
 
@@ -106,3 +112,34 @@ Coordinates are metres in the source frame. Export applies only a rigid alignmen
 - RoomPlan is an Apple framework and DXF is a CAD exchange format; this skill
   is independent and not affiliated with, endorsed or certified by Apple or
   Autodesk.
+
+## Ceilings and heights (`--ceilings`, default off)
+
+Explicit optimized-source ceilings (`rooms[].ceiling` / `ceiling_curr`,
+`transform` + 2D `polygon`) are annotated on orange dashed `S<n>_CEILING`
+layers (ACI 30, truecolor `0xFF8000`, 3 cm offset). Annotations never alter wall
+or floor geometry or quantities. `h 2,50 m` / `h 2,10-2,85 m` labels are
+ceiling-to-floor vertical differences in one source-world space; the floor datum
+must be a covering measured floor polygon, and `room.floor_height` is used only
+as an explicitly labelled `supplied-floor-level` fallback. Without evidence the
+height stays null with `heightReason` and a warning; never `dimensions.y`, never
+a fixed 2.5 m. Raw input has no ceilings and is not reconstructed. See
+[heights-ceilings.md](references/heights-ceilings.md).
+
+## Quantities and area report
+
+Use `node scripts/roomplan-to-dxf.js scan.json out/ --report --no-place-lookup`
+to additionally write `scan.report.json` and `scan.quantities.csv`.
+Combine with `--model` for the normalized capture. CSV uses UTF-8 BOM and `;`.
+
+Read [quantities](references/quantities.md) before relying on totals. Source room
+areas, polygon-computed areas, dimension-estimated wall areas and unavailable
+values are distinct. Shared wall references are not additive. Net wall areas
+subtract only validated parent-linked openings; incomplete coverage yields a
+**partial subtotal**, not a complete building quantity. Ceiling and volume are
+unavailable. This independent engine was not ported from or compared with the
+historical web reporting implementation. No survey accuracy is implied.
+
+Run `node tests/test_quantities.js` for numerical/CSV safety tests. Reports obey
+existing output overwrite and source-alias protections. Report generation is
+local and does not require location lookup or an external review service.

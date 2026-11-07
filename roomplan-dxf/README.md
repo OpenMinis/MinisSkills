@@ -1,7 +1,7 @@
 # roomplan-dxf
 
 Convert Apple RoomPlan JSON scans (raw `CapturedRoom`/`CapturedStructure`, or
-an optimized `format_version: 1` export) into a 2D DXF floor plan in metres,
+an optimized explicit-v1 or validated unversioned-legacy export) into a 2D DXF floor plan in metres,
 with a manifest that states every loss and assumption. A whole project
 directory can be passed instead of a file: the scan and an optional
 `meta.json` are found by rule. The sheet can carry a frame, a title block and
@@ -86,7 +86,7 @@ node scripts/roomplan-to-dxf.js scan.json build/ --no-north-flip
 python3 -B scripts/inspect_dxf.py build/scan.dxf
 ```
 
-Options: `--force`, `--geo`, `--project <text>`, `--author <text>`,
+Options: `--force`, `--geo`, `--model`, `--no-place-lookup`, `--project <text>`, `--author <text>`,
 `--scale <text>`, `--sheet <text>`, `--place <text>`, `--place-lookup`,
 `--north-flip` (default), `--no-north-flip`, `--no-frame`. Unknown options and
 missing option values are rejected with exit 1; an existing output without
@@ -96,8 +96,7 @@ missing option values are rejected with exit 1; an existing output without
 values present in an optimized source into `sourceGeo` (including the 0–1
 `orientationConfidence`; below 0.8 triggers a warning), adds a warning, and
 should be used only when the recipient needs the provenance point. Coordinates
-are sensitive: keep them local and redact them from shared reports. Without
-`--geo`, no coordinates are written anywhere.
+are sensitive: keep them local and redact them from shared reports. Without --geo, geographic metadata is withheld from the optional capture model; source geometry, IDs and labels remain identifying, and the ordinary title/manifest can still contain user-supplied project/place text.
 
 The converter prints the detected dialect, story count, alignment angle,
 entity/layer counts and warning count. Exit codes: `0` success, `1` usage or
@@ -234,14 +233,16 @@ one `sheetFurniture.sheets` entry per frame.
 - raw Apple RoomPlan: a single `CapturedRoom`, a `CapturedStructure`
   (`rooms[]`), or a wrapper with `captureSessions[].roomplanSessions[]`;
 - optimized exports with integer `format_version: 1`, `rooms[]` carrying
-  `label_automated`/`vertices_x`/`vertices_z`, and optional
+  `vertices_x`/`vertices_z` and optional label_automated, plus optional
   `alignment_transform`. “Optimized” is **not an Apple format**: it is a
   third-party post-processed export (commonly Polycam-style) that carries
   pre-computed room polygons and labels. Its field names are an observed
   contract from real files, not a published vendor schema, and different
   producers may vary.
 
-Unrecognized wrappers, empty room lists and unsupported versions are rejected
+Unversioned legacy optimized exports are also accepted when all required structures and numeric geometry validate (see formats reference); filenames/labels are not dialect evidence. Unknown explicit versions are still rejected.
+
+Unrecognized wrappers, empty raw room lists and unsupported versions are rejected
 with an error — never converted into an empty or partial drawing. See
 [references/formats.md](references/formats.md) for the exact field subset,
 transform convention, story clustering and projection rules.
@@ -257,6 +258,24 @@ transform convention, story clustering and projection rules.
   (`entityCount` incl. sheet furniture, `geometryEntityCount` plan only),
   layers, `titleBlock`, `northArrow`, `stories`, `sheetLayout`,
   `placeLookup`, `sheetFurniture`, `lossy: true`, warnings.
+
+## Optional capture interchange
+
+`node scripts/roomplan-to-dxf.js scan.json build/ --model --no-place-lookup`
+adds `build/scan.capture.json`: schemaVersion, dialect/evidence, byte hash,
+source axes/units/transform convention, canonical geometry/rooms/meta and a
+loss inventory. Missing source labels stay null. No alignment is baked into
+its source-space geometry, and generated IDs/dimensions/stories have provenance.
+
+The default recursive whitelist omits unknown/location-like metadata; this
+is not anonymization. `--model --geo` additionally includes a verbatim source
+and metadata tree, potentially exposing private fields or opaque encoded data.
+This is an interchange **subset**, not all of RoomPlan, a mesh decode or a
+promise of app compatibility. See [model-schema](references/model-schema.md).
+The optional capture path participates in overwrite/input-alias protections.
+Run `python3 tests/test_adapters.py` for seven additional synthetic regression
+groups covering legacy/version/label handling, malformed geometry, nested
+privacy, source hashes, output paths and no pre-applied alignment.
 
 ## What the DXF contains
 
@@ -285,7 +304,7 @@ This project is independent and is **not affiliated with, endorsed by or
 certified by Apple or Autodesk**. It bundles no Apple SDK, Autodesk library or
 sample data, and it does not claim CAD-certified or survey-grade output.
 
-## Known limitations
+## Known limitations of the DXF projection
 
 - Raw scans have **no room polygons or labels**; rooms exist only in the
   optimized format.
@@ -293,7 +312,7 @@ sample data, and it does not claim CAD-certified or survey-grade output.
   tolerance) unless the source carries distinct per-room values.
 - Walls without captured thickness are drawn as centrelines; doors, windows
   and openings are always centrelines.
-- Curved walls are skipped; non-uniform wall polygons/beams (iOS 17+) are not
+- Curved wall arcs are not faithfully represented; non-uniform wall polygons/beams (iOS 17+) are not
   represented because wall `polygonCorners` is ignored.
 - Meshes, ceilings, furniture shape beyond a bounding footprint and semantic
   category taxonomies are not exported.
@@ -302,8 +321,7 @@ sample data, and it does not claim CAD-certified or survey-grade output.
 - Coordinates are whatever the scan produced. Output is a plan, not a survey,
   and must not be labelled fabrication-ready without independent checks.
 - The optimized source may contain `latLonAlt` and compass metadata. It is
-  ignored unless `--geo` is passed; then it is copied to `sourceGeo` and marked
-  sensitive. Keep such manifests local.
+  used for direction without --geo; geographic coordinates are only copied with --geo and marked sensitive. Keep such manifests local.
 - The title block is annotation only. Its scale is text (`NTS` by default) and
   the DXF is not a paper layout; plot scale must be established independently.
 - The north arrow comes from project/scan metadata. It is `approx` whenever it
@@ -379,3 +397,21 @@ The repository root `LICENSE` currently contains MIT text while the repository
 LICENSE text and is contributed under MIT; the maintainer may relicense or
 align the repository-level notice as they see fit. All bundled code is the
 contributor's own work and was relicensed for this contribution.
+
+## Quantities and area report
+
+Use `node scripts/roomplan-to-dxf.js scan.json out/ --report --no-place-lookup`
+to additionally write `scan.report.json` and `scan.quantities.csv`.
+Combine with `--model` for the normalized capture. CSV uses UTF-8 BOM and `;`.
+
+Read [quantities](references/quantities.md) before relying on totals. Source room
+areas, polygon-computed areas, dimension-estimated wall areas and unavailable
+values are distinct. Shared wall references are not additive. Net wall areas
+subtract only validated parent-linked openings; incomplete coverage yields a
+**partial subtotal**, not a complete building quantity. Ceiling and volume are
+unavailable. This independent engine was not ported from or compared with the
+historical web reporting implementation. No survey accuracy is implied.
+
+Run `node tests/test_quantities.js` for numerical/CSV safety tests. Reports obey
+existing output overwrite and source-alias protections. Report generation is
+local and does not require location lookup or an external review service.

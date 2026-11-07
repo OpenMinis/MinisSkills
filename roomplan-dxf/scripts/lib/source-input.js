@@ -135,6 +135,8 @@ function readMeta(metaPath) {
   if (!root || typeof root !== 'object' || Array.isArray(root)) {
     throw new Error(`meta.json must be a JSON object: ${metaPath}`);
   }
+  const validate = require('./validate');
+  for (const [key,min,max] of [['latitude',-90,90],['longitude',-180,180],['headingDegrees',-360,360]]) if(root[key]!=null) validate.number(root[key],`meta.${key}`,min,max);
   const createdAt = normaliseCreatedAt(root.createdAt);
   return {
     path: metaPath,
