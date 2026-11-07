@@ -38,7 +38,7 @@ function buildManifest(model, dxfResult, opts) {
     });
   }
 
-  return {
+  const manifest = {
     tool: 'roomplan-dxf',
     sourceFormat: model.kind,
     sourceFilename: model.originalFilename,
@@ -51,6 +51,30 @@ function buildManifest(model, dxfResult, opts) {
     lossy: true,
     warnings,
   };
+
+  // Location and compass are sensitive: they are written only on explicit
+  // request (--geo) and never used to georeference the drawing geometry.
+  if (opts && opts.includeGeo && model.meta) {
+    const geo = {};
+    for (const [key, value] of Object.entries({
+      latitude: model.meta.latitude,
+      longitude: model.meta.longitude,
+      altitude: model.meta.altitude,
+      orientationDegrees: model.meta.orientationDegrees,
+      orientationUncertaintyDegrees: model.meta.orientationUncertaintyDegrees,
+    })) {
+      if (value != null) geo[key] = value;
+    }
+    if (Object.keys(geo).length > 0) {
+      manifest.sourceGeo = geo;
+      manifest.warnings.push({
+        code: 'roomplan.geo-metadata-included',
+        message: 'Source location/compass metadata was requested and copied into this manifest; treat it as sensitive and do not publish it unredacted. It does not georeference the DXF.',
+      });
+    }
+  }
+
+  return manifest;
 }
 
 module.exports = { buildManifest };

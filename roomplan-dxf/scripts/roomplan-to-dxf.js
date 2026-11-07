@@ -11,7 +11,7 @@
  *   <outDir>/<name>.roomplan.json  diagnostics manifest (always lossy:true)
  *
  * Usage:
- *   node roomplan-to-dxf.js <input.json> [outDir] [--force]
+ *   node roomplan-to-dxf.js <input.json> [outDir] [--force] [--geo]
  *
  * Requires Node.js (no npm dependencies) and python3 with ezdxf.
  * The input file is opened read-only and never modified. Existing outputs
@@ -29,7 +29,7 @@ const { applyArchitecturalAlignment } = require('./lib/align');
 const { buildDXF } = require('./lib/dxf-writer');
 const { buildManifest } = require('./lib/manifest');
 
-const USAGE = 'Usage: node roomplan-to-dxf.js <input.json> [outDir] [--force]';
+const USAGE = 'Usage: node roomplan-to-dxf.js <input.json> [outDir] [--force] [--geo]';
 
 function detectFormat(json) {
   // Optimized/Polycam: top-level "rooms" array where each room carries a
@@ -57,13 +57,15 @@ function sha256(buf) {
 function parseArgs(argv) {
   const positional = [];
   let force = false;
+  let geo = false;
   for (const arg of argv) {
     if (arg === '--force') force = true;
+    else if (arg === '--geo') geo = true;
     else if (arg === '-h' || arg === '--help') return { help: true };
     else if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}\n${USAGE}`);
     else positional.push(arg);
   }
-  return { inputPath: positional[0], outDir: positional[1], force, extra: positional.slice(2) };
+  return { inputPath: positional[0], outDir: positional[1], force, geo, extra: positional.slice(2) };
 }
 
 function main() {
@@ -133,7 +135,7 @@ function main() {
   }
   if (emit.stderr) process.stderr.write(emit.stderr);
 
-  const manifest = buildManifest(model, dxfResult);
+  const manifest = buildManifest(model, dxfResult, { includeGeo: args.geo });
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
   console.log(`Format detected: ${format}`);

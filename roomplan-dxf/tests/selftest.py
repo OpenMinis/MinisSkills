@@ -266,7 +266,27 @@ class ConverterTests(unittest.TestCase):
         self.assertIn("m2", labels[0].dxf.text)
         self.assertIn("S0_ROOM", set(manifest["layers"]))
         self.assertIn("S0_LABEL", set(manifest["layers"]))
+        self.assertNotIn("sourceGeo", manifest, "geo must be opt-in")
         self.assertEqual(src.read_bytes(), original, "input modified")
+
+    def test_geo_metadata_is_opt_in(self):
+        payload = synthetic_optimized()
+        src = self.tmp / "geo-source.json"
+        write_json(src, payload)
+        out = self.tmp / "geo-opt-in"
+        result = subprocess.run(
+            ["node", str(CONVERTER), str(src), str(out), "--geo"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((out / "geo-source.roomplan.json").read_text(encoding="utf-8"))
+        geo = manifest.get("sourceGeo")
+        self.assertIsInstance(geo, dict)
+        self.assertEqual(geo["latitude"], 0.0)
+        self.assertEqual(geo["longitude"], 0.0)
+        self.assertEqual(geo["orientationDegrees"], 0.0)
+        self.assertIn("roomplan.geo-metadata-included",
+                      {w["code"] for w in manifest["warnings"]})
 
     def test_refuses_to_overwrite(self):
         src = self.tmp / "overwrite.json"

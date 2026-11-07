@@ -16,7 +16,7 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
    node scripts/roomplan-to-dxf.js scan.json out/
    ```
 
-   Writes `out/scan.dxf` (R2018/AC1032, metres, `$INSUNITS = 6`) and `out/scan.roomplan.json`. The input is opened read-only. Existing outputs are refused; add `--force` only after confirming the destination.
+   Writes `out/scan.dxf` (R2018/AC1032, metres, `$INSUNITS = 6`) and `out/scan.roomplan.json`. The input is opened read-only. Existing outputs are refused; add `--force` only after confirming the destination. Add `--geo` only when the recipient needs the source location/compass point: it copies existing metadata into `sourceGeo` and adds a privacy warning; it does not georeference the drawing.
 3. **Audit before trusting the result:**
 
    ```sh

@@ -59,9 +59,18 @@ node scripts/roomplan-to-dxf.js scan.json build/
 # Overwrite existing outputs (refused by default)
 node scripts/roomplan-to-dxf.js scan.json build/ --force
 
+# Also copy source location/compass metadata into the manifest (opt-in)
+node scripts/roomplan-to-dxf.js scan.json build/ --geo
+
 # Audit the result
 python3 -B scripts/inspect_dxf.py build/scan.dxf
 ```
+
+`--geo` never georeferences the drawing. It only copies `latLonAlt` and compass
+values present in an optimized source into `sourceGeo`, adds a warning, and
+should be used only when the recipient needs the provenance point. Coordinates
+are sensitive: keep them local and redact them from shared reports. Without
+`--geo`, no coordinates are written anywhere.
 
 The converter prints the detected dialect, story count, alignment angle,
 entity/layer counts and warning count. Exit codes: `0` success, `1` usage or
@@ -158,8 +167,9 @@ sample data, and it does not claim CAD-certified or survey-grade output.
   attempted.
 - Coordinates are whatever the scan produced. Output is a plan, not a survey,
   and must not be labelled fabrication-ready without independent checks.
-- The optimized decoder copies `latLonAlt` and compass metadata into the
-  manifest, which is location-sensitive. Keep scans and manifests local.
+- The optimized source may contain `latLonAlt` and compass metadata. It is
+  ignored unless `--geo` is passed; then it is copied to `sourceGeo` and marked
+  sensitive. Keep such manifests local.
 
 ## DWG
 
