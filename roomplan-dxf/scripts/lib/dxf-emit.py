@@ -157,8 +157,12 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
         ("Nacrtao", meta.get("drawnBy") or "by ARCHIFEST"),
     ]
 
-    title_w = TITLE_WIDTH_RATIO * width
     row_h = title_h / len(rows)
+    nominal_h = min(text_height, row_h * 0.55)
+    pad = 2 * TEXT_PAD_RATIO * nominal_h
+    label_need = max(text_width(lbl, nominal_h) for lbl, _ in rows) + pad
+    value_need = max(text_width(str(val), nominal_h) for _, val in rows) + pad
+    title_w = min(max(0.35 * width, label_need + value_need), 0.70 * width)
 
     tx0 = fx1 - title_w
     ty0 = fy0
@@ -171,8 +175,6 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
         dxfattribs={"layer": FRAME_LAYER},
     )
     # Column divider: label cell on the left, value cell on the right.
-    nominal_h = min(text_height, row_h * 0.55)
-    label_need = max(text_width(lbl, nominal_h) for lbl, _ in rows) + 2 * TEXT_PAD_RATIO * nominal_h
     divider_x = tx0 + min(max(label_need, 0.30 * title_w), 0.52 * title_w)
     msp.add_line((divider_x, ty0), (divider_x, ty1), dxfattribs={"layer": FRAME_LAYER})
 
@@ -214,7 +216,7 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
 
     return {"x0": round(tx0, 4), "y0": round(ty0, 4), "x1": round(tx1, 4), "y1": round(ty1, 4),
             "rows": len(rows), "columns": [round(tx0, 4), round(divider_x, 4), round(tx1, 4)],
-            "widthRatioOfFrame": TITLE_WIDTH_RATIO,
+            "widthRatioOfFrame": round(title_w / width, 4),
             "heightRatioOfFrame": round(title_h / height, 4),
             "cells": cells}
 
@@ -262,8 +264,15 @@ def draw_north_arrow(msp, frame, north, text_height, north_radius):
     msp.add_line((cx, cy), tip, dxfattribs={"layer": NORTH_LAYER})
 
     label = "N" if known else "N?"
-    txt = msp.add_text(label, dxfattribs={"layer": NORTH_LAYER, "height": 0.34 * r})
-    txt.set_placement((cx + 1.22 * r * ux - 0.12 * r, cy + 1.22 * r * uy - 0.10 * r))
+    # The cardinal letter belongs to the rose itself: place it inside the
+    # inner ring on the north axis and rotate it with the needle.
+    txt = msp.add_text(label, dxfattribs={"layer": NORTH_LAYER, "height": 0.22 * r})
+    txt.set_placement((cx + 0.52 * r * ux - 0.06 * r, cy + 0.52 * r * uy - 0.08 * r))
+    txt.dxf.rotation = -math.degrees(theta)
+
+    return {"centre": [round(cx, 4), round(cy, 4)], "radius": round(r, 4),
+            "label": label, "degreesClockwiseFromDrawingUp": degrees,
+            "tip": [round(tip[0], 4), round(tip[1], 4)]}
 
 def story_of(entity):
     """Story of an entity: explicit `story` first, else the S<n>_ layer prefix."""
@@ -445,6 +454,11 @@ def main():
                 title = draw_title_block(msp, frame, sheet_meta, text_height, title_h,
                                          story_label=sheet_meta["storyLabel"])
                 north = draw_north_arrow(msp, frame, meta.get("north") or {}, text_height, radius)
+                note = meta.get("sourceNote")
+                if note:
+                    nh = 0.50 * text_height
+                    add_text(msp, fit_text(note, frame[2] - frame[0], nh)[0],
+                             frame[0], frame[1] - 1.15 * nh, nh, TEXT_LAYER)
                 summary["sheets"].append({
                     "story": sheet["story"],
                     "label": sheet_meta["storyLabel"],
@@ -470,6 +484,11 @@ def main():
             summary["titleBlock"] = draw_title_block(msp, frame, meta, text_height, title_h)
             north = meta.get("north") or {}
             summary["northArrow"] = draw_north_arrow(msp, frame, north, text_height, radius)
+            note = meta.get("sourceNote")
+            if note:
+                nh = 0.50 * text_height
+                add_text(msp, fit_text(note, frame[2] - frame[0], nh)[0],
+                         frame[0], frame[1] - 1.15 * nh, nh, TEXT_LAYER)
             summary["sheets"].append({
                 "story": meta.get("story", 0),
                 "label": meta.get("storyLabel"),
