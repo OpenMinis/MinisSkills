@@ -16,7 +16,8 @@ scan.json ──► roomplan-to-dxf.js ──► scan.dxf + scan.roomplan.json
 - **Node.js 16+** — the converter is plain CommonJS with zero npm packages.
 - **Python 3.9+ with [ezdxf](https://ezdxf.mozman.at/) 1.4+** — used by
   `lib/dxf-emit.py` to write a structurally valid DXF, and by the audit
-  helpers.
+  helpers. ezdxf is a separate dependency under its own MIT licence; it is not
+  bundled here.
 
 ```sh
 # Debian/Ubuntu
