@@ -6,7 +6,7 @@ payload is present (i.e. whenever `--no-frame` is not given):
 | group | layer | colour | contents |
 |---|---|---|---|
 | sheet frames + title-block borders | `FRAME` | 8 | one frame rectangle per story, title-block outline, row separators, column divider |
-| all sheet text | `TITLE` | 7 | 6 rows x 2 cells per sheet, the `N`/`N?` label, the source note |
+| all sheet text | `TITLE` | 7 | 6 rows x 2 cells per sheet and the `N`/`N?` label |
 | north symbol | `NORTH` | 7 | one circle + shaft + filled arrow head per sheet |
 
 Plan geometry is copied verbatim (only translated when sheets are laid out side
@@ -69,9 +69,9 @@ at an assumed scale would be wrong. Passing `--scale 1:100` only *labels* the
 sheet; nothing is rescaled, and the converter does not verify that the label
 fits the paper.
 
-A one-line source note (`Source: … · DXF R2018, metres · title block scale is
-textual, not a paper layout · not a measured survey`) is written at the
-bottom-left of the first frame in 0.62 x text height.
+The provenance/source note is **not drawn** on the sheet: it stays in the
+manifest (`sourceNote`) so it cannot collide with the title block. The drawing
+carries only project, story, location, scale, date/sheet and author.
 
 ### Text must stay inside its cell
 

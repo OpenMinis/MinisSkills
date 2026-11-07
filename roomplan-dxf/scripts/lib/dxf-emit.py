@@ -34,14 +34,14 @@ import sys
 # of the plan bounding box (largest side / height). Kept in one place so the
 # documentation and the drawing cannot drift apart.
 FRAME_MARGIN_RATIO = 0.05       # margin around the plan bbox
-TITLE_WIDTH_RATIO = 0.40        # title block width vs. frame width
+TITLE_WIDTH_RATIO = 0.55        # title block width vs. frame width
 TEXT_HEIGHT_RATIO = 0.016       # text height vs. bbox largest side (1.6 %)
 ROW_HEIGHT_RATIO = 1.6          # row height = 1.6 x text height (readability)
 NORTH_RADIUS_RATIO = 0.05       # north circle radius vs. bbox largest side
 FRAME_GAP_RATIO = 0.08          # gap between per-story frames (8 % of frame width)
-CHAR_WIDTH_RATIO = 0.6          # glyph width estimate per character, x text height
+CHAR_WIDTH_RATIO = 0.95          # conservative glyph width estimate per character, x text height
 MIN_TEXT_HEIGHT_RATIO = 0.55    # never shrink a cell text below 55 % of nominal
-TEXT_PAD_RATIO = 0.30           # cell padding, x text height
+TEXT_PAD_RATIO = 0.35           # cell padding, x text height
 LABEL_COLUMN_RATIO = 0.34       # label column width vs. title block width
 TITLE_ROWS = 6                  # Projekt / Kat / Lokacija / Mjerilo / Datum / Nacrtao
 TEXT_LAYER = "TITLE"
@@ -171,7 +171,9 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
         dxfattribs={"layer": FRAME_LAYER},
     )
     # Column divider: label cell on the left, value cell on the right.
-    divider_x = tx0 + LABEL_COLUMN_RATIO * title_w
+    nominal_h = min(text_height, row_h * 0.55)
+    label_need = max(text_width(lbl, nominal_h) for lbl, _ in rows) + 2 * TEXT_PAD_RATIO * nominal_h
+    divider_x = tx0 + min(max(label_need, 0.30 * title_w), 0.52 * title_w)
     msp.add_line((divider_x, ty0), (divider_x, ty1), dxfattribs={"layer": FRAME_LAYER})
 
     cells = []
@@ -180,8 +182,8 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
         if index > 0:
             msp.add_line((tx0, row_bottom), (tx1, row_bottom), dxfattribs={"layer": FRAME_LAYER})
 
-        label_text, label_height, label_cut = fit_text(label, divider_x - tx0, text_height)
-        value_text, value_height, value_cut = fit_text(str(value), tx1 - divider_x, text_height)
+        label_text, label_height, label_cut = fit_text(label, divider_x - tx0, nominal_h)
+        value_text, value_height, value_cut = fit_text(str(value), tx1 - divider_x, nominal_h)
         for cell_x0, cell_x1, drawn, drawn_h, is_label in (
             (tx0, divider_x, label_text, label_height, True),
             (divider_x, tx1, value_text, value_height, False),
@@ -461,12 +463,6 @@ def main():
             summary["frame"] = summary["sheets"][0]["frame"]
             summary["titleBlock"] = summary["sheets"][0]["titleBlock"]
             summary["northArrow"] = summary["sheets"][0]["northArrow"]
-            note = meta.get("sourceNote")
-            if note:
-                first = summary["sheets"][0]["frame"]
-                add_text(msp, fit_text(note, 0.6 * (first[2] - first[0]), text_height)[0],
-                         first[0] + 0.5 * text_height, first[1] + 0.45 * text_height,
-                         0.62 * text_height, TEXT_LAYER)
         else:
             span = max(bbox[2] - bbox[0], bbox[3] - bbox[1])
             if not span > 0:
@@ -478,11 +474,6 @@ def main():
             summary["titleBlock"] = draw_title_block(msp, frame, meta, text_height, title_h)
             north = meta.get("north") or {}
             summary["northArrow"] = draw_north_arrow(msp, frame, north, text_height, radius)
-            note = meta.get("sourceNote")
-            if note:
-                add_text(msp, fit_text(note, 0.6 * (frame[2] - frame[0]), text_height)[0],
-                         frame[0] + 0.5 * text_height,
-                         frame[1] + 0.45 * text_height, 0.62 * text_height, TEXT_LAYER)
             summary["sheets"].append({
                 "story": meta.get("story", 0),
                 "label": meta.get("storyLabel"),
