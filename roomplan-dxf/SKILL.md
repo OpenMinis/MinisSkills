@@ -66,6 +66,11 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
    falls back. The local skill build turns it on by default and offers
    `--no-place-lookup`.
 
+   Add `--usdz` to also write `out/scan.usdz`, an untextured AR Quick Look model
+   (ASCII `room.usda` in a STORE-only ZIP, metres, Y up). It needs no Apple SDK
+   and no npm package, is independent of `--model`/`--report`/`--md`, and obeys
+   the same overwrite/alias guards. See the USDZ section below.
+
    Add `--geo` only when the recipient needs the source location point: it
    copies existing metadata into `sourceGeo`, prints coordinates in the title
    block and adds a privacy warning; it does not georeference the drawing.
@@ -127,6 +132,36 @@ as an explicitly labelled `supplied-floor-level` fallback. Without evidence the
 height stays null with `heightReason` and a warning; never `dimensions.y`, never
 a fixed 2.5 m. Raw input has no ceilings and is not reconstructed. See
 [heights-ceilings.md](references/heights-ceilings.md).
+
+## USDZ export (`--usdz`)
+
+`node scripts/roomplan-to-dxf.js scan.json out/ --usdz` writes `out/scan.usdz`
+and prints `USDZ written: <path> (N prims)`. A USDZ is a ZIP of `*.usda` text,
+so both layers are written here by hand: `scripts/lib/usdz-writer.js`
+(STORE-only ZIP, own CRC-32, 64-byte aligned payloads, fixed 1980-01-01
+timestamp so the file is reproducible) and `scripts/lib/usda-export.js` (the
+USD ASCII layer).
+
+Layer shape: `#usda 1.0` with `defaultPrim = "room"`, `metersPerUnit = 1`,
+`upAxis = "Y"`; `room > Section_grp` holds one empty `Xform` per captured room
+(named from a sanitised label, e.g. `Kuhinja/dnevni` → `Kuhinja_dnevni`), and
+`room > Mesh_grp` holds `Wall_1…`, `Floor_1…`, `Door_1…`, `Window_1…`,
+`Opening_1…`, `Object_1…`, each with
+`customData = { string Category string Identifier }`.
+
+Geometry: `polygonCorners` → that polygon (fan indices `0..n-1`); otherwise an
+oriented box from `dimensions` (x length, y height, z thickness) placed by the
+4×4 transform — 8 points, 6 quads. An unmeasured wall gets **0.16 m** (Apple's
+default) and is flagged `string Thickness = "assumed"`. A prim with a
+non-finite transform or no usable geometry is skipped with a warning (also in
+the manifest) — the layer never contains `NaN`. Source space is used as-is; the
+DXF sheet rotation is **not** applied.
+
+Not exported: textures, UVs, materials, cameras, lights, semantics, RealityKit
+meshes. Nothing here has been validated by Apple's `usdchecker` or by AR Quick
+Look — the file must be opened on a real device to confirm. Format notes:
+[usdz](references/usdz.md). Test: `node tests/test_usdz.js` (36 checks, opens
+the ZIP with Python's `zipfile` and asserts `testzip() === None`).
 
 ## Quantities and area report
 

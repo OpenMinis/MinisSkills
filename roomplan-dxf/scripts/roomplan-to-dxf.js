@@ -49,6 +49,8 @@ const { buildPlanMeta, storyLabel } = require('./lib/plan-meta');
 const {detectDialect} = require('./lib/dialect');
 const {buildCapture} = require('./lib/capture-export');
 const { renderMarkdown } = require('./lib/out-md');
+const { buildUsda } = require('./lib/usda-export');
+const { writeUsdz } = require('./lib/usdz-writer');
 
 const USAGE = [
   'Usage: node roomplan-to-dxf.js <input.json|dir> [outDir] [options]',
@@ -59,6 +61,7 @@ const USAGE = [
   '  --no-ceilings      disable ceiling annotations; later toggle wins',
   '  --report           also write <name>.report.json (totals, elements, statistics, handoff) and <name>.quantities.csv',
   '  --md               also write <name>.md, a Markdown summary of report-v1 (implies --report)',
+  '  --usdz             also write <name>.usdz, an AR Quick Look model (RoomPlan geometry in metres)',
   '  --geo              include source location/compass (lat, lon in the title block)',
   '  --project <text>   title block project name',
   '  --author <text>    title block author (default: ARCHIFEST)',
@@ -123,6 +126,7 @@ function parseArgs(argv) {
     else if (arg === '--model') exportModel = true;
     else if (arg === '--report') flags.report = true;
     else if (arg === '--md') flags.md = true;
+    else if (arg === '--usdz') flags.usdz = true;
     else if (arg === '--ceilings') flags.ceilings = true;
     else if (arg === '--no-ceilings') flags.ceilings = false;
     else if (arg === '--no-frame') noFrame = true;
@@ -274,7 +278,9 @@ function main() {
   const reportPath = path.join(outDir, `${baseName}.report.json`);
   const csvPath = path.join(outDir, `${baseName}.quantities.csv`);
   const mdPath = path.join(outDir, `${baseName}.md`);
-  const targets = [dxfPath, manifestPath, ...(args.exportModel ? [capturePath] : []), ...(args.flags.report || args.flags.md ? [reportPath, ...(args.flags.report ? [csvPath] : []), ...(args.flags.md ? [mdPath] : [])] : [])];
+  // --usdz is independent of --model/--report/--md: it only needs the decoded model.
+  const usdzPath = path.join(outDir, `${baseName}.usdz`);
+  const targets = [dxfPath, manifestPath, ...(args.exportModel ? [capturePath] : []), ...(args.flags.usdz ? [usdzPath] : []), ...(args.flags.report || args.flags.md ? [reportPath, ...(args.flags.report ? [csvPath] : []), ...(args.flags.md ? [mdPath] : [])] : [])];
   const protectedFiles = [inputPath, resolved.metaPath].filter(Boolean).map(p => fs.realpathSync(p));
   for (const target of targets) {
     if (fs.existsSync(target) && protectedFiles.some(p => {
@@ -347,6 +353,18 @@ function main() {
   if(quantityReport)quantityReport.ceilingDiagnostics=dxfResult.ceilingDiagnostics;
   for(const warning of dxfResult.ceilingDiagnostics.warnings||[])planMeta.warnings.push(warning);
 
+  // USDZ (optional, independent of every other output). It is built here so
+  // that any geometry it had to skip is recorded in the manifest warnings.
+  let usdzResult = null;
+  let usda = null;
+  if (args.flags.usdz) {
+    usda = buildUsda(model, {
+      thickness: 0.16, // metres, Apple's assumed wall thickness
+      doc: `${planMeta.titleBlock.project || baseName} - RoomPlan capture, metres, Y up (textures and UVs not exported)`,
+    });
+    for (const w of usda.warnings || []) planMeta.warnings.push({ code: w.code, message: w.message, severity: 'warning' });
+  }
+
   // Story labels for the title block's "Kat" row and for the per-story sheets.
   // The single-sheet case must know its floor BEFORE the sheet is emitted, and
   // plan.meta is the same object as planMeta.dxfMeta, so patching it here is
@@ -402,6 +420,9 @@ function main() {
     }
   }
   if (normalizedCapture) fs.writeFileSync(capturePath, JSON.stringify(normalizedCapture, null, 2));
+  if (usda) {
+    usdzResult = writeUsdz(usdzPath, Object.entries(usda.files).map(([name, data]) => ({ name, data })));
+  }
 
   console.log(`Input: ${inputPath}${resolved.inputWasDirectory ? ' (from directory)' : ''}`);
   if (sourceMeta) console.log(`Metadata: ${resolved.metaRelative} (${metaFallbackFields.length > 0 ? `fallback: ${metaFallbackFields.join(', ')}` : 'no fallback needed'})`);
@@ -426,6 +447,7 @@ function main() {
   }
   console.log(`DXF written: ${dxfPath} (${manifest.entityCount} entities, ${dxfResult.layers.length} layers)`);
   console.log(`Manifest written: ${manifestPath} (${manifest.warnings.length} warning(s))`);
+  if (usdzResult) console.log(`USDZ written: ${usdzPath} (${usda.primCount} prims)`);
 }
 
 try {

@@ -140,6 +140,38 @@ reconstruction.
 | CSV / Markdown | `report-v1` | rounding that hides `partial` |
 | HTML app (future) | `report-v1` | recalculating quantities |
 | Native app (Swift) | `capture-v1` in, `report-v1` out | a second quantity engine |
+| USDZ writer (`--usdz`) | geometry from `capture-v1` only | a second quantity engine; no `report-v1` lookup |
+
+### USDZ export (`--usdz`)
+
+`--usdz` writes `<name>.usdz`: a ZIP whose entries are STORE-only (method 0),
+64-byte aligned, with a fixed 1980-01-01 timestamp so the same capture always
+produces the same bytes. It holds one ASCII layer, `room.usda`, written without
+any Apple SDK or third-party package:
+
+```
+#usda 1.0 ( defaultPrim = "room"  metersPerUnit = 1  upAxis = "Y" )
+def Xform "room"
+    def Xform "Section_grp"   # one empty Xform per room, name = sanitised label
+    def Xform "Mesh_grp"      # Wall_N Floor_N Door_N Window_N Opening_N Object_N
+```
+
+Contract, in order of precedence: a surface with 3D `polygonCorners` is emitted
+as that polygon (fan indices `0..n-1`); otherwise an oriented box from
+`dimensions` + `transform` (8 points, 6 quads) with x = length, y = height,
+z = thickness; a wall without measured thickness uses the Apple default 0.16 m
+and carries `string Thickness = "assumed"`. Every mesh carries
+`customData {Category, Identifier}` so it maps back to `capture-v1`. Values are
+metres, 6 fixed decimals, `.` separator. A primitive with a non-finite transform
+or no usable geometry is **skipped with a warning** (surfaced in the manifest);
+`NaN`/`Infinity` are never written. Source space only: `align.js`'s sheet
+rotation is a drawing transform and is not applied.
+
+Out of scope for `usdz-v1` (stated, not hidden): textures, UVs, materials,
+cameras, lights, semantics/panels, RealityKit mesh data. **No Apple validation
+is performed** — `usdchecker`/AR Quick Look are unavailable in this environment,
+so structural checks (Python `zipfile.testzip()`, 64-byte alignment, byte
+determinism, mesh/vertex counts) are the evidence this project can offer.
 
 ## 7. Golden numbers (executable)
 
@@ -170,6 +202,13 @@ golden number may be changed back without a new on-site check.
 A change to any of these requires an explicit note in this file.
 
 ### Change log
+
+- **2026-11-07 — `usdz-v1` added (`--usdz`).** A new consumer writes an
+  untextured AR Quick Look model (`<name>.usdz`) from the same decoded geometry,
+  with no Apple SDK: a hand-written STORE-only ZIP (`scripts/lib/usdz-writer.js`)
+  plus an ASCII USD layer (`scripts/lib/usda-export.js`). It reuses `capture-v1`
+  and reports its prim counts; it computes no quantities and adds no golden
+  number. Nothing in §7 changed — 13 PASS / 0 PENDING / 0 FAIL.
 
 - **2026-11-07 — G-8b added and G-8 corrected.** G-8 previously said the kernel
   tolerance was "stricter than report-model's 0.25 m", which left the contract

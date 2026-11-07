@@ -82,11 +82,14 @@ node scripts/roomplan-to-dxf.js scan.json build/ --place-lookup
 # North arrow: flipped formula is the DEFAULT, legacy formula is one flag away
 node scripts/roomplan-to-dxf.js scan.json build/ --no-north-flip
 
+# Also write an AR Quick Look model (independent of every other output)
+node scripts/roomplan-to-dxf.js scan.json build/ --usdz
+
 # Audit the result
 python3 -B scripts/inspect_dxf.py build/scan.dxf
 ```
 
-Options: `--force`, `--geo`, `--model`, `--no-place-lookup`, `--project <text>`, `--author <text>`,
+Options: `--force`, `--geo`, `--model`, `--usdz`, `--no-place-lookup`, `--project <text>`, `--author <text>`,
 `--scale <text>`, `--sheet <text>`, `--place <text>`, `--place-lookup`,
 `--north-flip` (default), `--no-north-flip`, `--no-frame`. Unknown options and
 missing option values are rejected with exit 1; an existing output without
@@ -259,6 +262,10 @@ transform convention, story clustering and projection rules.
   `assumptions[]` list and a one-paragraph provenance legend. A `partial` total
   is printed as `(partial 3/4)` and an unknown one as `n/a — <reason>`; there is
   deliberately no table that would imply an accuracy we do not have.
+- `<name>.usdz` — AR Quick Look model (`--usdz`): one STORE-only ZIP holding
+  `room.usda`, an ASCII USD layer of the capture in metres, Y up. Independent
+  of every other output — `--usdz` alone writes just the DXF, the manifest and
+  the model. See [USDZ export](#usdz-export).
 - `<name>.roomplan.json` — manifest: source SHA-256, dialect, input kind,
   `sourceMetadata`, story count and method, alignment, entity counts
   (`entityCount` incl. sheet furniture, `geometryEntityCount` plan only),
@@ -301,6 +308,56 @@ the same structure back and reports version, units, entity/layer counts and an
 in-memory audit; it never rewrites the file. See
 [references/dxf-primer.md](references/dxf-primer.md) for the minimal structure
 and how to check a file without CAD software.
+
+## USDZ export
+
+`--usdz` writes `<name>.usdz`, an untextured 3D model of the capture that AR
+Quick Look (iOS/iPadOS/macOS, Files, Messages, Safari) can open and place in a
+room. It needs **no Apple SDK** and **no npm package**: a USDZ is a ZIP whose
+entries are `*.usda` text, and both halves are written here by hand —
+`scripts/lib/usdz-writer.js` (ZIP container) and `scripts/lib/usda-export.js`
+(USD layer).
+
+```sh
+node scripts/roomplan-to-dxf.js scan.json build/ --usdz
+# -> build/scan.dxf, build/scan.roomplan.json, build/scan.usdz
+# USDZ written: build/scan.usdz (9 prims)
+```
+
+What is inside `room.usda`:
+
+```
+#usda 1.0 ( defaultPrim = "room"  metersPerUnit = 1  upAxis = "Y" )
+def Xform "room"
+    def Xform "Section_grp"      # one empty Xform per captured room, named from its label
+    def Xform "Mesh_grp"         # Wall_N / Floor_N / Door_N / Window_N / Opening_N / Object_N
+```
+
+- Every mesh carries `customData = { string Category = "Wall" string Identifier = "W-A" }`,
+  so the 3D prims map back to the same identifiers the DXF/manifest use.
+- A surface with 3D `polygonCorners` becomes that polygon (one n-gon, fan
+  indices `0..n-1`); every other surface becomes an oriented box built from
+  `dimensions` (x = length, y = height, z = thickness) and placed by its 4×4
+  transform. Boxes are 8 points / 6 quads.
+- A wall with no measured thickness gets Apple's default **0.16 m** and says so:
+  `string Thickness = "assumed"` plus `double AssumedThickness = 0.16`.
+- Numbers are metres with a fixed 6 decimals and a `.` separator; a primitive
+  with a non-finite transform or without usable geometry is **skipped with a
+  warning** (the warning also lands in the manifest) instead of writing `NaN`.
+- Geometry stays in source space: the DXF sheet rotation from `align.js` is a
+  drawing-only transform and is not applied to the 3D model.
+
+What it does **not** contain: textures, UVs, materials, cameras, lights,
+semantics/panels, and no mesh from Apple's RealityKit mesh reconstruction. The
+model renders as solid, untextured geometry.
+
+Verification: the archive is opened by Python's own `zipfile` in the test suite
+(`node tests/test_usdz.js`), every payload is checked to start on a 64-byte
+boundary, `testzip()` must return `None` (CRC-32 of every entry), and the output
+is byte-identical between two runs (the ZIP timestamp is fixed at 1980-01-01).
+**Apple's own `usdchecker`/AR Quick Look validation has not been run** — there
+is no QuickLook or USD toolchain on the Linux/iSH side, so a real device must
+open the file. See [references/usdz.md](references/usdz.md).
 
 ## Trademarks and independence
 
@@ -385,6 +442,13 @@ New in this revision, all asserted against the written DXF and manifest:
 Unknown options are rejected, and the suite asserts that no external review or
 network code path is present (`--place-lookup` shells out only to the local
 `apple-location` binary).
+
+USDZ export is covered separately by `node tests/test_usdz.js` (36 checks): the
+ZIP is reopened by Python's `zipfile`, payloads must be 64-byte aligned,
+`testzip()` must return `None`, the layer must declare `defaultPrim` /
+`metersPerUnit` / `upAxis`, mesh counts and box/polygon vertex counts are
+asserted, no `NaN`/`Infinity` may appear, two runs must be byte-identical, and
+the CLI must write `<name>.usdz` and honour the overwrite/alias guards.
 
 `check-drift.sh` compares the vendored converter against an optional private
 reference tree; with no `ROOMPLAN_DXF_UPSTREAM` set it only prints local
