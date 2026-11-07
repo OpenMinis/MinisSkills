@@ -522,7 +522,7 @@ function csvCell(v) {
  return /[;"\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
 }
 function quantitiesCSV(report) {
- const header=['Kat','Tip','ID','Izvorni_ID','Kategorija','Broj','Povrsina_bruto_m2','Bruto_pokrivenost','Povrsina_neto_m2','Neto_pokrivenost','Povrsina_bojanje_m2','Bojanje_pokrivenost','Bojanje_odbijeno_m2','Debljina_m','Debljina_pokrivenost','Sobe_reference','Provenance','Napomena'];
+ const header=['Kat','Tip','ID','Izvorni_ID','Kategorija','Broj','Povrsina_bruto_m2','Bruto_podrijetlo','Povrsina_neto_m2','Neto_podrijetlo','Povrsina_bojanje_m2','Bojanje_podrijetlo','Bojanje_odbijeno_m2','Debljina_m','Debljina_podrijetlo','Sobe_reference','Provenance','Napomena'];
  const rows=report.elements.map(e=>[e.story,e.kind,e.id,e.identifier,e.category,e.count,e.id,e.identifier,e.category,e.count,e.area.value,e.area.status,e.netArea.value,e.netArea.status,e.paintArea?e.paintArea.value:null,e.paintArea?e.paintArea.status:null,e.paintRule?e.paintRule.deductedM2:null,e.thickness.value,e.thickness.status,e.roomRefs,e.sourceRecords,e.notes.join(' | ')]);
  return '\uFEFF'+[header,...rows].map(r=>r.map(csvCell).join(';')).join('\r\n')+'\r\n';
 }
