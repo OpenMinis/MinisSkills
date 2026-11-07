@@ -2,7 +2,7 @@
 name: android-vdisplay
 description: >
   Create an on-device virtual display ("second screen") on an Android phone running Minis via local wireless ADB, render it inside a floating Picture-in-Picture overlay window on the main screen, and let the agent launch apps, inspect the widget tree, take screenshots, and inject touch, swipe, text, and key events while allowing the human user to take over at any time (with automatic HTTP 423 mutual exclusion). Powered by scrcpy-server (trusted virtual display) + a companion overlay APK. Trigger this skill whenever the user mentions "second screen", "virtual display", "virtual screen", "PiP", "picture-in-picture", "floating window automation", "background app automation", "scrcpy virtual display", "operate an app without occupying the main screen", or wants the agent to control Android apps on the same phone with human takeover support.
-version: 0.12.2
+version: 0.12.3
 ---
 
 # android-vdisplay: On-Device Virtual Display + Floating PiP Overlay + Agent Control
