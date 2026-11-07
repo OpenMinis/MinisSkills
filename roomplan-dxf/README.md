@@ -67,7 +67,8 @@ python3 -B scripts/inspect_dxf.py build/scan.dxf
 ```
 
 `--geo` never georeferences the drawing. It only copies `latLonAlt` and compass
-values present in an optimized source into `sourceGeo`, adds a warning, and
+values present in an optimized source into `sourceGeo` (including the 0–1
+`orientationConfidence`; below 0.8 triggers a warning), adds a warning, and
 should be used only when the recipient needs the provenance point. Coordinates
 are sensitive: keep them local and redact them from shared reports. Without
 `--geo`, no coordinates are written anywhere.

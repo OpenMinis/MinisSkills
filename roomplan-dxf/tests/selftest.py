@@ -160,7 +160,7 @@ def synthetic_optimized():
             "ceiling_lidar_valid_pct": 0.98,
         }],
         "latLonAlt": {"latitude": 0.0, "longitude": 0.0, "altitude": 0.0},
-        "orientation": {"orientation_degrees": 0.0, "uncertainty_degrees": 5.0},
+        "orientation": {"orientation_degrees": 0.0, "confidence": 0.9},
         "joints": [],
     }
 
@@ -285,6 +285,7 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(geo["latitude"], 0.0)
         self.assertEqual(geo["longitude"], 0.0)
         self.assertEqual(geo["orientationDegrees"], 0.0)
+        self.assertEqual(geo["orientationConfidence"], 0.9)
         self.assertIn("roomplan.geo-metadata-included",
                       {w["code"] for w in manifest["warnings"]})
 

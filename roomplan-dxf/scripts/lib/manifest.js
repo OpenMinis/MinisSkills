@@ -38,6 +38,13 @@ function buildManifest(model, dxfResult, opts) {
     });
   }
 
+  if (model.kind === 'optimized' && model.meta.orientationConfidence != null && model.meta.orientationConfidence < 0.8) {
+    warnings.push({
+      code: 'roomplan.compass-orientation-uncertain',
+      message: `Source compass orientation confidence is ${model.meta.orientationConfidence} (< 0.8) — north-alignment metadata should not be trusted for this scan.`,
+    });
+  }
+
   const manifest = {
     tool: 'roomplan-dxf',
     sourceFormat: model.kind,
@@ -62,6 +69,7 @@ function buildManifest(model, dxfResult, opts) {
       altitude: model.meta.altitude,
       orientationDegrees: model.meta.orientationDegrees,
       orientationUncertaintyDegrees: model.meta.orientationUncertaintyDegrees,
+      orientationConfidence: model.meta.orientationConfidence,
     })) {
       if (value != null) geo[key] = value;
     }

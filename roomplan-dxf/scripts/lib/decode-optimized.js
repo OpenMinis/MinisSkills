@@ -139,6 +139,7 @@ function decode(data, originalFilename) {
       altitude: geo.altitude ?? null,
       orientationDegrees: orientation.orientation_degrees ?? null,
       orientationUncertaintyDegrees: orientation.uncertainty_degrees ?? null,
+      orientationConfidence: orientation.confidence ?? null,
       jointCount: Array.isArray(root.joints) ? root.joints.length : 0,
     },
   };
