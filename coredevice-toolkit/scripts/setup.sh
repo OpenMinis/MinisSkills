@@ -16,8 +16,12 @@ fi
 # 2. 检查并安装 Python 核心依赖 (锁定 pymobiledevice3>=11.34.0, pmd-pytcp, cryptography)
 echo "⚡ 检查 Python 核心依赖..."
 python3 -c "import pymobiledevice3, pmd_pytcp, cryptography" >/dev/null 2>&1 || {
+    # sslpsk-pmd3 在 musl/arm64 上没有预编译包，需要本地编译
+    echo "🔨 安装编译依赖 (build-base, python3-dev, openssl-dev, libffi-dev)..."
+    apk add build-base python3-dev openssl-dev libffi-dev
     echo "📦 正在安装依赖: pymobiledevice3>=11.34.0, pmd-pytcp, cryptography..."
-    pip install --no-cache-dir "pymobiledevice3>=11.34.0" pmd-pytcp cryptography
+    # Alpine 的系统 Python 受 PEP 668 保护；用环境变量而不是 --break-system-packages，旧版 pip 不认识该参数也不会报错
+    PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir "pymobiledevice3>=11.34.0" pmd-pytcp cryptography
 }
 
 # 3. 核心协议栈可用性自检
@@ -35,8 +39,10 @@ except ImportError as e:
 
 # 4. 安装公共库到 Python site-packages
 SP_DIR="$(python3 -c 'import site; print(site.getsitepackages()[0])')"
-echo "📁 安装 coredevice_session.py 到 $SP_DIR"
+echo "📁 安装 coredevice_session.py 与 tls_psk_proxy.js 到 $SP_DIR"
 cp -f "$SCRIPT_DIR/coredevice_session.py" "$SP_DIR/"
+# coredevice_session 按自身所在目录查找桥接脚本，必须一起拷贝，否则在 scripts/ 以外 import 会报找不到 tls_psk_proxy.js
+cp -f "$SCRIPT_DIR/tls_psk_proxy.js" "$SP_DIR/"
 
 # 5. 注册 cdtk-* CLI 命令到 /usr/local/bin
 echo "🔧 注册全局 CLI 命令 (cdtk-*)..."
