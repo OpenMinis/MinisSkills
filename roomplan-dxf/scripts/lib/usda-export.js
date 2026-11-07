@@ -75,6 +75,9 @@
  *
  * API: buildUsda(capture, options) -> { files, text, summary, warnings, primCount }
  */
+const { buildWallWithHoles, indexOpeningsByParent } = require('./wall-holes');
+const { prismGeometry } = require('./polygon-prism');
+
 const DEFAULT_THICKNESS = 0.16; // metres, Apple's assumed wall thickness
 const EPS = 1e-9;
 const MATERIAL_COLOR = '(1, 1, 1)'; // Apple's own diffuseColor for every element
@@ -324,6 +327,10 @@ function buildUsda(capture, options) {
   const warnings = [];
   const surfaces = Array.isArray(capture && capture.surfaces) ? capture.surfaces : [];
   const objects = Array.isArray(capture && capture.objects) ? capture.objects : [];
+  // Openings grouped by the wall identifier they name (`parentIdentifier`).
+  const openingsByParent = indexOpeningsByParent(surfaces);
+  const holesSummary = { walls: 0, openings: 0, cutArea: 0 };
+  const prismSummary = { walls: 0, area: 0 };
 
   const byCategory = {};
   const bump = (key) => { byCategory[key] = (byCategory[key] || 0) + 1; };
@@ -386,15 +393,50 @@ function buildUsda(capture, options) {
       return;
     }
 
+    const attached = identifier != null ? openingsByParent.get(identifier) || [] : [];
     const poly = polygonOf(s);
     if (poly) {
+      if (attached.length) {
+        // An n-gon wall has no (u, v) grid, so it cannot be cut. Say so once.
+        warnings.push({
+          code: 'usdz.opening-not-cut',
+          message: `Wall "${identifier || 'anonymous'}" keeps ${attached.length} opening(s) uncut (USDZ): a wall exported from polygonCorners is an n-gon, not a box, so there is no (u, v) grid to cut.`,
+        });
+      }
+      if (category === 'Wall') {
+        // A plan polygon is a wall OUTLINE, not a sheet: extrude it through the
+        // thickness, otherwise Quick Look shows paper that vanishes from behind.
+        let prismThickness = Number.isFinite(dims.z) && dims.z > 0
+          ? dims.z
+          : Number.isFinite(s.wallThickness) && s.wallThickness > 0 ? s.wallThickness : NaN;
+        let prismAssumed = false;
+        if (!(prismThickness > 0)) { prismThickness = assumedThickness; prismAssumed = true; }
+        const prism = prismGeometry(poly, transform, prismThickness);
+        if (prism) {
+          addPrim(prefix, category, identifier, prism, {
+            dims, poly: true, prism: true, prismArea: prism.area,
+            thickness: prismThickness, thicknessAssumed: prismAssumed,
+          }, extra);
+          prismSummary.walls += 1;
+          prismSummary.area += prism.area.total;
+          return;
+        }
+        warnings.push({
+          code: 'usdz.polygon-not-extruded',
+          message: `Wall "${identifier || 'anonymous'}" stays a flat polygon (USDZ): its corners are not a plan outline perpendicular to the thickness axis, so it cannot be extruded.`,
+        });
+      }
       addPrim(prefix, category, identifier, polygonGeometry(poly.map((p) => world(p, transform))), { dims, poly: true }, extra);
       return;
     }
 
     const dx = Number.isFinite(dims.x) ? dims.x : NaN;
     const dy = Number.isFinite(dims.y) ? dims.y : NaN;
-    let dz = Number.isFinite(dims.z) ? dims.z : NaN;
+    // Thickness precedence: the captured box depth, then the source's own
+    // wallThickness, then Apple's 0.16 m default (flagged as assumed).
+    let dz = Number.isFinite(dims.z) && dims.z > 0
+      ? dims.z
+      : Number.isFinite(s.wallThickness) && s.wallThickness > 0 ? s.wallThickness : NaN;
     if (!(dx > 0) || !(dy > 0)) {
       warnings.push({ code: 'usdz.skipped-no-geometry', message: `Skipped ${category} "${identifier || 'anonymous'}" (USDZ): no usable polygonCorners and no positive x/y dimensions.` });
       return;
@@ -407,18 +449,44 @@ function buildUsda(capture, options) {
       thicknessAssumed = true;
     }
     const geometry = boxGeometry(dx, dy, dz, transform);
+    // A wall that owns openings is CUT, not merely overlaid: grid decomposition
+    // in the wall's own (u, v) plane turns the openings into real holes with
+    // reveal faces, so Quick Look shows a doorway, not a door plank on a wall.
+    if (category === 'Wall' && attached.length) {
+      const holed = buildWallWithHoles({
+        wall: s,
+        dimensions: { x: dx, y: dy },
+        thickness: dz,
+        openings: attached,
+      });
+      for (const warning of holed.warnings) warnings.push(warning);
+      if (holed.cut) {
+        addPrim(prefix, category, identifier, holed.geometry, {
+          dims, poly: false, thickness: dz, thicknessAssumed, holed,
+        }, extra);
+        holesSummary.walls += 1;
+        holesSummary.openings += holed.openings.length;
+        holesSummary.cutArea += holed.cutArea;
+        return;
+      }
+    }
     addPrim(prefix, category, identifier, geometry, { dims, poly: false, thickness: dz, thicknessAssumed }, extra);
   };
 
   const SURFACE_TARGETS = [
     { kind: 'wall', prefix: 'Wall', category: 'Wall' },
     { kind: 'floor', prefix: 'Floor', category: 'Floor' },
-    { kind: 'door', prefix: 'Door', category: 'Door' },
-    { kind: 'window', prefix: 'Window', category: 'Window' },
-    { kind: 'opening', prefix: 'Opening', category: 'Opening' },
+    { kind: 'door', prefix: 'Door', category: 'Door', openings: true },
+    { kind: 'window', prefix: 'Window', category: 'Window', openings: true },
+    { kind: 'opening', prefix: 'Opening', category: 'Opening', openings: true },
   ];
   for (const target of SURFACE_TARGETS) {
-    for (const s of surfaces) if (s && s.kind === target.kind) buildOne(s, target.prefix, target.category);
+    for (const s of surfaces) {
+      if (!s || s.kind !== target.kind) continue;
+      // Openings stay separate prims (Apple keeps Window0.units next to its
+      // wall) but declare what they are, so nobody mistakes them for solids.
+      buildOne(s, target.prefix, target.category, target.openings ? { Role: 'opening' } : {});
+    }
   }
   // Anything that is neither a known surface kind nor an object is still
   // geometry — emit it rather than drop it silently.
@@ -488,7 +556,20 @@ function buildUsda(capture, options) {
     } else if (prim.element.thickness != null) {
       fields.push(['double Thickness', num(prim.element.thickness)]);
     }
-    fields.push(['string Geometry', prim.element.poly ? '"source polygonCorners"' : '"oriented box from dimensions"']);
+    if (prim.element.holed) {
+      const holed = prim.element.holed;
+      fields.push(['string Geometry', '"box with openings cut out (grid decomposition)"']);
+      fields.push(['int Openings', String(holed.openings.length)]);
+      fields.push(['double CutArea', num(holed.cutArea)]);
+      fields.push(['double ExposedArea', num(holed.frontArea)]);
+    } else if (prim.element.prism) {
+      fields.push(['string Geometry', '"polygonCorners extruded through the thickness (prism)"']);
+      fields.push(['double Perimeter', num(prim.element.prismArea.perimeter)]);
+      fields.push(['double SurfaceArea', num(prim.element.prismArea.total)]);
+      fields.push(['double Volume', num(prim.element.prismArea.volume)]);
+    } else {
+      fields.push(['string Geometry', prim.element.poly ? '"source polygonCorners"' : '"oriented box from dimensions"']);
+    }
     for (const [k, v] of Object.entries(prim.extra)) fields.push([`string ${k}`, `"${escapeString(v)}"`]);
     fields.push(['string UUID', `"${stableUuid(`${prim.category}:${prim.identifier || prim.name}`)}"`]);
 
@@ -533,6 +614,16 @@ function buildUsda(capture, options) {
     meshPrims: prims.length,
     byCategory,
     assumedThickness,
+    // Openings that became real holes: how many walls were cut, how many
+    // openings were removed and how much wall face that took away (m2).
+    holes: {
+      wallsCut: holesSummary.walls,
+      openingsCut: holesSummary.openings,
+      cutArea: holesSummary.cutArea,
+    },
+    // Polygon walls are solids, not sheets: how many were extruded and their
+    // total surface area (2 caps + one side per edge).
+    prisms: prismSummary,
     prims: prims.map((p) => {
       const m = meshArrays(p.geometry);
       return {
@@ -541,6 +632,8 @@ function buildUsda(capture, options) {
         identifier: p.identifier,
         points: m.points.length,
         faces: m.counts.length,
+        cut: p.element.holed ? p.element.holed.openings.length : 0,
+        prism: Boolean(p.element.prism),
       };
     }),
   };

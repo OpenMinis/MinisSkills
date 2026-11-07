@@ -308,8 +308,10 @@ check('each element is a kind="component" Xform carrying customData Category + I
   assert(/def Xform "Mesh_grp" \(\n {8}kind = "group"/.test(fxText), 'Mesh_grp must be kind = "group"');
 });
 check('a box is 12 triangles over 36 split vertices (Apple triangulates, never quads)', () => {
-  const box = fxText.slice(fxText.indexOf('def Mesh "Wall_1"'));
-  const body = box.slice(0, box.indexOf('def Mesh "Wall_2"'));
+  // W-C has no door or window pointing at it, so it stays a plain box; W-A and
+  // W-B are cut by the fixture's door and window (see tests/test_wall_holes.js).
+  const box = fxText.slice(fxText.indexOf('def Mesh "Wall_3"'));
+  const body = box.slice(0, box.indexOf('def Mesh "Wall_4"'));
   const counts = /int\[\] faceVertexCounts = \[([^\]]+)\]/.exec(body)[1].split(',').map((s) => s.trim());
   assert.strictEqual(counts.length, 12, `expected 12 faces, got ${counts.length}`);
   assert(counts.every((c) => c === '3'), 'every face must be a triangle');
@@ -319,23 +321,48 @@ check('a box is 12 triangles over 36 split vertices (Apple triangulates, never q
   const pts = /point3f\[\] points = \[([\s\S]*?)\]\n/.exec(body)[1].match(/\(/g);
   assert.strictEqual(pts.length, 36, `expected 36 points, got ${pts.length}`);
 });
-check('a source n-gon becomes n-2 triangles over 3*(n-2) split vertices', () => {
+check('a wall with openings is cut, not a box: more faces, still all triangles', () => {
+  for (const name of ['Wall_1', 'Wall_2']) {
+    const body = fxText.slice(fxText.indexOf(`def Mesh "${name}"`));
+    const counts = /int\[\] faceVertexCounts = \[([^\]]+)\]/.exec(body)[1].split(',').map((s) => Number(s.trim()));
+    assert(counts.length > 12, `${name}: expected more than a box's 12 faces, got ${counts.length}`);
+    assert(counts.every((c) => c === 3), `${name}: every face must be a triangle`);
+    const idx = /int\[\] faceVertexIndices = \[([\s\S]*?)\]/.exec(body)[1].split(',').map((s) => Number(s.trim()));
+    assert.deepStrictEqual(idx, [...Array(idx.length).keys()], 'split vertices are indexed in order');
+  }
+});
+check('a polygonCorners WALL is a solid prism, not a paper sheet', () => {
+  // A flat sheet disappears under backface culling as soon as you stand on the
+  // other side of it, so a plan polygon is extruded through the thickness:
+  // 2 cap faces + one side quad per polygon edge.
   const body = polyText.slice(polyText.indexOf('def Mesh "Wall_1"'));
   const counts = /int\[\] faceVertexCounts = \[([^\]]+)\]/.exec(body)[1].split(',').map((s) => Number(s.trim()));
-  assert.strictEqual(counts.length, POLY.length - 2, `an n-gon must fan into n-2 triangles (got ${counts.length})`);
-  assert(counts.every((c) => c === 3));
-  const idx = /int\[\] faceVertexIndices = \[([\s\S]*?)\]/.exec(body)[1].split(',').map((s) => Number(s.trim()));
-  assert.deepStrictEqual(idx, [...Array(3 * (POLY.length - 2)).keys()]);
-  const pts = /point3f\[\] points = \[([\s\S]*?)\]\n/.exec(body)[1].match(/\(/g);
-  assert.strictEqual(pts.length, 3 * (POLY.length - 2));
-  assert(polyText.includes('string Geometry = "source polygonCorners"'));
+  // 5 corners -> 3 cap triangles per side + 5 side quads, each quad split into
+  // 2 triangles by the triangulator: 2*(n-2) + 2*n triangles in the file.
+  assert.strictEqual(counts.length, 2 * (POLY.length - 2) + 2 * POLY.length, `faces ${counts.length}`);
+  assert(counts.every((c) => c === 3), 'every emitted face is a triangle');
+  assert(polyText.includes('string Geometry = "polygonCorners extruded through the thickness (prism)"'));
+  assert(polyText.includes('double Volume = '), 'prism must report its volume');
+});
+check('a polygonCorners FLOOR stays a flat fan of n-2 triangles', () => {
+  const flat = {
+    surfaces: [{ identifier: 'F-P', kind: 'floor', story: 0, dimensions: { x: 4, y: 3, z: 0 }, transform: I4, polygonCorners: [[0, 0, 0], [4, 0, 0], [4, 3, 0], [0, 3, 0]] }],
+    objects: [],
+    rooms: [],
+  };
+  const res = buildUsda(flat, {});
+  const counts = /int\[\] faceVertexCounts = \[([^\]]+)\]/.exec(res.text)[1].split(',').map((s) => Number(s.trim()));
+  assert.strictEqual(counts.length, 2, 'a floor polygon is not extruded');
+  assert(res.text.includes('string Geometry = "source polygonCorners"'));
+  assert.strictEqual(res.summary.prisms.walls, 0);
 });
 check('polygon corners are transformed to world space', () => {
   // shift the polygon wall by +10 in x and check the emitted points moved
   const shifted = JSON.parse(JSON.stringify(polyCapture));
   shifted.surfaces[0].transform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 0, 0, 1];
   const t = buildUsda(shifted, {}).text;
-  assert(t.includes('(8.000000, 0.000000, 0.000000)'), 'world x 2+10 missing');
+  // the prism puts the polygon at z = -0.08 and +0.08, so look for the caps
+  assert(t.includes('(8.000000, 0.000000, -0.080000)'), 'world x 2+10 missing on the front cap');
   const body = t.slice(t.indexOf('def Mesh "Wall_1"'));
   const pts = /point3f\[\] points = \[([\s\S]*?)\]\n/.exec(body)[1].match(/\(([^)]*)\)/g);
   const xs = pts.map((p) => Number(p.slice(1, -1).split(',')[0]));
@@ -369,15 +396,17 @@ check('a primitive with a bad transform is skipped with a warning, not written a
   broken.surfaces[1].transform = [1, 0, 0, 0, 0, Number.NaN, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   const res = buildUsda(broken, {});
   assert.strictEqual(res.primCount, 4, 'the broken wall should be dropped');
-  assert.strictEqual(res.warnings.length, 1);
-  assert.strictEqual(res.warnings[0].code, 'usdz.skipped-non-rigid');
+  const skipped = res.warnings.filter((w) => w.code === 'usdz.skipped-non-rigid');
+  assert.strictEqual(skipped.length, 1);
+  // the polygon wall the door names cannot be cut either, and says so
+  assert(res.warnings.every((w) => ['usdz.skipped-non-rigid', 'usdz.opening-not-cut'].includes(w.code)));
   assert(!/NaN/.test(res.text));
 });
 check('a surface with no geometry at all is skipped with a warning', () => {
   const empty = JSON.parse(JSON.stringify(polyCapture));
   empty.surfaces[2] = { identifier: 'F-BAD', kind: 'floor', story: 0, dimensions: { x: 0, y: 0, z: 0 }, transform: I4 };
   const res = buildUsda(empty, {});
-  assert.strictEqual(res.warnings[0].code, 'usdz.skipped-no-geometry');
+  assert(res.warnings.some((w) => w.code === 'usdz.skipped-no-geometry'));
   assert.strictEqual(res.primCount, 4);
 });
 check('normals: one per point, no interpolation metadata (Apple shape)', () => {
@@ -420,7 +449,7 @@ check('usda-lint rejects the shapes Apple never writes', () => {
   // a normals array whose length contradicts the points array
   assert(bad((t) => t.replace('normal3f[] normals = [(', 'normal3f[] normals = [(1, 1, 1), (')).errors.some((e) => e.code === 'MESH_NORMALS_LENGTH'));
   // index out of range is an error, never a warning
-  assert(bad((t) => t.replace('int[] faceVertexIndices = [0, 1, 2', 'int[] faceVertexIndices = [99, 1, 2')).errors.some((e) => e.code === 'MESH_INDEX_RANGE'));
+  assert(bad((t) => t.replace('int[] faceVertexIndices = [0, 1, 2', 'int[] faceVertexIndices = [99999, 1, 2')).errors.some((e) => e.code === 'MESH_INDEX_RANGE'));
   // defaultPrim that names nothing
   assert(bad((t) => t.replace('defaultPrim = "room"', 'defaultPrim = "nope"')).errors.some((e) => e.code === 'META_DEFAULTPRIM_MISSING'));
   // an unresolved material binding

@@ -98,16 +98,39 @@ Notes on the choices that matter:
 - **Meshes are flat in `Mesh_grp`**, named `<Kind>_<n>` with a per-kind counter
   (`Wall_1`, `Wall_2`, `Floor_1`, …). Objects use `Object_<n>` and carry their
   RoomPlan category in `Category` (`sofa`, `table`, …).
-- **Two geometry paths.** A surface with 3D `polygonCorners` becomes that
-  polygon: one n-gon in `faceVertexCounts`, indices `0..n-1` (USD triangulates
-  n-gons internally; the explicit fan form is equivalent and keeps the vertex
-  count inspectable). Anything else becomes an oriented box from `dimensions`
-  (x = length, y = height, z = thickness) placed by its 4×4 transform: 8 points,
-  6 quads.
+- **Two geometry paths, and walls always have volume.** A surface with 3D
+  `polygonCorners` becomes that polygon. For a *floor* that is one flat n-gon
+  (fan-triangulated). For a *wall* it is a plan outline with no thickness, which
+  reads as paper and — because back faces are culled — is invisible from the far
+  side; so a wall polygon is extruded along the surface's local +Z through the
+  thickness into a **prism**: two ear-clipped caps (plan outlines are routinely
+  concave) plus one quad per polygon edge, all wound outward
+  (`scripts/lib/polygon-prism.js`). Surface area is
+  `2·area(polygon) + perimeter·thickness` and the volume is
+  `area(polygon)·thickness`, both asserted in `tests/test_wall_prism.js`.
+  Anything else becomes an oriented box from `dimensions` (x = length,
+  y = height, z = thickness) placed by its 4×4 transform: 8 points, 6 quads.
 - **Thickness.** RoomPlan sometimes reports `dimensions.z = 0` for a wall. The
   exporter substitutes Apple's default **0.16 m** and labels it
   `string Thickness = "assumed"` + `double AssumedThickness` so nobody mistakes
   an assumption for a measurement.
+- **Real door and window holes.** A wall that an opening names in
+  `parentIdentifier` is *cut*, never merely overlaid. Each opening is projected
+  onto the wall's own axes (u = 0…length, v = 0…height, w = ±thickness/2), all
+  u and v boundaries form a grid, and only the cells outside every opening are
+  emitted: the front and back faces have genuine holes, each opening edge turns
+  into a reveal face, and the result stays a closed solid with every normal
+  pointing outward. Overlapping openings are cut once (the union). An opening
+  that cannot be placed sensibly — no 4×4 transform, no positive width/height,
+  more than 20 mm outside the wall, or a wall exported from `polygonCorners`
+  (an n-gon, not a box) — is **not** cut: the wall stays solid and the manifest
+  records `usdz.opening-not-cut`. An overshoot under 20 mm is clamped to the
+  wall and recorded as `usdz.opening-clamped`. A cut wall carries
+  `string Geometry = "box with openings cut out (grid decomposition)"`,
+  `int Openings`, `double CutArea` and `double ExposedArea`; the separate
+  `Door_*` / `Window_*` / `Opening_*` prims are kept (Apple keeps
+  `Window0.units` beside its wall) and marked `customData Role = "opening"`.
+  Code: `scripts/lib/wall-holes.js`, tests: `node tests/test_wall_holes.js`.
 - **Normals** are `faceVarying` (one per face-vertex) so an 8-point box still
   shades flat; they are omitted if any face is degenerate.
 - **`subdivisionScheme = "none"`** — polygons are rendered as authored, not

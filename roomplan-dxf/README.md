@@ -344,13 +344,27 @@ def Xform "room" ( kind = "assembly" )
 - Every mesh carries `customData = { string Category = "Wall" string Identifier = "W-A" }`,
   so the 3D prims map back to the same identifiers the DXF/manifest use.
 - A surface with 3D `polygonCorners` becomes that polygon (fan-triangulated);
-  every other surface becomes an oriented box built from `dimensions`
+  a WALL with `polygonCorners` is extruded into a solid **prism** (two caps plus
+  one side per edge) because a flat sheet is invisible from behind under
+  backface culling. Every other surface becomes an oriented box built from `dimensions`
   (x = length, y = height, z = thickness) and placed by its 4×4 transform.
   Meshes are triangulated with vertices split per face-vertex (a box is 12
   triangles over 36 vertices) and `normals` carries one normal per point — the
   same shape Apple's exporter writes, so no `interpolation` metadata is needed.
 - A wall with no measured thickness gets Apple's default **0.16 m** and says so:
   `string Thickness = "assumed"` plus `double AssumedThickness = 0.16`.
+- **Doors and windows are real holes.** A wall named by an opening's
+  `parentIdentifier` is cut: the opening is projected onto the wall's own axes,
+  a u/v grid over all opening edges marks cells solid or void, and only solid
+  cells are emitted. The front and back faces keep actual holes, the opening
+  edges become reveal faces, and the mesh stays closed with outward normals
+  (`scripts/lib/wall-holes.js`). Overlapping openings are cut once. An opening
+  that cannot be placed (no transform, outside the wall, or a wall exported from
+  `polygonCorners`) is not cut and the manifest records
+  `usdz.opening-not-cut`; a small overshoot under 20 mm is clamped and recorded
+  as `usdz.opening-clamped`. The `Door_*` / `Window_*` prims stay in the file as
+  separate components marked `Role = "opening"`, and a cut wall carries
+  `int Openings`, `double CutArea` and `double ExposedArea`.
 - Numbers are metres with a fixed 6 decimals and a `.` separator; a primitive
   with a non-finite transform or without usable geometry is **skipped with a
   warning** (the warning also lands in the manifest) instead of writing `NaN`.
@@ -362,7 +376,9 @@ semantics/panels, and no mesh from Apple's RealityKit mesh reconstruction. The
 model renders as solid, untextured geometry.
 
 Verification: the archive is opened by Python's own `zipfile` in the test suite
-(`node tests/test_usdz.js`), every payload is checked to start on a 64-byte
+(`node tests/test_usdz.js`), the wall holes are measured from the emitted
+triangles and audited for watertightness (`node tests/test_wall_holes.js`),
+every payload is checked to start on a 64-byte
 boundary, `testzip()` must return `None` (CRC-32 of every entry), and the output
 is byte-identical between two runs (the ZIP timestamp is fixed at 1980-01-01).
 **Apple's own `usdchecker`/AR Quick Look validation has not been run** — there
@@ -453,7 +469,8 @@ Unknown options are rejected, and the suite asserts that no external review or
 network code path is present (`--place-lookup` shells out only to the local
 `apple-location` binary).
 
-USDZ export is covered separately by `node tests/test_usdz.js` (36 checks): the
+USDZ export is covered separately by `node tests/test_usdz.js` (40 checks) and
+`node tests/test_wall_holes.js` (16 checks): the
 ZIP is reopened by Python's `zipfile`, payloads must be 64-byte aligned,
 `testzip()` must return `None`, the layer must declare `defaultPrim` /
 `metersPerUnit` / `upAxis`, mesh counts and box/polygon vertex counts are

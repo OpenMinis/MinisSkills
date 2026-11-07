@@ -153,12 +153,25 @@ each with `customData = { string Category string Identifier }`, each containing 
 that the Mesh binds with `rel material:binding`. Prim metadata always sits in the
 parenthesis block after the prim name, never inside the braces.
 
-Geometry: `polygonCorners` → that polygon, fan-triangulated; otherwise an
+Geometry: `polygonCorners` → that polygon, fan-triangulated — except for a
+WALL, where a flat plan polygon is extruded through the thickness into a prism
+(2 ear-clipped caps + one side per edge, `scripts/lib/polygon-prism.js`), because
+a zero-thickness wall is paper and vanishes under backface culling; otherwise an
 oriented box from `dimensions` (x length, y height, z thickness) placed by the
-4×4 transform. Every mesh is triangulated and its vertices are split per
+4×4 transform. Thickness precedence for walls: `dimensions.z`, then the source's
+`wallThickness`, then Apple's 0.16 m default (flagged `assumed`). Every mesh is triangulated and its vertices are split per
 face-vertex (a box = 12 triangles / 36 vertices), so `normal3f[] normals` has one
 normal per point and no `interpolation` metadata is written — Apple's shape. An unmeasured wall gets **0.16 m** (Apple's
-default) and is flagged `string Thickness = "assumed"`. A prim with a
+default) and is flagged `string Thickness = "assumed"`. **Door and window holes
+are real**: a wall named by an opening's `parentIdentifier` is cut by grid
+decomposition in the wall's own (u, v) plane (`scripts/lib/wall-holes.js`) — a
+full rectangle of cells is emitted, minus the cells inside an opening, so the
+front/back faces have holes and the opening edges become reveal faces. Openings
+that cannot be placed (no transform, outside the wall by more than 20 mm, or a
+wall exported from `polygonCorners`) leave the wall solid and record
+`usdz.opening-not-cut`; a sub-20 mm overshoot is clamped and recorded as
+`usdz.opening-clamped`. The `Door_*`/`Window_*` prims remain, marked
+`Role = "opening"`. A prim with a
 non-finite transform or no usable geometry is skipped with a warning (also in
 the manifest) — the layer never contains `NaN`. Source space is used as-is; the
 DXF sheet rotation is **not** applied.
@@ -166,8 +179,10 @@ DXF sheet rotation is **not** applied.
 Not exported: textures, UVs, materials, cameras, lights, semantics, RealityKit
 meshes. Nothing here has been validated by Apple's `usdchecker` or by AR Quick
 Look — the file must be opened on a real device to confirm. Format notes:
-[usdz](references/usdz.md). Test: `node tests/test_usdz.js` (36 checks, opens
-the ZIP with Python's `zipfile` and asserts `testzip() === None`).
+[usdz](references/usdz.md). Test: `node tests/test_usdz.js` (40 checks, opens
+the ZIP with Python's `zipfile` and asserts `testzip() === None`) plus
+`node tests/test_wall_holes.js` (16 checks: measured front area after cutting,
+watertight edges, outward normals, refusal warnings).
 
 ## Quantities and area report
 

@@ -170,7 +170,12 @@ sampled from 105 `.usda` layers inside four Apple `.usdz` captures (see
 on that corpus).
 
 Contract, in order of precedence: a surface with 3D `polygonCorners` is emitted
-as that polygon (fan-triangulated); otherwise an oriented box from `dimensions`
+as that polygon (fan-triangulated) — except a WALL, whose plan polygon is
+extruded along its local thickness axis into a closed prism (ear-clipped caps +
+one side quad per edge, `scripts/lib/polygon-prism.js`; a zero-thickness wall is
+paper and disappears from the far side under backface culling). Wall thickness
+precedence is `dimensions.z`, then the source `wallThickness`, then the 0.16 m
+default; otherwise an oriented box from `dimensions`
 + `transform` with x = length, y = height, z = thickness; a wall without
 measured thickness uses the Apple default 0.16 m and carries
 `string Thickness = "assumed"`. Meshes are **triangulated** with vertices split
@@ -183,6 +188,25 @@ Values are metres, 6 fixed decimals, `.` separator. A primitive with a
 non-finite transform or no usable geometry is **skipped with a warning**
 (surfaced in the manifest); `NaN`/`Infinity` are never written. Source space
 only: `align.js`'s sheet rotation is a drawing transform and is not applied.
+
+Door and window holes are real, not overlaid: an opening whose
+`parentIdentifier` names a wall box is projected onto that wall's own axes
+(u = 0…length, v = 0…height, w = ±thickness/2), the u/v boundaries of every
+opening form a grid, and only the cells outside every opening are emitted
+(`scripts/lib/wall-holes.js`, no CSG library). The front and back faces
+therefore have genuine holes, each opening edge becomes a reveal face, the mesh
+stays closed and every normal points outward; overlapping openings are cut once
+as a union. An opening that cannot be placed sensibly — no 4×4 transform, no
+positive width/height, more than 20 mm outside the wall, or a wall exported from
+`polygonCorners` (an n-gon, not a box) — is not cut: the wall stays solid and
+the manifest records `usdz.opening-not-cut`. An overshoot under 20 mm is clamped
+and recorded as `usdz.opening-clamped`. A cut wall carries
+`string Geometry = "box with openings cut out (grid decomposition)"`,
+`int Openings`, `double CutArea`, `double ExposedArea`; the separate `Door_*`,
+`Window_*`, `Opening_*` prims are retained and marked
+`customData Role = "opening"`. Tests: `tests/test_wall_holes.js` measures the
+front-face area from the emitted triangles (4 × 2.5 wall with a 0.9 × 2.1 door
+gives 8.11 m²), the signed volume, and the directed-edge closure.
 
 Out of scope for `usdz-v1` (stated, not hidden): textures, UVs, cameras,
 lights, semantics/panels, RealityKit mesh data. **No Apple validation is
