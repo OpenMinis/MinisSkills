@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:roomplan-dxf:schema:capture-v1",
+  "title": "roomplan-dxf capture-v1 — normalised input",
+  "description": "Normalised capture produced by an input adapter (scripts/lib/capture-export.js buildCapture) from whatever the producer wrote. Contract: SPEC.md section 3 (capture-v1) and section 4 (provenance). Self-contained: every $ref points inside this document, no network reference.",
+  "type": "object",
+  "required": ["schemaVersion", "source", "surfaces", "objects", "rooms"],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": {
+      "const": "roomplan.capture/1",
+      "description": "SPEC.md section 3: pattern roomplan.capture/1."
+    },
+    "source": {
+      "type": "object",
+      "required": ["sha256"],
+      "additionalProperties": true,
+      "description": "SPEC: source{filename, sha256, bytes, dialect, dialectEvidence[], producer?}. The current adapter emits sha256/byteCount and puts dialect on the top-level 'dialect' object (see README 'Data contract' and REPORT.md contradiction C-2); the SPEC names are accepted here as aliases.",
+      "properties": {
+        "filename": { "type": ["string", "null"], "description": "SPEC name; only emitted with --geo." },
+        "originalFilename": { "type": ["string", "null"], "description": "Adapter name for source.filename (emitted with --geo)." },
+        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-fA-F]{0,64}$" },
+        "bytes": { "type": ["integer", "null"], "minimum": 0, "description": "SPEC name." },
+        "byteCount": { "type": ["integer", "null"], "minimum": 0, "description": "Adapter name for source.bytes." },
+        "dialect": { "type": ["string", "null"], "description": "SPEC name; the adapter emits it top-level." },
+        "dialectEvidence": { "type": "array", "items": { "type": "string" }, "description": "SPEC name; the adapter emits it top-level." },
+        "producer": { "type": ["string", "null"] },
+        "originalBytesPreserved": { "type": "boolean" },
+        "originalBytesEmbedded": { "type": "boolean" },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "dialect": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "enum": ["raw", "optimized", null] },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "units": {
+      "const": "metres",
+      "description": "SPEC section 3 rule: metres only. The adapter states units under 'conventions' instead of a top-level field (contradiction C-2)."
+    },
+    "axes": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "SPEC: axes{world:'y-up', plan:'x,-z'}. Adapter states the same fact under 'conventions.sourceAxes'.",
+      "properties": {
+        "world": { "enum": ["y-up", "y-down", "z-up"] },
+        "plan": { "type": "string" }
+      }
+    },
+    "alignment": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "SPEC: alignment{matrix[16]|null, appliedItself:false}. The adapter uses 'applied' rather than 'appliedItself'.",
+      "properties": {
+        "matrix": { "anyOf": [{ "$ref": "#/$defs/transform" }, { "type": "null" }] },
+        "appliedItself": { "type": "boolean" },
+        "applied": { "type": "boolean" },
+        "method": { "type": ["string", "null"] }
+      }
+    },
+    "stories": {
+      "type": "array",
+      "description": "SPEC: stories[{story, label, floorElevation?}]. Not emitted by the current adapter (stories are implicit in surfaces[].story) — see REPORT.md C-2.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["story"],
+        "properties": {
+          "story": { "type": "integer" },
+          "label": { "type": ["string", "null"] },
+          "floorElevation": { "type": ["number", "null"] }
+        }
+      }
+    },
+    "surfaces": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/surface" }
+    },
+    "objects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sourceObject" }
+    },
+    "rooms": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/room" }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "SPEC: meta{project?, date?, headingDegrees?, latitude?, longitude?, orientationDegrees?, orientationConfidence?, storyCount?}. The adapter nests orientation under meta.orientation and keeps location out unless --geo.",
+      "properties": {
+        "project": { "type": ["string", "null"] },
+        "date": { "type": ["string", "null"] },
+        "headingDegrees": { "type": ["number", "null"] },
+        "orientationDegrees": { "type": ["number", "null"] },
+        "orientationUncertaintyDegrees": { "type": ["number", "null"] },
+        "orientationConfidence": {
+          "anyOf": [
+            { "$ref": "#/$defs/confidence" },
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "latitude": { "type": ["number", "null"], "minimum": -90, "maximum": 90 },
+        "longitude": { "type": ["number", "null"], "minimum": -180, "maximum": 180 },
+        "storyCount": { "type": ["integer", "null"], "minimum": 0 },
+        "storyAssignmentMethod": { "type": ["string", "null"] },
+        "orientation": { "type": "object", "additionalProperties": true },
+        "location": { "type": "object", "additionalProperties": true },
+        "metadataFallbackFields": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "raw": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "SPEC: raw{opaque:['coreModel'], excluded:[]} — never silently dropped. The adapter reports the same fact under 'completeness' (lossless:false, coreModel status).",
+      "properties": {
+        "opaque": { "type": "array", "items": { "type": "string" } },
+        "excluded": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "conventions": { "type": "object", "additionalProperties": true },
+    "coordinateState": { "type": "string" },
+    "completeness": { "type": "object", "additionalProperties": true },
+    "sourceRecords": { "type": "object", "additionalProperties": true },
+    "sourceTree": {},
+    "sourceMetaTree": {},
+    "privacy": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "finiteNumber": { "type": "number" },
+    "transform": {
+      "type": "array",
+      "description": "SPEC: 16 numbers, column-major; translation indices 12,13,14.",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": { "type": "number" }
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0 },
+        "y": { "type": "number", "minimum": 0 },
+        "z": { "type": "number", "minimum": 0 }
+      }
+    },
+    "point3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "pointXZ": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "z"],
+      "properties": {
+        "x": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "confidence": {
+      "description": "SPEC: source confidence tag. The adapter emits the tagged-object form with the emitted tag set to {}.",
+      "oneOf": [
+        { "enum": ["high", "medium", "low", "unknown", null] },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "high": { "type": "object" },
+            "medium": { "type": "object" },
+            "low": { "type": "object" },
+            "unknown": { "type": "object" }
+          }
+        }
+      ]
+    },
+    "provenanceStatus": {
+      "description": "SPEC section 4 provenance vocabulary.",
+      "enum": ["supplied", "computed", "reconstructed", "estimated", "unavailable"]
+    },
+    "coverage": {
+      "description": "SPEC section 4: complete | partial, with counts included/expected. The engine encodes the counts as sibling fields.",
+      "oneOf": [
+        { "enum": ["complete", "partial", "unavailable", "computed", "estimated", "source-derived", "inferred"] },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["complete", "partial"] },
+            "included": { "type": "integer", "minimum": 0 },
+            "expected": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "provenance": {
+      "description": "SPEC: every quantity carries its provenance, with a machine-readable reason.",
+      "oneOf": [
+        { "$ref": "#/$defs/provenanceStatus" },
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["status"],
+          "properties": {
+            "status": { "$ref": "#/$defs/provenanceStatus" },
+            "coverage": { "$ref": "#/$defs/coverage" },
+            "reason": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "id": { "type": ["string", "integer", "null"], "description": "SPEC name." },
+        "identifier": { "type": ["string", "integer", "null"], "description": "Adapter name for id (the adapter never invents a second identity for a surface)." },
+        "sourceId": { "type": ["string", "integer", "null"], "description": "SPEC name for the producer-side identity." },
+        "kind": { "enum": ["wall", "floor", "door", "window", "opening"] },
+        "story": { "type": ["integer", "null"] },
+        "parentId": { "type": ["string", "null"], "description": "SPEC name." },
+        "parentIdentifier": { "type": ["string", "null"], "description": "Adapter name for parentId." },
+        "category": { "type": ["string", "null"] },
+        "categoryDetail": { "type": ["string", "null"] },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "dimensions": { "$ref": "#/$defs/dimensions" },
+        "thickness": { "type": ["number", "null"], "minimum": 0, "description": "SPEC name." },
+        "wallThickness": { "type": ["number", "null"], "minimum": 0, "description": "Adapter name for thickness." },
+        "transform": { "$ref": "#/$defs/transform" },
+        "polygonCorners": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/point3" }
+        },
+        "isOpen": { "type": ["boolean", "null"] },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "identifierProvenance": { "type": "string" },
+        "dimensionsProvenance": { "type": "string" },
+        "sourceRecordIndex": { "type": ["string", "integer", "null"] },
+        "sourceStory": { "type": ["integer", "null"] },
+        "sourceStoryProvenance": { "type": "string" },
+        "curve": { "type": ["object", "null"], "additionalProperties": true },
+        "attributes": {},
+        "sections": {}
+      }
+    },
+    "sourceObject": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "id": { "type": ["string", "integer", "null"] },
+        "identifier": { "type": ["string", "integer", "null"] },
+        "sourceId": { "type": ["string", "integer", "null"] },
+        "kind": { "const": "object" },
+        "category": { "type": ["string", "null"] },
+        "story": { "type": ["integer", "null"] },
+        "dimensions": { "$ref": "#/$defs/dimensions" },
+        "transform": { "$ref": "#/$defs/transform" },
+        "polygonCorners": { "type": "array", "items": { "$ref": "#/$defs/point3" } },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "room": {
+      "type": "object",
+      "additionalProperties": true,
+      "anyOf": [
+        { "required": ["identifier"] },
+        { "required": ["id"] },
+        { "required": ["sourceRoomIndex"] }
+      ],
+      "properties": {
+        "id": { "type": ["string", "integer", "null"] },
+        "identifier": { "type": ["string", "integer", "null"] },
+        "sourceId": { "type": ["string", "integer", "null"] },
+        "sourceRoomIndex": { "type": ["integer", "null"] },
+        "label": { "type": ["string", "null"] },
+        "labelProvenance": { "type": "string" },
+        "category": { "type": ["string", "null"] },
+        "story": { "type": ["integer", "null"] },
+        "polygonXZ": { "type": "array", "items": { "$ref": "#/$defs/pointXZ" } },
+        "vertices": { "type": ["array", "null"], "items": { "$ref": "#/$defs/pointXZ" }, "description": "Adapter name for polygonXZ." },
+        "declaredArea": { "type": ["number", "null"], "minimum": 0, "description": "SPEC name: the producer's number, never added to a computed one." },
+        "area": { "type": ["number", "null"], "description": "Adapter name for declaredArea." },
+        "floorHeight": { "type": ["number", "null"] },
+        "ceilingPlane": { "type": ["object", "array", "null"], "description": "SPEC name; adapter emits ceiling/ceilingCurrent." },
+        "ceiling": { "type": ["array", "object", "null"] },
+        "ceilingCurrent": { "type": ["array", "object", "null"] },
+        "centerX": { "type": "number" },
+        "centerZ": { "type": "number" },
+        "doorIdentifiers": { "type": "array" },
+        "windowIdentifiers": { "type": "array" },
+        "openingIdentifiers": { "type": "array" },
+        "edges": { "type": "array" },
+        "curvedEdges": { "type": "array" },
+        "outerHull": {},
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    }
+  }
+}
