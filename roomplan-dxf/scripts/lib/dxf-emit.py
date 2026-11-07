@@ -462,7 +462,7 @@ def main():
                 title = draw_title_block(msp, frame, sheet_meta, text_height, title_h,
                                          story_label=sheet_meta["storyLabel"])
                 north = draw_north_arrow(msp, frame, meta.get("north") or {}, text_height, radius)
-                note = meta.get("sourceNote")
+                note = meta.get("sourceNote") if sheet is sheets[0] else None
                 if note:
                     nh = 0.50 * text_height
                     add_text(msp, fit_text(note, frame[2] - frame[0], nh)[0],
