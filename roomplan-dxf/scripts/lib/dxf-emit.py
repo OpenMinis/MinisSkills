@@ -247,6 +247,8 @@ def draw_north_arrow(msp, frame, north, text_height, north_radius):
 
     # Eight ticks: long at the four cardinal points, short on the diagonals.
     for i in range(8):
+        if i == 0:
+            continue  # north tick is omitted: the letter N occupies that space
         ang = math.radians(i * 45.0)
         ax, ay = math.sin(ang), math.cos(ang)
         inner = 0.86 * r if i % 2 == 0 else 0.90 * r
@@ -255,19 +257,25 @@ def draw_north_arrow(msp, frame, north, text_height, north_radius):
                            dxfattribs={"layer": NORTH_LAYER})
 
     # Needle: north half (tip) and south half (tail), both filled.
-    tip = pt(1.0 * r, 0.0)
+    tip = pt(0.70 * r, 0.0)
     tail = pt(-0.72 * r, 0.0)
     left = pt(0.0, -0.16 * r)
     right = pt(0.0, 0.16 * r)
     msp.add_solid([tip, left, right], dxfattribs={"layer": NORTH_LAYER})
-    msp.add_solid([tail, left, right], dxfattribs={"layer": NORTH_LAYER})
+    # South half stays an outline so the filled north half reads as a needle.
+    msp.add_lwpolyline([tail, left, right], close=True,
+                       dxfattribs={"layer": NORTH_LAYER})
     msp.add_line((cx, cy), tip, dxfattribs={"layer": NORTH_LAYER})
 
     label = "N" if known else "N?"
     # The cardinal letter belongs to the rose itself: place it inside the
     # inner ring on the north axis and rotate it with the needle.
-    txt = msp.add_text(label, dxfattribs={"layer": NORTH_LAYER, "height": 0.22 * r})
-    txt.set_placement((cx + 0.52 * r * ux - 0.06 * r, cy + 0.52 * r * uy - 0.08 * r))
+    txt = msp.add_text(label, dxfattribs={"layer": NORTH_LAYER, "height": 0.20 * r})
+    # The letter sits on the north axis between the needle tip (0.70 r) and
+    # the outer ring (1.00 r), centred on the axis so it stays inside the rose.
+    from ezdxf.enums import TextEntityAlignment
+    txt.set_placement((cx + 0.85 * r * ux, cy + 0.85 * r * uy),
+                      align=TextEntityAlignment.MIDDLE_CENTER)
     txt.dxf.rotation = -math.degrees(theta)
 
     return {"centre": [round(cx, 4), round(cy, 4)], "radius": round(r, 4),
