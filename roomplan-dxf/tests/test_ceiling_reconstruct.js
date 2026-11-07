@@ -1,7 +1,7 @@
 'use strict';
 /* Wall-top ceiling reconstruction (G1 port) — the ten acceptance cases.
  * Reference numbers come from the archived engine
- * /var/minis/shared/roomplan-old-engine-review-20261107/ArchiDrawing-initial/web/geometry.js
+ * the archived ArchiDrawing web/geometry.js (v0.1)
  * (room 4x5 m, eave 1.6 m, ridge 2.5 m, knee wall 5x1.6 m):
  *   gable 21.931712 = 20 + 2*(hypot(2,0.9)-2)*5
  *   shed  20.500000 = 20 + (hypot(4,0.9)-4)*5

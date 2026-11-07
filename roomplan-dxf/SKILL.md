@@ -1,6 +1,6 @@
 ---
 name: roomplan-dxf
-description: 'Convert RoomPlan or Polycam scans to audited DXF with title block and north arrow. Use for roomplan, Polycam, floor plans, DXF, measurements.'
+description: 'Convert RoomPlan or Polycam scans to audited DXF and quantities: room areas, ceilings from slopes, wall net/paint, handoff table.'
 ---
 
 # RoomPlan scan to DXF
