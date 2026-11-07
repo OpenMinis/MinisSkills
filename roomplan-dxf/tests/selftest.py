@@ -502,7 +502,7 @@ class ConverterTests(unittest.TestCase):
         self.assertTrue({"FRAME", "TITLE", "NORTH"} <= layers)
         self.assertEqual(manifest["frame"], True)
         self.assertGreater(manifest["entityCount"], manifest["geometryEntityCount"])
-        self.assertEqual(len(doc.modelspace().query("CIRCLE")), 3)  # three rings per compass
+        self.assertEqual(len(doc.modelspace().query("CIRCLE")), 2)  # inner ring + pivot per compass
         title_text = [e.dxf.text for e in doc.modelspace().query("TEXT") if e.dxf.layer == "TITLE"]
         self.assertIn("NTS", title_text)
         self.assertIn("by ARCHIFEST", title_text)
@@ -812,7 +812,7 @@ class ConverterTests(unittest.TestCase):
     def test_two_story_two_north_arrows(self):
         manifest, doc = self._two_story("two-story-north")
         circles = [e for e in doc.modelspace().query("CIRCLE") if e.dxf.layer == "NORTH"]
-        self.assertEqual(len(circles), 6)  # three rings per compass
+        self.assertEqual(len(circles), 4)  # inner ring + pivot per compass
         bearings = north_arrow_bearings(doc)
         self.assertEqual(len(bearings), 2)
         self.assertLess(angle_difference(bearings[0], bearings[1]), 1e-6)
@@ -895,7 +895,7 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(manifest["sheetLayout"]["mode"], "single-sheet")
         self.assertEqual(manifest["sheetLayout"]["sheetCount"], 1)
         self.assertEqual(len(manifest["sheetFurniture"]["sheets"]), 1)
-        self.assertEqual(len([e for e in doc.modelspace().query("CIRCLE")]), 3)  # three rings per compass
+        self.assertEqual(len([e for e in doc.modelspace().query("CIRCLE")]), 2)  # inner ring + pivot per compass
         self.assertEqual(len(north_arrow_bearings(doc)), 1)
 
     # ---- --place / --place-lookup ----------------------------------------

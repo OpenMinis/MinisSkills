@@ -7,7 +7,7 @@ payload is present (i.e. whenever `--no-frame` is not given):
 |---|---|---|---|
 | sheet frames + title-block borders | `FRAME` | 8 | one frame rectangle per story, title-block outline, row separators, column divider |
 | all sheet text | `TITLE` | 7 | 6 rows x 2 cells per sheet and the `N`/`N?` label |
-| north symbol | `NORTH` | 7 | one circle + shaft + filled arrow head per sheet |
+| north symbol | `NORTH` | 7 | broken outer ring, inner ring, ticks, two-tone needle, upright `N` in the ring gap per sheet |
 
 Plan geometry is copied verbatim (only translated when sheets are laid out side
 by side); the sheet furniture is added **after** it and never moves, rotates or
@@ -24,7 +24,7 @@ All sizes are fractions of the plan bounding box (`span` = its largest side):
 | title block width | 40 % of the frame width | right-aligned to the frame |
 | title block height | `rows x 1.6 x text height` (6 rows) | content driven, so the text always has room |
 | text height | 1.6 % of `span` | nominal; reduced per cell when a value is too long |
-| north circle radius | 5 % of `span` | centre 2.2 r from the frame's top-right corner |
+| north rose radius | 5 % of `span` | centre 2.2 r from the frame's top-right corner; `N` sits upright in a 24° gap in the outer ring |
 | gap between story frames | 8 % of the widest frame width | horizontal, left-to-right order |
 
 The title block is **not** placed over the plan: the frame is extended

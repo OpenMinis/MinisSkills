@@ -222,10 +222,11 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
 
 
 def draw_north_arrow(msp, frame, north, text_height, north_radius):
-    """Compass rose: rings, cardinal ticks, two-tone needle, N label.
+    """Professional compass rose.
 
-    One LINE remains the measurable shaft (centre -> north tip); all other
-    decoration is CIRCLE/LWPOLYLINE/SOLID so the bearing stays testable.
+    Outer ring is broken at the top so the upright letter N sits in the gap
+    between the two rings. The needle is a slim diamond: north half filled,
+    south half outlined. One LINE remains the measurable shaft.
     """
     fx0, fy0, fx1, fy1 = frame
     r = north_radius
@@ -241,42 +242,36 @@ def draw_north_arrow(msp, frame, north, text_height, north_radius):
     def pt(a, b):
         return (cx + a * ux + b * px, cy + a * uy + b * py)
 
-    msp.add_circle((cx, cy), r, dxfattribs={"layer": NORTH_LAYER})
-    msp.add_circle((cx, cy), 0.80 * r, dxfattribs={"layer": NORTH_LAYER})
-    msp.add_circle((cx, cy), 0.06 * r, dxfattribs={"layer": NORTH_LAYER})
+    # Outer ring: two arcs leave a 24-degree gap at the top for the letter.
+    gap = 12.0
+    lw = {"layer": NORTH_LAYER}
+    msp.add_arc((cx, cy), r, 90.0 + gap, 450.0 - gap, dxfattribs=lw)
+    msp.add_circle((cx, cy), 0.78 * r, dxfattribs=lw)
 
-    # Eight ticks: long at the four cardinal points, short on the diagonals.
-    for i in range(8):
-        if i == 0:
-            continue  # north tick is omitted: the letter N occupies that space
+    # Ticks on the inter-cardinal and cardinal points, north omitted.
+    for i in range(1, 8):
         ang = math.radians(i * 45.0)
         ax, ay = math.sin(ang), math.cos(ang)
-        inner = 0.86 * r if i % 2 == 0 else 0.90 * r
+        inner = 0.83 * r if i % 2 == 0 else 0.87 * r
         msp.add_lwpolyline([(cx + inner * ax, cy + inner * ay),
-                            (cx + 1.0 * r * ax, cy + 1.0 * r * ay)],
-                           dxfattribs={"layer": NORTH_LAYER})
+                            (cx + 0.96 * r * ax, cy + 0.96 * r * ay)],
+                           dxfattribs=lw)
 
-    # Needle: north half (tip) and south half (tail), both filled.
-    tip = pt(0.70 * r, 0.0)
+    # Slim diamond needle, north half filled, south half outline.
+    tip = pt(0.72 * r, 0.0)
     tail = pt(-0.72 * r, 0.0)
-    left = pt(0.0, -0.16 * r)
-    right = pt(0.0, 0.16 * r)
-    msp.add_solid([tip, left, right], dxfattribs={"layer": NORTH_LAYER})
-    # South half stays an outline so the filled north half reads as a needle.
-    msp.add_lwpolyline([tail, left, right], close=True,
-                       dxfattribs={"layer": NORTH_LAYER})
-    msp.add_line((cx, cy), tip, dxfattribs={"layer": NORTH_LAYER})
+    left = pt(0.0, -0.085 * r)
+    right = pt(0.0, 0.085 * r)
+    msp.add_solid([tip, left, right], dxfattribs=lw)
+    msp.add_lwpolyline([tail, left, right], close=True, dxfattribs=lw)
+    msp.add_circle((cx, cy), 0.045 * r, dxfattribs=lw)
+    msp.add_line((cx, cy), tip, dxfattribs=lw)
 
+    # N upright in the ring gap: part of the rose, never rotated with the needle.
     label = "N" if known else "N?"
-    # The cardinal letter belongs to the rose itself: place it inside the
-    # inner ring on the north axis and rotate it with the needle.
     txt = msp.add_text(label, dxfattribs={"layer": NORTH_LAYER, "height": 0.20 * r})
-    # The letter sits on the north axis between the needle tip (0.70 r) and
-    # the outer ring (1.00 r), centred on the axis so it stays inside the rose.
     from ezdxf.enums import TextEntityAlignment
-    txt.set_placement((cx + 0.85 * r * ux, cy + 0.85 * r * uy),
-                      align=TextEntityAlignment.MIDDLE_CENTER)
-    txt.dxf.rotation = -math.degrees(theta)
+    txt.set_placement((cx, cy + 0.89 * r), align=TextEntityAlignment.MIDDLE_CENTER)
 
     return {"centre": [round(cx, 4), round(cy, 4)], "radius": round(r, 4),
             "label": label, "degreesClockwiseFromDrawingUp": degrees,
