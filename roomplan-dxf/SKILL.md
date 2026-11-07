@@ -1,6 +1,6 @@
 ---
 name: roomplan-dxf
-description: 'Convert Apple RoomPlan raw or optimized JSON scans (file or project directory with meta.json) into a metres DXF plan with frame, title block and north arrow, plus a lossy manifest; then audit units, entities and layers. No capture, cloud or DWG writing.'
+description: 'Convert RoomPlan or Polycam scans to audited DXF with title block and north arrow. Use for roomplan, Polycam, floor plans, DXF, measurements.'
 ---
 
 # RoomPlan scan to DXF
