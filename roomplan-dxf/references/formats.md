@@ -64,6 +64,12 @@ overrides them.
 
 ## Optimized export (`format_version: 1`)
 
+This dialect is a **third-party post-processed export**, commonly produced by
+Polycam-style tools. It is not an Apple `CapturedRoom`/`CapturedStructure`
+schema, and the field names below are an observed contract from real files
+rather than a published vendor specification. Treat unknown keys and versions
+as unsupported.
+
 `format_version` must be the integer `1`; any other value is rejected without
 fallback. Elements live in `walls`, `floors`, `doors`, `windows`, `openings`,
 `objects`; rooms in `rooms[]`.

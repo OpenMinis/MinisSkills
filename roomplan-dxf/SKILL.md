@@ -9,7 +9,7 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
 
 ## One flow
 
-1. **Identify the dialect.** Raw Apple export (`walls`/`floors`/`doors`, optionally `rooms[]` or `captureSessions[]`) or optimized `format_version: 1` (`rooms[]` with `label_automated`/`vertices_x`). Do not guess from the filename; read the structure. See [formats](references/formats.md).
+1. **Identify the dialect.** Raw Apple export (`walls`/`floors`/`doors`, optionally `rooms[]` or `captureSessions[]`) or optimized `format_version: 1` (`rooms[]` with `label_automated`/`vertices_x`). Raw is Apple's own `CapturedRoom`/`CapturedStructure` encoding; “optimized” is a third-party post-processed export (commonly Polycam-style) whose field names are an observed contract, not an Apple schema. Do not guess from the filename; read the structure. See [formats](references/formats.md).
 2. **Convert** from this package directory:
 
    ```sh

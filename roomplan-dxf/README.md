@@ -96,7 +96,11 @@ not prove dimensional accuracy.
   (`rooms[]`), or a wrapper with `captureSessions[].roomplanSessions[]`;
 - optimized exports with integer `format_version: 1`, `rooms[]` carrying
   `label_automated`/`vertices_x`/`vertices_z`, and optional
-  `alignment_transform`.
+  `alignment_transform`. “Optimized” is **not an Apple format**: it is a
+  third-party post-processed export (commonly Polycam-style) that carries
+  pre-computed room polygons and labels. Its field names are an observed
+  contract from real files, not a published vendor schema, and different
+  producers may vary.
 
 Unrecognized wrappers, empty room lists and unsupported versions are rejected
 with an error — never converted into an empty or partial drawing. See
