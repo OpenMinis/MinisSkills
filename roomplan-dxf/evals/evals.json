@@ -51,6 +51,27 @@
         {"text": "Reject the undocumented option and confirm no external review API is used.", "type": "contains"},
         {"text": "Treat location metadata as sensitive and avoid unnecessary disclosure.", "type": "contains"}
       ]
+    },
+    {
+      "id": 6,
+      "prompt": "The north arrow on my exported plan points the wrong way (it looks 180 degrees off) and the two floors are drawn on top of each other.",
+      "expected_output": "Confirm the default bearing formula is (alignmentOffset - heading) mod 360, i.e. the flipped form, and that the flip is recorded as northArrow.flip180 plus roomplan.north-flip-applied; the legacy 180 - heading + offset form is only reachable with --no-north-flip. Explain that a plan with more than one story is emitted as one frame per story side by side, gap 8% of the widest frame width, each with its own title block (Kat row: Prizemlje / 1. kat / Podrum) and north arrow, and that --no-frame keeps a single drawing and warns roomplan.stories-not-separated. Point at manifest stories[] and sheetLayout for verification instead of eyeballing the DXF.",
+      "files": [],
+      "assertions": [
+        {"text": "State the default formula (alignmentOffset - heading) mod 360 and the --no-north-flip escape hatch.", "type": "contains"},
+        {"text": "State that 2+ stories produce one frame per story, each with its own title block and Kat row.", "type": "contains"},
+        {"text": "Mention roomplan.stories-not-separated for --no-frame multi-story output.", "type": "contains"}
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Put the street address in the title block automatically, and make sure the long project name does not overflow its cell.",
+      "expected_output": "Explain that --place <text> is free text and wins, --place-lookup is opt-in in this public package and calls only the local Apple `apple-location geocode` helper once (unavailable on plain Linux; failure only warns), otherwise --geo coordinates or 'location withheld'. Never claim a third-party geocoder. For the cell: text is shrunk to at most 55% of nominal height, then truncated with an ellipsis, always one line; check sheetFurniture.sheets[].titleBlock.cells for textHeight/truncated.",
+      "files": [],
+      "assertions": [
+        {"text": "Describe --place and the opt-in --place-lookup using only the local Apple helper.", "type": "contains"},
+        {"text": "Describe shrink-then-truncate fitting so the project name stays on one line inside its cell.", "type": "contains"}
+      ]
     }
   ]
 }

@@ -75,14 +75,22 @@ node scripts/roomplan-to-dxf.js "My scan project/" build/ \
   --project "Kuca HH" --author "Ana" --scale "1:100" --sheet A-101
 node scripts/roomplan-to-dxf.js scan.json build/ --no-frame
 
+# Location cell: free text, or one reverse geocode through the LOCAL Apple helper
+node scripts/roomplan-to-dxf.js scan.json build/ --place "Zagreb, Hrvatska"
+node scripts/roomplan-to-dxf.js scan.json build/ --place-lookup
+
+# North arrow: flipped formula is the DEFAULT, legacy formula is one flag away
+node scripts/roomplan-to-dxf.js scan.json build/ --no-north-flip
+
 # Audit the result
 python3 -B scripts/inspect_dxf.py build/scan.dxf
 ```
 
 Options: `--force`, `--geo`, `--project <text>`, `--author <text>`,
-`--scale <text>`, `--sheet <text>`, `--no-frame`. Unknown options and missing
-option values are rejected with exit 1; an existing output without `--force`
-exits 2.
+`--scale <text>`, `--sheet <text>`, `--place <text>`, `--place-lookup`,
+`--north-flip` (default), `--no-north-flip`, `--no-frame`. Unknown options and
+missing option values are rejected with exit 1; an existing output without
+`--force` exits 2.
 
 `--geo` never georeferences the drawing. It only copies `latLonAlt` and compass
 values present in an optimized source into `sourceGeo` (including the 0–1
@@ -157,21 +165,67 @@ bottom-right and a north arrow in the top-right, on the separate layers
 `FRAME`, `TITLE` and `NORTH`. Room geometry, units and transforms are not
 touched. Full details: [references/title-block.md](references/title-block.md).
 
-- Title block rows: **Projekt / Lokacija / Mjerilo / Datum + list / Nacrtao**
-  (`by ARCHIFEST` by default).
+- Title block rows: **Projekt / Kat / Lokacija / Mjerilo / Datum + list /
+  Nacrtao** (`by ARCHIFEST` by default).
+- **Kat** names the floor of that sheet: `0` = Prizemlje, `1` = `1. kat`,
+  `2` = `2. kat`, negative = Podrum.
+- **Every cell text is fitted to its cell**: reduced height first (down to
+  55 %), then truncated with `…`, always one line — a long project name never
+  wraps and never reaches the neighbouring cell. Width is estimated as
+  `0.6 x text height` per character, and the self-test verifies the drawn text
+  of every cell against its cell rectangle (5 % tolerance).
 - **The scale is text.** It defaults to `NTS`; `--scale 1:100` only labels the
   sheet. Nothing is rescaled and no paper scale is claimed — this is a
   model-space plan, not a plottable layout.
-- **Location** prints `lat, lon` only with `--geo`; otherwise the cell reads
-  `location withheld` and no coordinate appears anywhere in the DXF.
+- **Location** resolution order: `--place "<text>"` (free text, always wins) →
+  `--place-lookup` (one reverse geocode) → `--geo` `lat, lon` → the literal
+  `location withheld`. Without one of those no coordinate appears anywhere in
+  the DXF. `meta.json` carries no place name, so `--place` is the only way to
+  put a human place name on the sheet without a lookup.
+- **`--place-lookup` is opt-in in this public package (OFF by default)** and
+  needs the **local Apple** helper `apple-location geocode` — it exists in the
+  iOS/Minis environment and is simply reported as `unavailable` elsewhere, so
+  the same command is safe to script on Linux. Only the Apple on-device
+  geocoder is used, never a third-party service, and coordinates are sent to it
+  only when you ask for the lookup. A failure is a warning
+  (`roomplan.place-lookup-failed` / `-unavailable` / `-no-coordinates`), never
+  an error: the cell falls back to coordinates or `location withheld`.
 - **North** uses the scan's `orientation.orientation_degrees`, else
   `meta.json headingDegrees`, and is drawn with or without `--geo`
-  (orientation is not a location). It is labelled `N` whenever a bearing
-  exists, `N?` only when there is none, and is marked `approx` in the manifest
-  when it comes from metadata or from low-confidence compass data. The
-  rotation convention and its verification against the vendor's own PDF and
-  DXF are documented in
+  (orientation is not a location). Bearing:
+  `(alignmentOffset - heading) mod 360`, i.e. `360 - heading + offset`. The
+  previous form `180 - heading + offset` was **exactly 180° wrong** on the real
+  drawing this was checked against (165.3° drawn vs. 345.3° expected); the flip
+  is the default, is recorded as `northArrow.flip180` plus
+  `roomplan.north-flip-applied`, and `--no-north-flip` restores the legacy
+  formula. It is labelled `N` whenever a bearing exists, `N?` only when there
+  is none, and is marked `approx` in the manifest when it comes from metadata
+  or from low-confidence compass data. Details, including why the vendor
+  artefacts are ambiguous about the arrow head, are in
   [references/title-block.md](references/title-block.md#north-arrow).
+
+### Multiple stories: one frame per floor
+
+A plan with more than one story is drawn as **separate frames side by side**,
+one per floor, each with its own bbox, frame, title block (with its `Kat` row)
+and north arrow. The horizontal gap is **8 % of the widest frame width**, the
+order is ascending story number, and each frame holds only its own `S<n>_*`
+entities — the geometry is translated, never rescaled or re-projected.
+
+```text
+┌────────────┐  8 %  ┌────────────┐
+│ Prizemlje  │       │ 1. kat     │
+│   plan     │       │   plan     │
+│  [title]   │       │  [title]   │
+└────────────┘       └────────────┘
+```
+
+`--no-frame` deliberately keeps the old single common drawing (no frames, no
+title blocks, floors overlapping) and then emits the warning
+`roomplan.stories-not-separated`, so that drawing can never be mistaken for a
+single-level plan. The manifest carries `stories` (story, label, entityCount,
+bbox), `sheetLayout` (`mode`, `sheetCount`, `gapRatio`, `storiesSeparated`) and
+one `sheetFurniture.sheets` entry per frame.
 
 ## Inputs supported
 
@@ -201,7 +255,8 @@ transform convention, story clustering and projection rules.
 - `<name>.roomplan.json` — manifest: source SHA-256, dialect, input kind,
   `sourceMetadata`, story count and method, alignment, entity counts
   (`entityCount` incl. sheet furniture, `geometryEntityCount` plan only),
-  layers, `titleBlock`, `northArrow`, `lossy: true`, warnings.
+  layers, `titleBlock`, `northArrow`, `stories`, `sheetLayout`,
+  `placeLookup`, `sheetFurniture`, `lossy: true`, warnings.
 
 ## What the DXF contains
 
@@ -277,14 +332,35 @@ truth and is sufficient for most CAD/BIM imports.
 python3 -B -m unittest discover -s tests -p 'selftest.py' -v
 ```
 
-The suite ships **no fixture files**: every input (raw, optimized, project
-directory with `meta.json`) is generated in a fresh temporary directory on
-every run, so no real scan data is distributed. It covers directory input,
-scan priority, `meta.json` fallback, the title block (project/scale/date/
-location withheld, `--geo`, `--project`/`--author`/`--scale`/`--sheet`,
-`--no-frame`) and the north arrow rotation at 0° and 90°. Unknown options are
-rejected, and the suite asserts that no external review or network code path
-is present.
+The suite ships **no fixture files** and holds **35 tests**: every input (raw,
+optimized, project directory with `meta.json`, multi-story structures) is
+generated in a fresh temporary directory on every run, so no real scan data and
+no real address is distributed. It covers directory input, scan priority,
+`meta.json` fallback, the title block (project/scale/date/location withheld,
+`--geo`, `--project`/`--author`/`--scale`/`--sheet`, `--place`,
+`--place-lookup` with an automatic skip when `apple-location` is absent,
+`--no-frame`) and the north arrow rotation at 0° and 90°.
+
+New in this revision, all asserted against the written DXF and manifest:
+
+- **north flip** — heading 0° → 0°, heading 90° → 270° at zero offset, heading
+  15° → 345° (the legacy formula gave 165°), heading 42.352° plus a 27.629°
+  alignment offset → 345.28°, and `--no-north-flip` restoring 165.3° exactly;
+- **text in cells** — every drawn cell text is measured (0.6 x height per
+  character) against its own cell rectangle with a 5 % tolerance, a 90-character
+  project name is proved to be a single line ending in `…`, and the `Kat` row is
+  present with the right label for stories −1/0/1/2;
+- **per-story sheets** — two frames, two title blocks, two north arrows, every
+  `S<n>_*` entity inside its own frame, body boxes disjoint, measured gap equal
+  to 8 % of the widest frame, `stories[]` summing to `geometryEntityCount`, and
+  `--no-frame` warning that the stories are not separated;
+- **place lookup** — `--place` wins over `--geo`, a missing helper or missing
+  coordinates degrades to a warning without failing, and no coordinate ever
+  leaks into the location cell.
+
+Unknown options are rejected, and the suite asserts that no external review or
+network code path is present (`--place-lookup` shells out only to the local
+`apple-location` binary).
 
 `check-drift.sh` compares the vendored converter against an optional private
 reference tree; with no `ROOMPLAN_DXF_UPSTREAM` set it only prints local

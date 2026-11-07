@@ -78,6 +78,58 @@ function buildManifest(model, dxfResult, opts) {
     });
   }
 
+  // ---- per-story sheets ---------------------------------------------------
+  const planStories = dxfResult.stories || [];
+  const emittedSheets = (options.emitted && Array.isArray(options.emitted.sheets))
+    ? options.emitted.sheets
+    : [];
+  const sheetByStory = new Map(emittedSheets.map((s) => [s.story, s]));
+  const storyCount = planStories.length;
+  const separated = storyCount > 1 && emittedSheets.length > 1;
+
+  const stories = planStories.map((s) => {
+    const sheet = sheetByStory.get(s.story);
+    const local = s.bounds || {};
+    const placed = sheet && sheet.bbox
+      ? sheet.bbox
+      : [local.minX, local.minY, local.maxX, local.maxY];
+    return {
+      story: s.story,
+      label: s.label || null,
+      entityCount: sheet && sheet.entityCount != null ? sheet.entityCount : s.entityCount,
+      bbox: placed,
+      // bbox source matters: 'sheet' = placed in the final DXF, 'local' =
+      // drawing coordinates before any multi-sheet layout (--no-frame).
+      bboxSource: sheet && sheet.bbox ? 'sheet' : 'local',
+      frame: sheet ? sheet.frame : null,
+      layers: s.layers || [],
+    };
+  });
+
+  const storyWarning = [];
+  if (storyCount > 1 && !separated) {
+    storyWarning.push({
+      code: 'roomplan.stories-not-separated',
+      message: `The plan has ${storyCount} stories (${stories.map((s) => s.story).join(', ')}) but they were NOT split into separate frames: ${options.noFrame ? '--no-frame draws one common plan' : 'no multi-sheet layout was produced'}. Floors overlap in this drawing; do not read it as a single-level plan.`,
+    });
+  }
+  if (storyCount > 1 && separated) {
+    const boxes = stories.map((s) => s.bbox).filter((b) => Array.isArray(b));
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i];
+        const b = boxes[j];
+        if (a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]) {
+          storyWarning.push({
+            code: 'roomplan.story-bbox-overlap',
+            message: `Placed bounding boxes of stories ${stories[i].story} and ${stories[j].story} overlap — the per-story layout did not separate them.`,
+          });
+        }
+      }
+    }
+  }
+  for (const w of storyWarning) warnings.push(w);
+
   const out = {
     tool: 'roomplan-dxf',
     sourceFormat: model.kind,
@@ -102,12 +154,43 @@ function buildManifest(model, dxfResult, opts) {
     geometryEntityCount: dxfResult.entityCount,
     layers: dxfResult.layers,
     titleBlock: planMeta ? planMeta.titleBlock : null,
+    // Reverse-geocode attempt, if the operator asked for one. `status` is
+    // ok | failed | unavailable | no-coordinates; null means "not requested".
+    placeLookup: planMeta && planMeta.placeLookup ? planMeta.placeLookup : null,
     northArrow: planMeta ? planMeta.north : null,
     frame: planMeta ? planMeta.titleBlock.frame : false,
+    stories,
+    sheetLayout: options.emitted ? {
+      mode: (options.emitted.layout && options.emitted.layout.mode) || 'single-sheet',
+      sheetCount: options.emitted.sheetCount != null ? options.emitted.sheetCount : emittedSheets.length,
+      // Horizontal gap between per-story frames, as a fraction of the widest
+      // frame width. Documented layout rule, not a cosmetic guess.
+      gapRatio: options.emitted.layout ? options.emitted.layout.gapRatio : 0.08,
+      gap: options.emitted.layout && options.emitted.layout.gap != null
+        ? options.emitted.layout.gap : null,
+      storiesSeparated: separated,
+    } : {
+      mode: 'none',
+      sheetCount: 0,
+      gapRatio: 0.08,
+      gap: null,
+      storiesSeparated: false,
+    },
     sheetFurniture: options.emitted && planMeta ? {
       frameBounds: options.emitted.frame || null,
       titleBlockBounds: options.emitted.titleBlock || null,
       northArrow: options.emitted.northArrow || null,
+      // One entry per drawn sheet: frame, title block cells and north arrow of
+      // THAT sheet. Cells carry the fitted text height and the drawn string so
+      // the text-in-cell rule is machine-checkable.
+      sheets: emittedSheets.map((s) => ({
+        story: s.story,
+        label: s.label,
+        bbox: s.bbox,
+        frame: s.frame,
+        titleBlock: s.titleBlock,
+        northArrow: s.northArrow,
+      })),
     } : null,
     lossy: true,
     warnings,

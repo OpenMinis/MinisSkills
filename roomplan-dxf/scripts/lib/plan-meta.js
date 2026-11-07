@@ -1,19 +1,22 @@
 'use strict';
 /**
- * Builds the sheet furniture metadata (title block + north arrow) that
- * dxf-emit.py draws AROUND the plan.
+ * Builds the sheet furniture metadata (title block + north arrow + per-story
+ * labels) that dxf-emit.py draws AROUND the plan.
  *
  * Rules that matter:
  *   - the title block adds no geometry and never moves room geometry;
  *   - the scale is TEXT ONLY ("NTS" by default). Nothing here claims a
  *     printed sheet scale, because the source scan has no known plot scale;
  *   - coordinates are only printed when --geo is passed, otherwise the
- *     location cell reads "location withheld";
+ *     location cell reads "location withheld". --place <text> always wins:
+ *     it is the only way to put a human place name on the sheet, because
+ *     RoomPlan/Polycam metadata carries no place name and Apple Maps offers
+ *     no reverse geocoding (search/route/eta only). This converter never
+ *     sends coordinates to any web service on its own;
  *   - north is drawn whenever a heading exists, including a project-level
- *     `headingDegrees` from meta.json. That case is labelled "meta" and
- *     flagged approximate in the manifest (a project heading is a usable
- *     orientation, not a surveyed bearing). "N?" is drawn ONLY when no
- *     heading exists at all;
+ *     `headingDegrees` from meta.json. That case is flagged approximate in
+ *     the manifest (a project heading is a usable orientation, not a
+ *     surveyed bearing). "N?" is drawn ONLY when no heading exists at all;
  *   - orientation is not location: the north arrow uses the heading whether
  *     or not --geo is passed. --geo governs coordinates only.
  */
@@ -22,6 +25,10 @@ const DEFAULT_AUTHOR = 'ARCHIFEST';
 const DEFAULT_SCALE_TEXT = 'NTS';
 const DEFAULT_SHEET = 'A-01';
 const NORTH_CONFIDENCE_THRESHOLD = 0.8;
+
+/** Nominal glyph width as a fraction of text height — the single width
+ * estimator shared by the title-block fitter (dxf-emit.py) and the test. */
+const CHAR_WIDTH_RATIO = 0.6;
 
 function todayISO() {
   const now = new Date();
@@ -55,6 +62,18 @@ function normaliseDegrees(value) {
   return ((value % 360) + 360) % 360;
 }
 
+/**
+ * Story (floor) label used in the title block's "Kat" row.
+ *   0 -> Prizemlje, 1 -> "1. kat", 2 -> "2. kat", negative -> Podrum.
+ * More than one basement level keeps its depth: "Podrum (2)".
+ */
+function storyLabel(story) {
+  const n = Number.isFinite(story) ? Math.trunc(story) : 0;
+  if (n === 0) return 'Prizemlje';
+  if (n > 0) return `${n}. kat`;
+  return n === -1 ? 'Podrum' : `Podrum (${-n})`;
+}
+
 function formatCoordinate(value) {
   // ~11 m at the equator for 4 decimals: short enough for a title block,
   // precise enough to identify the building, not a substitute for a survey.
@@ -63,7 +82,8 @@ function formatCoordinate(value) {
 
 /**
  * @param {object} model decoded model (with meta + optional sourceMeta)
- * @param {object} opts { project, author, scale, sheet, includeGeo, noFrame, sourceMeta }
+ * @param {object} opts { project, author, scale, sheet, place, includeGeo,
+ *   noFrame, sourceMeta, northFlip, story }
  * @returns {{titleBlock: object, north: object, warnings: object[]}}
  */
 function buildPlanMeta(model, opts) {
@@ -81,11 +101,28 @@ function buildPlanMeta(model, opts) {
   const date = (sourceMeta && sourceMeta.createdAt && sourceMeta.createdAt.iso) || todayISO();
 
   const hasGeo = meta.latitude != null && meta.longitude != null;
+  const place = options.place != null ? String(options.place).trim() : '';
+
+  // Location cell resolution order: explicit --place > --geo coordinates >
+  // withheld. There is no automatic reverse geocoding anywhere in this tool.
   let locationText;
-  if (options.includeGeo && hasGeo) {
+  let locationSource;
+  if (place) {
+    locationText = place;
+    locationSource = options.placeSource || 'place';
+  } else if (options.includeGeo && hasGeo) {
     locationText = `${formatCoordinate(meta.latitude)}, ${formatCoordinate(meta.longitude)}`;
+    locationSource = 'geo';
   } else {
     locationText = 'location withheld';
+    locationSource = 'withheld';
+  }
+
+  if (options.includeGeo && !hasGeo && !place) {
+    warnings.push({
+      code: 'roomplan.geo-requested-without-coordinates',
+      message: '--geo was requested but the scan/meta carry no latitude/longitude, so the location cell reads "location withheld".',
+    });
   }
 
   // ---- north -------------------------------------------------------------
@@ -99,12 +136,20 @@ function buildPlanMeta(model, opts) {
   // bearing b lands on the sheet at b + bearingOffset. Without this the arrow
   // would be off by the alignment angle (e.g. 8 deg on a rotated scan).
   const bearingOffset = alignmentBearingOffset(model.architecturalAlignment);
-  // Empirical relation, verified against the vendor's own PDF floorplan and
-  // its DXF north arrow (references/title-block.md): in the model frame north
-  // sits at (180 - headingDegrees). The alignment rotation then maps it onto
-  // the sheet. Residual spread between the two vendor artefacts is < 0.5 deg;
-  // the arrow is still labelled approximate because it comes from metadata.
-  const degrees = heading == null ? null : normaliseDegrees(180 - heading + bearingOffset);
+
+  // North-flip (DEFAULT ON). The previous formula was
+  //     sheetBearing = 180 - heading + bearingOffset
+  // and it drew the arrow exactly 180 deg wrong on a real drawing: that scan
+  // (heading 42.352 deg, alignment offset 27.629 deg) produced 165.3 deg when
+  // the vendor plan showed ~345 deg. Dropping the 180 deg term fixes it:
+  //     sheetBearing = (bearingOffset - heading) mod 360
+  // which is algebraically 360 - heading + bearingOffset. The assumption is
+  // recorded in the manifest (`northArrow.flip180`) and can be disabled with
+  // --no-north-flip, which restores the legacy formula verbatim.
+  const northFlip = options.northFlip !== false;
+  const degrees = heading == null
+    ? null
+    : normaliseDegrees(northFlip ? bearingOffset - heading : 180 - heading + bearingOffset);
 
   const reasons = [];
   let approximate = false;
@@ -147,6 +192,11 @@ function buildPlanMeta(model, opts) {
     approximate,
     reasons,
     usedWithoutGeo: true,
+    // The 180 deg flip is an explicit, reversible assumption, never silent.
+    flip180: northFlip,
+    formula: northFlip
+      ? 'sheetBearing = (alignmentBearingOffset - heading) mod 360'
+      : 'sheetBearing = (180 - heading + alignmentBearingOffset) mod 360 (legacy, 180 deg off on a verified drawing)',
     rotationConvention: 'degrees clockwise from drawing up (+Y); the drawing up direction is the DXF +Y axis, i.e. plan north is +Y when the value is 0',
   };
 
@@ -167,6 +217,12 @@ function buildPlanMeta(model, opts) {
       message: 'Orientation comes from meta.json headingDegrees (project metadata) because the scan carries no compass reading; the north arrow uses it without --geo, because orientation is not a location.',
     });
   }
+  if (known && northFlip) {
+    warnings.push({
+      code: 'roomplan.north-flip-applied',
+      message: 'North arrow uses the flipped formula sheetBearing = (alignmentBearingOffset - heading) mod 360: the unflipped form was 180° off on a real drawing checked against the vendor plan. Pass --no-north-flip to restore the legacy formula.',
+    });
+  }
 
   if (scaleText.toUpperCase() === 'NTS') {
     warnings.push({
@@ -174,7 +230,18 @@ function buildPlanMeta(model, opts) {
       message: 'Title block scale reads "NTS": the scan has no known plot scale, so the drawing is not a measured, plottable layout. Any paper scale must be established independently.',
     });
   }
+  if (place && locationSource === 'place') {
+    warnings.push({
+      code: 'roomplan.place-from-cli',
+      message: `Location cell shows the free-text place "${place}" given with --place. It is a drawing annotation typed by the operator: never geocoded, never verified, and it overrides --place-lookup and --geo coordinates.`,
+    });
+  }
 
+  const story = Number.isFinite(options.story) ? Math.trunc(options.story) : 0;
+  const kat = storyLabel(story);
+
+  // A very long project name is allowed here; dxf-emit.py truncates it to the
+  // project cell (one line, never wrapped, never overlapping the next cell).
   const sourceNote = [
     `Source: ${model.kind === 'optimized' ? 'optimized/Polycam-style' : 'raw Apple'} RoomPlan JSON`,
     'DXF R2018, metres',
@@ -185,12 +252,15 @@ function buildPlanMeta(model, opts) {
   return {
     titleBlock: {
       project,
+      story,
+      storyLabel: kat,
       author,
       drawnBy: `by ${author}`,
       scaleText,
       date,
       sheet,
       locationText,
+      locationSource,
       sourceNote,
       frame: !options.noFrame,
     },
@@ -199,12 +269,15 @@ function buildPlanMeta(model, opts) {
     // Flattened payload handed to dxf-emit.py (one object, no nesting).
     dxfMeta: {
       project,
+      story,
+      storyLabel: kat,
       author,
       drawnBy: `by ${author}`,
       scaleText,
       date,
       sheet,
       locationText,
+      locationSource,
       sourceNote,
       north,
     },
@@ -213,9 +286,13 @@ function buildPlanMeta(model, opts) {
 
 module.exports = {
   buildPlanMeta,
+  alignmentBearingOffset,
+  normaliseDegrees,
+  storyLabel,
   DEFAULT_AUTHOR,
   DEFAULT_SCALE_TEXT,
   DEFAULT_SHEET,
   NORTH_CONFIDENCE_THRESHOLD,
+  CHAR_WIDTH_RATIO,
   todayISO,
 };

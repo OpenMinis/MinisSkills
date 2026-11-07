@@ -85,18 +85,44 @@ function buildDXF(model, opts) {
   }
   function trackAll(pts) { pts.forEach(([x, y]) => track(x, y)); }
 
+  // Per-story bounds. Every entity carries its own `story` so that
+  // dxf-emit.py can lay each floor out in its own frame without re-deriving
+  // the floor from the layer name (the layer prefix is still the same story).
+  const storyBounds = new Map();
+  let currentStory = 0;
+  function trackStory(x, y) {
+    let b = storyBounds.get(currentStory);
+    if (!b) {
+      b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, count: 0 };
+      storyBounds.set(currentStory, b);
+    }
+    if (x < b.minX) b.minX = x;
+    if (x > b.maxX) b.maxX = x;
+    if (y < b.minY) b.minY = y;
+    if (y > b.maxY) b.maxY = y;
+  }
+  function trackAllStory(pts) { pts.forEach(([x, y]) => trackStory(x, y)); }
+  function push(entity) {
+    entity.story = currentStory;
+    entities.push(entity);
+    const b = storyBounds.get(currentStory);
+    if (b) b.count += 1;
+    else storyBounds.set(currentStory, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, count: 1 });
+  }
+
   const alignment = (model.architecturalAlignment && model.architecturalAlignment.matrix) || [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
   const isOptimized = model.kind === 'optimized';
 
   for (const s of model.surfaces) {
+    currentStory = Number.isFinite(s.story) ? s.story : 0;
     const layer = layerFor(s.story, s.kind);
     layerSet.add(layer);
 
     if (s.kind === 'floor') {
       if (!s.polygonCorners || s.polygonCorners.length < 3) continue; // no usable polygon; skip (manifest warns separately)
       const pts = polygonDXF(s.polygonCorners, s.transform, alignment);
-      trackAll(pts);
-      entities.push({ type: 'polyline', layer, points: pts, closed: true });
+      trackAll(pts); trackAllStory(pts);
+      push({ type: 'polyline', layer, points: pts, closed: true });
       continue;
     }
 
@@ -105,16 +131,17 @@ function buildDXF(model, opts) {
       if (isOptimized) {
         const depth = s.wallThickness != null ? s.wallThickness : (s.dimensions.z > 0 ? s.dimensions.z : 0.1);
         pts = footprintDXF(s.dimensions.x, depth, s.transform, alignment);
-        trackAll(pts);
-        entities.push({ type: 'polyline', layer, points: pts, closed: true });
+        trackAll(pts); trackAllStory(pts);
+        push({ type: 'polyline', layer, points: pts, closed: true });
       } else if (s.dimensions.z > 0) {
         pts = footprintDXF(s.dimensions.x, s.dimensions.z, s.transform, alignment);
-        trackAll(pts);
-        entities.push({ type: 'polyline', layer, points: pts, closed: true });
+        trackAll(pts); trackAllStory(pts);
+        push({ type: 'polyline', layer, points: pts, closed: true });
       } else {
         const { a, b } = centerLineDXF(s.dimensions.x, s.transform, alignment);
         track(a[0], a[1]); track(b[0], b[1]);
-        entities.push({ type: 'line', layer, a, b });
+        trackStory(a[0], a[1]); trackStory(b[0], b[1]);
+        push({ type: 'line', layer, a, b });
       }
       continue;
     }
@@ -122,23 +149,26 @@ function buildDXF(model, opts) {
     if (s.kind === 'door' || s.kind === 'window' || s.kind === 'opening') {
       const { a, b } = centerLineDXF(s.dimensions.x, s.transform, alignment);
       track(a[0], a[1]); track(b[0], b[1]);
-      entities.push({ type: 'line', layer, a, b });
+      trackStory(a[0], a[1]); trackStory(b[0], b[1]);
+      push({ type: 'line', layer, a, b });
       continue;
     }
   }
 
   // Objects (furniture) -> a footprint rectangle at their transform (both formats).
   for (const o of model.objects) {
+    currentStory = Number.isFinite(o.story) ? o.story : 0;
     const layer = layerFor(o.story, 'object');
     layerSet.add(layer);
     const pts = footprintDXF(o.dimensions.x, o.dimensions.z, o.transform, alignment);
-    trackAll(pts);
-    entities.push({ type: 'polyline', layer, points: pts, closed: true });
+    trackAll(pts); trackAllStory(pts);
+    push({ type: 'polyline', layer, points: pts, closed: true });
   }
 
   // Room labels (optimized only — raw format has no room polygons/labels)
   if (Array.isArray(model.rooms)) {
     for (const r of model.rooms) {
+      currentStory = Number.isFinite(r.story) ? r.story : 0;
       const roomLayer = layerFor(r.story, 'room');
       const labelLayer = layerFor(r.story, 'label');
       layerSet.add(roomLayer);
@@ -147,11 +177,12 @@ function buildDXF(model, opts) {
       // Rooms have identity local transform (vertices already in the room's
       // own ground-plane space) — only the alignment matrix applies.
       const pts = polygonDXF(localVerts, [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1], alignment);
-      trackAll(pts);
-      entities.push({ type: 'polyline', layer: roomLayer, points: pts, closed: true });
+      trackAll(pts); trackAllStory(pts);
+      push({ type: 'polyline', layer: roomLayer, points: pts, closed: true });
       const centerDXF = projectLocal({ x: r.centerX, y: 0, z: r.centerZ }, [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1], alignment);
       track(centerDXF.x, centerDXF.y);
-      entities.push({ type: 'text', layer: labelLayer, pos: [centerDXF.x, centerDXF.y], height: 0.18, value: `${r.label}  ${r.area.toFixed(2)} m2` });
+      trackStory(centerDXF.x, centerDXF.y);
+      push({ type: 'text', layer: labelLayer, pos: [centerDXF.x, centerDXF.y], height: 0.18, value: `${r.label}  ${r.area.toFixed(2)} m2` });
     }
   }
 
@@ -165,15 +196,34 @@ function buildDXF(model, opts) {
     layerSet.add('NORTH');
   }
 
+  // Per-story summary, sorted by story number. `bounds` here is in DRAWING
+  // coordinates BEFORE dxf-emit.py places the sheets side by side; the placed
+  // frames come back in the emitter summary and are what the manifest reports.
+  const stories = Array.from(storyBounds.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([story, b]) => ({
+      story,
+      entityCount: b.count,
+      bounds: Number.isFinite(b.minX)
+        ? { minX: b.minX, maxX: b.maxX, minY: b.minY, maxY: b.maxY }
+        // Degenerate (no tracked point) — fall back to the whole drawing so a
+        // sheet is never laid out with a zero-size bbox.
+        : { minX, maxX, minY, maxY },
+      layers: Array.from(layerSet).filter((n) => n.startsWith(`S${story}_`)).sort(),
+    }));
+
   const plan = {
     bounds: { minX, maxX, minZ: minY, maxZ: maxY },
     layers: Array.from(layerSet).sort(),
     entities,
+    stories,
     frame,
+    // One frame per story, side by side, whenever the plan has more than one.
+    multiSheet: frame && stories.length > 1,
     meta: frame && options.planMeta ? (options.planMeta.dxfMeta || options.planMeta) : null,
   };
 
-  return { plan, layers: plan.layers, entityCount: entities.length };
+  return { plan, layers: plan.layers, entityCount: entities.length, stories: plan.stories };
 }
 
 module.exports = { buildDXF, layerFor };

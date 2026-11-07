@@ -44,7 +44,7 @@ const { applyArchitecturalAlignment } = require('./lib/align');
 const { buildDXF } = require('./lib/dxf-writer');
 const { buildManifest } = require('./lib/manifest');
 const { resolveInput, readMeta, applyMetaFallback } = require('./lib/source-input');
-const { buildPlanMeta } = require('./lib/plan-meta');
+const { buildPlanMeta, storyLabel } = require('./lib/plan-meta');
 
 const USAGE = [
   'Usage: node roomplan-to-dxf.js <input.json|dir> [outDir] [options]',
@@ -55,7 +55,13 @@ const USAGE = [
   '  --author <text>    title block author (default: ARCHIFEST)',
   '  --scale <text>     title block scale text (default: NTS)',
   '  --sheet <text>     title block sheet number (default: A-01)',
-  '  --no-frame         no frame, title block or north arrow',
+  '  --place <text>     title block location text (free text, highest priority)',
+  '  --place-lookup     reverse-geocode the scan coordinates once via the local',
+  '                     Apple `apple-location geocode` helper (opt-in; falls back',
+  '                     to coordinates or "location withheld")',
+  '  --north-flip       north = (alignmentOffset - heading) mod 360 (default)',
+  '  --no-north-flip    legacy north = 180 - heading + alignmentOffset',
+  '  --no-frame         no frame, title block or north arrow (stories not separated)',
 ].join('\n');
 
 const VALUE_OPTIONS = {
@@ -63,6 +69,7 @@ const VALUE_OPTIONS = {
   '--author': 'author',
   '--scale': 'scale',
   '--sheet': 'sheet',
+  '--place': 'place',
 };
 
 function detectFormat(json) {
@@ -94,6 +101,10 @@ function parseArgs(argv) {
   let force = false;
   let geo = false;
   let noFrame = false;
+  // North-flip is ON by default: the unflipped formula drew the arrow 180 deg
+  // wrong on a real drawing checked against the vendor plan.
+  let northFlip = true;
+  let placeLookup = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     let key = arg;
@@ -117,16 +128,96 @@ function parseArgs(argv) {
     } else if (arg === '--force') force = true;
     else if (arg === '--geo') geo = true;
     else if (arg === '--no-frame') noFrame = true;
+    else if (arg === '--place-lookup') placeLookup = true;
+    else if (arg === '--north-flip') northFlip = true;
+    else if (arg === '--no-north-flip') northFlip = false;
     else if (arg === '-h' || arg === '--help') return { help: true };
     else if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}\n${USAGE}`);
     else positional.push(arg);
   }
-  return { inputPath: positional[0], outDir: positional[1], force, geo, noFrame, flags, extra: positional.slice(2) };
+  return { inputPath: positional[0], outDir: positional[1], force, geo, noFrame, northFlip,
+           placeLookup, flags, extra: positional.slice(2) };
 }
 
 /** Filesystem-safe base name for a directory input. */
 function safeName(name) {
   return String(name).trim().replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'scan';
+}
+
+/**
+ * One-shot reverse geocode of the scan coordinates through the LOCAL Apple
+ * helper `apple-location geocode` (CoreLocation/MapKit on the device).
+ *
+ *   - never called unless the operator passed --place-lookup;
+ *   - never called without coordinates;
+ *   - a missing helper or a failed lookup is reported as a warning and the
+ *     title block falls back to coordinates (with --geo) or "location
+ *     withheld" — it can never abort a conversion;
+ *   - no third-party geocoding service is ever contacted.
+ */
+function lookupPlace(meta) {
+  const lat = meta && meta.latitude;
+  const lon = meta && meta.longitude;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return { status: 'no-coordinates' };
+  }
+  const probe = spawnSync('sh', ['-c', 'command -v apple-location'], { encoding: 'utf8' });
+  if (probe.status !== 0 || !String(probe.stdout || '').trim()) {
+    return { status: 'unavailable' };
+  }
+  const started = Date.now();
+  const res = spawnSync('apple-location',
+    ['geocode', '--lat', String(lat), '--lng', String(lon), '--compact'],
+    { encoding: 'utf8', timeout: 20000 });
+  if (res.error || res.status !== 0) {
+    return { status: 'failed', detail: String(res.stderr || res.error || 'apple-location exited non-zero').trim().slice(0, 200) };
+  }
+  let parsed = null;
+  try {
+    const line = String(res.stdout || '').trim().split('\n').filter((l) => l.trim().startsWith('{')).pop();
+    parsed = JSON.parse(line);
+  } catch (err) {
+    return { status: 'failed', detail: 'could not parse apple-location JSON output' };
+  }
+  const address = parsed && parsed.data && Array.isArray(parsed.data.addresses)
+    ? parsed.data.addresses[0] : null;
+  if (!address) return { status: 'failed', detail: 'apple-location returned no address' };
+  const head = address.name || address.street || null;
+  const locality = address.locality || null;
+  const text = [head, locality].filter(Boolean).join(', ');
+  if (!text) return { status: 'failed', detail: 'address had no name/street/locality' };
+  return { status: 'ok', text, source: 'apple-location',
+           fields: { name: address.name || null, street: address.street || null,
+                     locality: address.locality || null,
+                     administrativeArea: address.administrative_area || null,
+                     country: address.country || null },
+           elapsedMs: Date.now() - started };
+}
+
+function placeLookupWarnings(result) {
+  if (!result) return [];
+  if (result.status === 'ok') {
+    return [{
+      code: 'roomplan.place-lookup-applied',
+      message: 'The "Lokacija" cell was filled by reverse geocoding the scan coordinates once with the local Apple `apple-location geocode` helper. It is a best-effort locality, not a verified address, and no non-Apple service was contacted.',
+    }];
+  }
+  if (result.status === 'unavailable') {
+    return [{
+      code: 'roomplan.place-lookup-unavailable',
+      message: '--place-lookup was requested but the `apple-location` helper is not available on this system; the location cell fell back to coordinates (--geo) or "location withheld".',
+    }];
+  }
+  if (result.status === 'no-coordinates') {
+    return [{
+      code: 'roomplan.place-lookup-no-coordinates',
+      message: '--place-lookup was requested but the scan/meta carry no latitude/longitude, so no lookup was attempted and the location cell reads "location withheld".',
+    }];
+  }
+  return [{
+    code: 'roomplan.place-lookup-failed',
+    message: `--place-lookup failed (${result.detail || 'unknown error'}); the location cell fell back to coordinates (--geo) or "location withheld". The conversion itself is unaffected.`,
+  }];
 }
 
 function runEmit(emitScript, dxfPath, plan) {
@@ -208,6 +299,14 @@ function main() {
   // rounded to the nearest 90 degrees. Stored geometry is never changed.
   const alignment = applyArchitecturalAlignment(model);
 
+  // Optional one-shot reverse geocode (opt-in, local Apple helper only).
+  let placeLookup = null;
+  let placeText = args.flags.place;
+  if (args.placeLookup) {
+    placeLookup = lookupPlace(model.meta || {});
+    if (!placeText && placeLookup.status === 'ok') placeText = placeLookup.text;
+  }
+
   // Title-block / north-arrow metadata (annotation only — no geometry).
   const planMeta = buildPlanMeta(model, {
     project: args.flags.project || (resolved.inputWasDirectory && !(sourceMeta && sourceMeta.name)
@@ -216,14 +315,36 @@ function main() {
     author: args.flags.author,
     scale: args.flags.scale,
     sheet: args.flags.sheet,
+    place: placeText,
+    placeSource: args.flags.place ? 'place' : (placeText ? 'place-lookup' : undefined),
     includeGeo: args.geo,
     noFrame: args.noFrame,
+    northFlip: args.northFlip,
     sourceMeta,
   });
 
   fs.mkdirSync(outDir, { recursive: true });
 
+  planMeta.placeLookup = placeLookup;
+  for (const w of placeLookupWarnings(placeLookup)) planMeta.warnings.push(w);
+
   const dxfResult = buildDXF(model, { noFrame: args.noFrame, planMeta });
+
+  // Story labels for the title block's "Kat" row and for the per-story sheets.
+  // The single-sheet case must know its floor BEFORE the sheet is emitted, and
+  // plan.meta is the same object as planMeta.dxfMeta, so patching it here is
+  // enough for dxf-emit.py.
+  const planStories = dxfResult.plan.stories || [];
+  for (const s of planStories) s.label = storyLabel(s.story);
+  if (planStories.length === 1) {
+    planMeta.titleBlock.story = planStories[0].story;
+    planMeta.titleBlock.storyLabel = planStories[0].label;
+    planMeta.dxfMeta.story = planStories[0].story;
+    planMeta.dxfMeta.storyLabel = planStories[0].label;
+  }
+  planMeta.dxfMeta.storyCount = planStories.length;
+  planMeta.titleBlock.storyCount = planStories.length;
+
   const emitScript = path.join(__dirname, 'lib', 'dxf-emit.py');
   const emitted = runEmit(emitScript, dxfPath, dxfResult.plan);
 
@@ -247,8 +368,19 @@ function main() {
   const angleDeg = alignment.angleRad != null ? (alignment.angleRad * 180 / Math.PI).toFixed(2) + '°' : 'n/a';
   console.log(`Architectural alignment: ${angleDeg} (${alignment.method})`);
   console.log(`North arrow: ${planMeta.north.label} ${planMeta.north.degreesClockwiseFromDrawingUp != null ? `(${planMeta.north.degreesClockwiseFromDrawingUp.toFixed(1)}° clockwise from up, ${planMeta.north.described}, ${planMeta.north.basis})` : '(no bearing available)'}`);
+  if (planMeta.north.sourceHeadingDegrees != null) {
+    console.log(`North formula: ${planMeta.north.formula} (heading ${planMeta.north.sourceHeadingDegrees.toFixed(2)}°, alignment offset ${planMeta.north.alignmentBearingOffsetDegrees}°)${args.northFlip ? '' : ' [--no-north-flip]'}`);
+  }
   if (args.noFrame) console.log('Sheet frame/title block: disabled (--no-frame)');
   else console.log(`Title block: project "${planMeta.titleBlock.project}", scale "${planMeta.titleBlock.scaleText}", ${planMeta.titleBlock.date}, sheet ${planMeta.titleBlock.sheet}, ${planMeta.titleBlock.drawnBy}`);
+  if (placeLookup) {
+    console.log(`Place lookup: ${placeLookup.status}${placeLookup.status === 'ok' ? ` -> "${placeLookup.text}"` : ''}${placeLookup.detail ? ` (${placeLookup.detail})` : ''}`);
+  }
+  if (!args.noFrame && planStories.length > 1) {
+    console.log(`Sheets: ${planStories.length} (one frame per story, side by side): ${planStories.map((s) => `${s.story}=${s.label}`).join(', ')}`);
+  } else if (!args.noFrame && planStories.length === 1) {
+    console.log(`Sheet: 1 (Kat: ${planStories[0].label})`);
+  }
   console.log(`DXF written: ${dxfPath} (${manifest.entityCount} entities, ${dxfResult.layers.length} layers)`);
   console.log(`Manifest written: ${manifestPath} (${manifest.warnings.length} warning(s))`);
 }
