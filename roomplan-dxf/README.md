@@ -104,11 +104,38 @@ transform convention, story clustering and projection rules.
 
 ## Output
 
-- `<name>.dxf` — AutoCAD R2018 (`AC1032`), modelspace, metres, layers
+- `<name>.dxf` — DXF R2018 (`AC1032`), modelspace, metres, layers
   `S<story>_<KIND>` (`WALL`, `FLOOR`, `DOOR`, `WINDOW`, `OPENING`, `OBJECT`,
   `ROOM`, `LABEL`).
 - `<name>.roomplan.json` — manifest: source SHA-256, dialect, story count and
   method, alignment, entity count, layers, `lossy: true`, warnings.
+
+## What the DXF contains
+
+DXF is an open, text-based exchange format for CAD drawings. A file is a
+sequence of **sections** (`HEADER`, `TABLES`, `BLOCKS`, `ENTITIES`); each record
+is a pair of lines — a numeric **group code** and its value. This converter
+writes:
+
+- `HEADER` with `$ACADVER = AC1032` (R2018) and `$INSUNITS = 6` (metres);
+- `TABLES` with the layer names and colours listed above;
+- `ENTITIES` in modelspace only: `LINE` for wall/opening centre lines and
+  `LWPOLYLINE` for footprints and room outlines, plus `TEXT` labels for rooms;
+- no blocks, dimensions, hatches, external references or paperspace layouts.
+
+The result is a plain 2D plan, not a 3D model. `scripts/inspect_dxf.py` reads
+the same structure back and reports version, units, entity/layer counts and an
+in-memory audit; it never rewrites the file. See
+[references/dxf-primer.md](references/dxf-primer.md) for the minimal structure
+and how to check a file without CAD software.
+
+## Trademarks and independence
+
+RoomPlan is an Apple framework; DXF is a format associated with Autodesk.
+These names are used descriptively to state what the input and output are.
+This project is independent and is **not affiliated with, endorsed by or
+certified by Apple or Autodesk**. It bundles no Apple SDK, Autodesk library or
+sample data, and it does not claim CAD-certified or survey-grade output.
 
 ## Known limitations
 

@@ -5,7 +5,7 @@ description: 'Convert Apple RoomPlan raw or optimized JSON scans into a metres D
 
 # RoomPlan scan to DXF
 
-Convert an existing RoomPlan JSON file into an AutoCAD-readable 2D plan. This package does not capture LiDAR, decrypt meshes, upload scans or write DWG.
+Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This package does not capture LiDAR, decrypt meshes, upload scans or write DWG.
 
 ## One flow
 
@@ -45,3 +45,6 @@ Coordinates are metres in the source frame. Export applies only a rigid alignmen
 - Never overwrite a scan or an output without explicit permission.
 - Report the exact dialect and the warnings you saw; do not present a DXF as measured, certified or fabrication-ready.
 - Run the self-test after editing converter files (README).
+- RoomPlan is an Apple framework and DXF is a CAD exchange format; this skill
+  is independent and not affiliated with, endorsed or certified by Apple or
+  Autodesk.
