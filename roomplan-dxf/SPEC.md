@@ -70,6 +70,8 @@ source: { sha256, byteCount, dialect, captureSchema: "roomplan.capture/1" }
 totals: { floorArea, ceilingArea, wallAreaGross, wallAreaNet, openingArea,
           wallLength, paintArea, livingArea, roomsWithoutArea,
           counts { roomCount, wallCount, doorCount, windowCount, objectCount } }
+// every scalar above is a measure object, including roomsWithoutArea, because
+// "3 rooms could not be measured" is only meaningful with the number checked.
 stories: [ { story, label, totals, rooms: [ id, ... ] } ]
 rooms:   [ { id, identifier, label, story, declaredArea, polygonArea,
              polygonMinusDeclared, ceilingArea { ...method }, volume } ]

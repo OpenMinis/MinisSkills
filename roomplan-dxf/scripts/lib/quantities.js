@@ -401,7 +401,14 @@ function buildReport(capture,root={}) {
   const withoutArea=roomList.filter(r=>!(r.polygonArea&&finite(r.polygonArea.value))&&!(r.declaredArea&&finite(r.declaredArea.value))).length;
   const living=(()=>{
    if(story!==undefined)return missing('living area is reported per level in the statistics block; not re-derived per story here');
-   if(livingAreaInput&&finite(livingAreaInput.value))return measure(livingAreaInput.value,'computed','plan-statistics totals.livingArea: interior floor area per room, wall footprints removed (G-9)');
+   // A room with no measurable area must not make the building living area look
+   // complete: zero rooms measured is unavailable, some rooms measured is
+   // partial, and only every room measured is complete (SPEC section 4).
+   if(livingAreaInput&&finite(livingAreaInput.value)){
+    const measured=roomList.length-withoutArea;
+    if(roomList.length>0&&measured===0)return missing(`${withoutArea} of ${roomList.length} room(s) have no measurable area (no polygon and no declared area); living area is unknown, not zero`);
+    return measure(livingAreaInput.value,'computed','plan-statistics totals.livingArea: interior floor area per room, wall footprints removed (G-9)',{included:roomList.length?measured:undefined,expected:roomList.length||undefined});
+   }
    return missing(livingAreaInput&&livingAreaInput.reason?livingAreaInput.reason:'living area requires zone/type classification; see the statistics block');
   })();
   return {
@@ -485,7 +492,7 @@ function buildReport(capture,root={}) {
    paintPolicy:'trade rule, separate from netArea: an opening up to paintFreeOpeningM2 is not deducted, above it only the excess; never folded into net',
   },
   assumptions,
-  sourceReferences:{floorAreaSquareMetres:finite(root.floorAreaSquareMetres)?root.floorAreaSquareMetres:null,floorAreaPolicy:'metadata reference only; never added to geometry totals'},
+  sourceReferences:{floorAreaSquareMetres:finite(root&&root.floorAreaSquareMetres)?root.floorAreaSquareMetres:null,floorAreaPolicy:'metadata reference only; never added to geometry totals'},
   rooms,elements,stories,
   totals:totals(elements),
   statistics:statisticsBlock,

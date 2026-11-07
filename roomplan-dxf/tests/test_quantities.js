@@ -77,4 +77,19 @@ check(()=>assert.strictEqual(require('../scripts/lib/quantities').PAINT_FREE_OPE
 check(()=>assert.strictEqual(buildReport(capture([])).totals.paintArea.value,null));
 check(()=>assert.strictEqual(buildReport(capture([pw,{...win('pf',4),parentIdentifier:null}])).totals.paintArea.coverage,'partial'));
 check(()=>assert(quantitiesCSV(big).includes('Povrsina_bojanje_m2')));
+
+// A room with no polygon and no declared area must not produce a complete
+// livingArea of 0 - unknown is never zero (found on the real Project hh scan).
+check(()=>{
+  const room={identifier:'r1',story:0,label:'Soba'};
+  const capture={kind:'raw',sourceSHA256:'b'.repeat(64),surfaces:[],objects:[],rooms:[room]};
+  const report=buildReport(capture,null);
+  const living=report.totals.livingArea;
+  assert.strictEqual(living.value,null);
+  assert.strictEqual(living.status,'unavailable');
+  assert.strictEqual(living.coverage,'partial');
+  assert(/no measurable area/.test(living.reason||''),living.reason);
+  assert.strictEqual(report.totals.roomsWithoutArea.value,1);
+});
 console.log(`quantities: ${checks} checks passed`);
+
