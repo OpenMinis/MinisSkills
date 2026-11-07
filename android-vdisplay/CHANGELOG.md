@@ -2,7 +2,10 @@
 
 > **Update first when you hit any error**: Reinstall the latest `android-vdisplay` package and run `start.sh`. The script compares the installed APK version against the bundled skill version and upgrades automatically when they differ. Check version parity with `sh scripts/agent.sh version` (or query `/status` and `/version` directly for `version`, `versionCode`, `protocol`, `sdk`, and `device`).
 
-## 0.12.1 (script fixes, no APK change)
+## 0.12.2
+- Resize handle in the bottom-right corner: glyph moved inward (13dp from the edge, clear of the 20dp rounded corner) and drawn slightly bolder; touch target enlarged from 22dp to 36dp.
+
+## 0.12.1 (script fixes)
 - Fixed `start.sh` failing on the first run after a fresh install (APK not installed): the preflight fields are now labelled (`V= J= P= R=`) so an empty version no longer shifts the port/jar fields; the port is validated.
 - Fixed `agent.sh` always exiting 0: control commands now exit non-zero on `{"ok":false,...}` (e.g. HTTP 423 `human has control`) or a transport failure.
 - `device-run.sh` now passes `display_ime_policy=local` (override with `IME_POLICY=fallback`) so the soft keyboard shows on the second screen instead of the main screen.
