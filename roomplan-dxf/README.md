@@ -327,18 +327,28 @@ node scripts/roomplan-to-dxf.js scan.json build/ --usdz
 What is inside `room.usda`:
 
 ```
-#usda 1.0 ( defaultPrim = "room"  metersPerUnit = 1  upAxis = "Y" )
-def Xform "room"
-    def Xform "Section_grp"      # one empty Xform per captured room, named from its label
-    def Xform "Mesh_grp"         # Wall_N / Floor_N / Door_N / Window_N / Opening_N / Object_N
+#usda 1.0
+(
+    defaultPrim = "room"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "room" ( kind = "assembly" )
+    def Xform "Section_grp" ( kind = "group" )    # one assembly Xform per captured room
+    def Xform "Mesh_grp" ( kind = "group" )       # one component Xform per element
+        def Xform "Wall_1" ( customData {...} kind = "component" )
+            def Mesh "Wall_1"      # triangulated, material:binding
+            def Material "Wall_1_color"
 ```
 
 - Every mesh carries `customData = { string Category = "Wall" string Identifier = "W-A" }`,
   so the 3D prims map back to the same identifiers the DXF/manifest use.
-- A surface with 3D `polygonCorners` becomes that polygon (one n-gon, fan
-  indices `0..n-1`); every other surface becomes an oriented box built from
-  `dimensions` (x = length, y = height, z = thickness) and placed by its 4×4
-  transform. Boxes are 8 points / 6 quads.
+- A surface with 3D `polygonCorners` becomes that polygon (fan-triangulated);
+  every other surface becomes an oriented box built from `dimensions`
+  (x = length, y = height, z = thickness) and placed by its 4×4 transform.
+  Meshes are triangulated with vertices split per face-vertex (a box is 12
+  triangles over 36 vertices) and `normals` carries one normal per point — the
+  same shape Apple's exporter writes, so no `interpolation` metadata is needed.
 - A wall with no measured thickness gets Apple's default **0.16 m** and says so:
   `string Thickness = "assumed"` plus `double AssumedThickness = 0.16`.
 - Numbers are metres with a fixed 6 decimals and a `.` separator; a primitive

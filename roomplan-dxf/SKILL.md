@@ -142,16 +142,22 @@ so both layers are written here by hand: `scripts/lib/usdz-writer.js`
 timestamp so the file is reproducible) and `scripts/lib/usda-export.js` (the
 USD ASCII layer).
 
-Layer shape: `#usda 1.0` with `defaultPrim = "room"`, `metersPerUnit = 1`,
-`upAxis = "Y"`; `room > Section_grp` holds one empty `Xform` per captured room
+Layer shape (copied from Apple's own exporter, 105 reference layers):
+`#usda 1.0` with `defaultPrim = "room"`, `metersPerUnit = 1`, `upAxis = "Y"`;
+`room > Section_grp` holds one `kind = "assembly"` `Xform` per captured room
 (named from a sanitised label, e.g. `Kuhinja/dnevni` → `Kuhinja_dnevni`), and
-`room > Mesh_grp` holds `Wall_1…`, `Floor_1…`, `Door_1…`, `Window_1…`,
-`Opening_1…`, `Object_1…`, each with
-`customData = { string Category string Identifier }`.
+`room > Mesh_grp` holds one `kind = "component"` `Xform` per element
+(`Wall_1…`, `Floor_1…`, `Door_1…`, `Window_1…`, `Opening_1…`, `Object_1…`),
+each with `customData = { string Category string Identifier }`, each containing a
+`def Mesh` **and** its own `def Material "<Name>_color"` (UsdPreviewSurface)
+that the Mesh binds with `rel material:binding`. Prim metadata always sits in the
+parenthesis block after the prim name, never inside the braces.
 
-Geometry: `polygonCorners` → that polygon (fan indices `0..n-1`); otherwise an
+Geometry: `polygonCorners` → that polygon, fan-triangulated; otherwise an
 oriented box from `dimensions` (x length, y height, z thickness) placed by the
-4×4 transform — 8 points, 6 quads. An unmeasured wall gets **0.16 m** (Apple's
+4×4 transform. Every mesh is triangulated and its vertices are split per
+face-vertex (a box = 12 triangles / 36 vertices), so `normal3f[] normals` has one
+normal per point and no `interpolation` metadata is written — Apple's shape. An unmeasured wall gets **0.16 m** (Apple's
 default) and is flagged `string Thickness = "assumed"`. A prim with a
 non-finite transform or no usable geometry is skipped with a warning (also in
 the manifest) — the layer never contains `NaN`. Source space is used as-is; the

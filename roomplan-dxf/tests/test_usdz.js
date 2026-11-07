@@ -278,35 +278,56 @@ check('fixture: 9 mesh prims (4 walls, 1 floor, 1 door, 1 window, 2 objects)', (
   });
   assert.strictEqual(fxUsda.primCount, 9);
 });
-check('each mesh carries customData Category + Identifier', () => {
-  const prims = [...fxText.matchAll(/def Mesh "([^"]+)"\n {8}\{([\s\S]*?)\n {8}\}/g)];
-  assert.strictEqual(prims.length, 9);
-  for (const [, name, body] of prims) {
-    assert(/string Category = "[^"]+"/.test(body), `${name} has no Category`);
-    assert(/string Identifier = "[^"]+"/.test(body), `${name} has no Identifier`);
+check('each element is a kind="component" Xform carrying customData Category + Identifier', () => {
+  // Apple's shape: the leaf is an Xform (kind = "component") holding the Mesh
+  // and its Material; customData sits in the prim's metadata block, never in
+  // the body.
+  // scan the layer line by line: a leaf is `        def Xform "X" (` …
+  const lineArr = fxText.split('\n');
+  const leaves = [];
+  for (let i = 0; i < lineArr.length; i += 1) {
+    const m = /^ {8}def Xform "(\w+)" \($/.exec(lineArr[i]);
+    if (!m) continue;
+    let j = i + 1;
+    let meta = '';
+    while (j < lineArr.length && lineArr[j] !== '        )') { meta += `${lineArr[j]}\n`; j += 1; }
+    if (/kind = "component"/.test(meta)) leaves.push([null, m[1], meta]);
+  }
+  assert.strictEqual(leaves.length, 9, `expected 9 component Xforms, got ${leaves.length}`);
+  for (const [, name, meta] of leaves) {
+    assert(/string Category = "[^"]+"/.test(meta), `${name} has no Category`);
+    assert(/string Identifier = "[^"]+"/.test(meta), `${name} has no Identifier`);
+    assert(`def Mesh "${name}"`.length && fxText.includes(`def Mesh "${name}"`), `${name} has no Mesh`);
+    assert(fxText.includes(`def Material "${name}_color"`), `${name} has no Material`);
+    assert(fxText.includes(`rel material:binding = </room/Mesh_grp/${name}/${name}_color>`), `${name} is not bound to its material`);
   }
   assert(fxText.includes('string Category = "Wall"') && fxText.includes('string Identifier = "W-A"'));
+  // kind coverage, as Apple has it: root assembly, groups, leaf components
+  assert(/def Xform "room" \(\n {4}kind = "assembly"/.test(fxText), 'root prim must be kind = "assembly"');
+  assert(/def Xform "Section_grp" \(\n {8}kind = "group"/.test(fxText), 'Section_grp must be kind = "group"');
+  assert(/def Xform "Mesh_grp" \(\n {8}kind = "group"/.test(fxText), 'Mesh_grp must be kind = "group"');
 });
-check('a box is 8 points and 6 quads', () => {
+check('a box is 12 triangles over 36 split vertices (Apple triangulates, never quads)', () => {
   const box = fxText.slice(fxText.indexOf('def Mesh "Wall_1"'));
   const body = box.slice(0, box.indexOf('def Mesh "Wall_2"'));
   const counts = /int\[\] faceVertexCounts = \[([^\]]+)\]/.exec(body)[1].split(',').map((s) => s.trim());
-  assert.strictEqual(counts.length, 6, `expected 6 faces, got ${counts.length}`);
-  assert(counts.every((c) => c === '4'), 'box faces must be quads');
+  assert.strictEqual(counts.length, 12, `expected 12 faces, got ${counts.length}`);
+  assert(counts.every((c) => c === '3'), 'every face must be a triangle');
   const idx = /int\[\] faceVertexIndices = \[([\s\S]*?)\]/.exec(body)[1].split(',').map((s) => Number(s.trim()));
-  assert.strictEqual(idx.length, 24, 'box indices');
-  assert.deepStrictEqual([...new Set(idx)].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6, 7], 'box must reference exactly 8 vertices');
+  assert.strictEqual(idx.length, 36, 'box indices');
+  assert.deepStrictEqual(idx, [...Array(36).keys()], 'split vertices are indexed 0..35 in order');
   const pts = /point3f\[\] points = \[([\s\S]*?)\]\n/.exec(body)[1].match(/\(/g);
-  assert.strictEqual(pts.length, 8, `expected 8 points, got ${pts.length}`);
+  assert.strictEqual(pts.length, 36, `expected 36 points, got ${pts.length}`);
 });
-check('a source polygon keeps n points and n indices (fan)', () => {
+check('a source n-gon becomes n-2 triangles over 3*(n-2) split vertices', () => {
   const body = polyText.slice(polyText.indexOf('def Mesh "Wall_1"'));
-  const counts = /int\[\] faceVertexCounts = \[([^\]]+)\]/.exec(body)[1];
-  assert.strictEqual(counts.trim(), String(POLY.length));
+  const counts = /int\[\] faceVertexCounts = \[([^\]]+)\]/.exec(body)[1].split(',').map((s) => Number(s.trim()));
+  assert.strictEqual(counts.length, POLY.length - 2, `an n-gon must fan into n-2 triangles (got ${counts.length})`);
+  assert(counts.every((c) => c === 3));
   const idx = /int\[\] faceVertexIndices = \[([\s\S]*?)\]/.exec(body)[1].split(',').map((s) => Number(s.trim()));
-  assert.deepStrictEqual(idx, POLY.map((_, i) => i));
+  assert.deepStrictEqual(idx, [...Array(3 * (POLY.length - 2)).keys()]);
   const pts = /point3f\[\] points = \[([\s\S]*?)\]\n/.exec(body)[1].match(/\(/g);
-  assert.strictEqual(pts.length, POLY.length);
+  assert.strictEqual(pts.length, 3 * (POLY.length - 2));
   assert(polyText.includes('string Geometry = "source polygonCorners"'));
 });
 check('polygon corners are transformed to world space', () => {
@@ -359,14 +380,57 @@ check('a surface with no geometry at all is skipped with a warning', () => {
   assert.strictEqual(res.warnings[0].code, 'usdz.skipped-no-geometry');
   assert.strictEqual(res.primCount, 4);
 });
-check('normals are face-varying (one per face-vertex) or absent', () => {
-  const body = fxText.slice(fxText.indexOf('def Mesh "Wall_1"'));
-  const normals = /normal3f\[\] normals = \[([\s\S]*?)\] \(/.exec(body);
-  if (normals) {
-    const n = normals[1].match(/\(/g).length;
-    assert.strictEqual(n, 24, 'a 6-quad box needs 24 face-varying normals');
-    assert(/interpolation = "faceVarying"/.test(body));
+check('normals: one per point, no interpolation metadata (Apple shape)', () => {
+  // Apple writes a normal for every point and relies on USD's default
+  // "vertex" interpolation; "interpolation = faceVarying" appears in none of
+  // the 105 reference layers, so we do not write it either.
+  assert(!/interpolation/.test(fxText), 'no attribute metadata is emitted');
+  for (const name of ['Wall_1', 'Wall_2', 'Floor_1']) {
+    const body = fxText.slice(fxText.indexOf(`def Mesh "${name}"`));
+    const normals = /normal3f\[\] normals = \[([\s\S]*?)\]\n/.exec(body);
+    assert(normals, `${name}: no normals`);
+    const points = /point3f\[\] points = \[([\s\S]*?)\]\n/.exec(body);
+    assert.strictEqual(normals[1].match(/\(/g).length, points[1].match(/\(/g).length, `${name}: normals/points count mismatch`);
   }
+});
+
+check('the layer passes usda-lint: grammar + semantics, zero warnings', () => {
+  const { lint } = require(path.join(__dirname, 'lib', 'usda-lint'));
+  for (const [label, text] of [['fixture', fxText], ['polygon', polyText]]) {
+    const r = lint(text, { name: `${label}.usda` });
+    assert.deepStrictEqual(r.errors, [], `${label}: ${JSON.stringify(r.errors, null, 2)}`);
+    assert.deepStrictEqual(r.warnings, [], `${label}: ${JSON.stringify(r.warnings, null, 2)}`);
+    assert.strictEqual(r.header.defaultPrim, 'room');
+    assert.strictEqual(r.header.metersPerUnit, 1);
+    assert.strictEqual(r.header.upAxis, 'Y');
+    assert.strictEqual(r.stats.meshes, r.stats.materials, 'every mesh needs its own Material');
+  }
+});
+
+check('usda-lint rejects the shapes Apple never writes', () => {
+  const { lint } = require(path.join(__dirname, 'lib', 'usda-lint'));
+  const good = fxText;
+  const bad = (mutate) => {
+    const r = lint(mutate(good), { name: 'bad.usda' });
+    assert(!r.ok || r.warnings.length > 0, 'mutated layer passed cleanly');
+    return r;
+  };
+  // interpolation on a scalar attribute is a scope error
+  assert(bad((t) => t.replace('uniform token subdivisionScheme = "none"', 'uniform token subdivisionScheme ( interpolation = "vertex" ) = "none"')).errors.some((e) => e.code === 'META_INTERPOLATION_SCOPE'));
+  // a normals array whose length contradicts the points array
+  assert(bad((t) => t.replace('normal3f[] normals = [(', 'normal3f[] normals = [(1, 1, 1), (')).errors.some((e) => e.code === 'MESH_NORMALS_LENGTH'));
+  // index out of range is an error, never a warning
+  assert(bad((t) => t.replace('int[] faceVertexIndices = [0, 1, 2', 'int[] faceVertexIndices = [99, 1, 2')).errors.some((e) => e.code === 'MESH_INDEX_RANGE'));
+  // defaultPrim that names nothing
+  assert(bad((t) => t.replace('defaultPrim = "room"', 'defaultPrim = "nope"')).errors.some((e) => e.code === 'META_DEFAULTPRIM_MISSING'));
+  // an unresolved material binding
+  assert(bad((t) => t.replace('rel material:binding = </room/Mesh_grp/Wall_1/Wall_1_color>', 'rel material:binding = </room/Mesh_grp/Wall_1/ghost>')).errors.some((e) => e.code === 'REL_UNRESOLVED'));
+  // duplicate sibling prim names
+  assert(bad((t) => t.replace('def Xform "Wall_2" (', 'def Xform "Wall_1" (')).errors.some((e) => e.code === 'PRIM_DUPLICATE_SIBLING'));
+  // a truncated array must be a syntax error with a line number
+  const broken = lint(fxText.replace('int[] faceVertexCounts = [3, 3', 'int[] faceVertexCounts = [3, 3, , 3'), { name: 'broken.usda' });
+  assert(!broken.ok);
+  for (const e of broken.errors) assert(e.line > 0, 'every error must carry a line number');
 });
 
 /* ----------------------------------------------------------------- CLI -- */
@@ -377,6 +441,16 @@ check('CLI: --usdz writes <name>.usdz and exits 0', () => {
   assert.strictEqual(cli.status, 0, `exit ${cli.status}: ${cli.stderr}`);
   assert(fs.existsSync(path.join(outDir, 'scan.usdz')), 'file missing');
   assert(/USDZ written: .*scan\.usdz \(9 prims\)/.test(cli.stdout), cli.stdout);
+});
+check('CLI: the room.usda inside the written archive passes usda-lint', () => {
+  const buf = fs.readFileSync(path.join(outDir, 'scan.usdz'));
+  const es = entryRanges(buf);
+  const entry = es.find((e) => e.name === 'room.usda');
+  const text = buf.slice(entry.dataOffset, entry.dataOffset + entry.size).toString('utf8');
+  const { lint } = require(path.join(__dirname, 'lib', 'usda-lint'));
+  const r = lint(text, { name: 'room.usda' });
+  assert.deepStrictEqual(r.errors, []);
+  assert.deepStrictEqual(r.warnings, []);
 });
 check('CLI: the written .usdz is a valid ZIP with room.usda', () => {
   const buf = fs.readFileSync(path.join(outDir, 'scan.usdz'));

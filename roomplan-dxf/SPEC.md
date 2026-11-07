@@ -150,28 +150,47 @@ produces the same bytes. It holds one ASCII layer, `room.usda`, written without
 any Apple SDK or third-party package:
 
 ```
-#usda 1.0 ( defaultPrim = "room"  metersPerUnit = 1  upAxis = "Y" )
-def Xform "room"
-    def Xform "Section_grp"   # one empty Xform per room, name = sanitised label
-    def Xform "Mesh_grp"      # Wall_N Floor_N Door_N Window_N Opening_N Object_N
+#usda 1.0
+(
+    defaultPrim = "room"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "room" ( kind = "assembly" )
+    def Xform "Section_grp" ( kind = "group" )   # one assembly Xform per room
+    def Xform "Mesh_grp" ( kind = "group" )      # one component Xform per element
+        def Xform "Wall_1" ( customData = { ... } kind = "component" )
+            def Mesh "Wall_1"   { ... rel material:binding = </room/Mesh_grp/Wall_1/Wall_1_color> }
+            def Material "Wall_1_color" { UsdPreviewSurface }
 ```
 
-Contract, in order of precedence: a surface with 3D `polygonCorners` is emitted
-as that polygon (fan indices `0..n-1`); otherwise an oriented box from
-`dimensions` + `transform` (8 points, 6 quads) with x = length, y = height,
-z = thickness; a wall without measured thickness uses the Apple default 0.16 m
-and carries `string Thickness = "assumed"`. Every mesh carries
-`customData {Category, Identifier}` so it maps back to `capture-v1`. Values are
-metres, 6 fixed decimals, `.` separator. A primitive with a non-finite transform
-or no usable geometry is **skipped with a warning** (surfaced in the manifest);
-`NaN`/`Infinity` are never written. Source space only: `align.js`'s sheet
-rotation is a drawing transform and is not applied.
+The shape above is not invented: it is the shape Apple's own exporter writes,
+sampled from 105 `.usda` layers inside four Apple `.usdz` captures (see
+`references/usda-grammar.md` and `tests/lib/usda-lint.js`, which must stay green
+on that corpus).
 
-Out of scope for `usdz-v1` (stated, not hidden): textures, UVs, materials,
-cameras, lights, semantics/panels, RealityKit mesh data. **No Apple validation
-is performed** — `usdchecker`/AR Quick Look are unavailable in this environment,
-so structural checks (Python `zipfile.testzip()`, 64-byte alignment, byte
-determinism, mesh/vertex counts) are the evidence this project can offer.
+Contract, in order of precedence: a surface with 3D `polygonCorners` is emitted
+as that polygon (fan-triangulated); otherwise an oriented box from `dimensions`
++ `transform` with x = length, y = height, z = thickness; a wall without
+measured thickness uses the Apple default 0.16 m and carries
+`string Thickness = "assumed"`. Meshes are **triangulated** with vertices split
+per face-vertex, so `points`, `normals` and `faceVertexIndices` are all the same
+length and `normal3f[] normals` has one normal per point (Apple's shape; no
+`interpolation` metadata is written). Every element is a `kind = "component"`
+Xform carrying `customData {Category, Identifier}` so it maps back to
+`capture-v1`, and every Mesh binds its own `UsdPreviewSurface` Material.
+Values are metres, 6 fixed decimals, `.` separator. A primitive with a
+non-finite transform or no usable geometry is **skipped with a warning**
+(surfaced in the manifest); `NaN`/`Infinity` are never written. Source space
+only: `align.js`'s sheet rotation is a drawing transform and is not applied.
+
+Out of scope for `usdz-v1` (stated, not hidden): textures, UVs, cameras,
+lights, semantics/panels, RealityKit mesh data. **No Apple validation is
+performed** — `usdchecker`/AR Quick Look are unavailable in this environment, so
+the evidence is: Python `zipfile.testzip()`, 64-byte alignment and the 0x1986
+padding field, byte determinism, and `tests/lib/usda-lint.js` — a strict
+tokenizer/parser/semantic checker that passes on all 105 Apple reference layers
+as well as on our own output.
 
 ## 7. Golden numbers (executable)
 

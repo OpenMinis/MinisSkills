@@ -7,6 +7,49 @@
  * calculation here, checked by eye, and diffed in git — a binary .usdc crate
  * cannot. QuickLook/USD parses ASCII natively, so nothing is lost.
  *
+ * GRAMMAR PROVENANCE — every shape below is copied from Apple's own exporter,
+ * as found in 105 .usda layers inside four Apple .usdz captures (Project hh,
+ * Project Aug 5 2026, Novi, room.usdz):
+ *
+ *   1. prologue, in this exact order, nothing else:
+ *          #usda 1.0
+ *          (
+ *              defaultPrim = "room"
+ *              metersPerUnit = 1
+ *              upAxis = "Y"
+ *          )
+ *   2. every prim carries `kind`: root = "assembly", container groups =
+ *      "group", leaf element = "component" (Apple: 20 assemblies, 61 groups,
+ *      101 components, never a kind-less prim).
+ *   3. prim metadata lives in the parenthesis block AFTER the prim name,
+ *      never inside the braces:
+ *          def Xform "Wall0" (
+ *              customData = { string Category = "Wall" }
+ *              kind = "component"
+ *          )
+ *      Entries are 4 spaces deeper than `def`, one per line, no commas,
+ *      `key = value` with exactly one space each side of `=`.
+ *   4. every prim that carries geometry is a leaf Xform of kind "component"
+ *      holding a `def Mesh` plus a `def Material` named "<Name>_color", and
+ *      the Mesh binds it:  rel material:binding = </room/Mesh_grp/Wall_1/Wall_1_color>
+ *      The Material holds a UsdPreviewSurface shader wired with
+ *      `token outputs:surface.connect = <...outputs:surface>`.
+ *   5. mesh attributes are written in ASCII-alphabetical order — Apple never
+ *      deviates: extent, faceVertexCounts, faceVertexIndices, material:binding,
+ *      normals, points, subdivisionScheme, xformOp:transform, xformOpOrder.
+ *   6. meshes are TRIANGULATED (Apple: 382 of 382 faces are 3s) and vertices
+ *      are SPLIT per face-vertex so `normals` has exactly one normal per point
+ *      (Apple: 42 points / 42 normals). There is no `interpolation` metadata —
+ *      the default "vertex" is what Apple relies on. Face-varying normals
+ *      (`(...) ( interpolation = "faceVarying" )`) are legal USD but appear
+ *      NOWHERE in the reference corpus.
+ *   7. `uniform token subdivisionScheme = "none"` on every mesh.
+ *   8. no `extent` in Apple's files; we keep one because it costs nothing and
+ *      lets a reader cull without walking the points, and it is validated.
+ *   9. prims are Xform/Mesh/Material/Shader, Cube and references only for
+ *      parametric assets; we emit no `over`, `class`, `inherits`, `payload`,
+ *      `variantSet`, `apiSchemas` or `customData` on attributes.
+ *
  * Coordinate system: RoomPlan/ARKit already use metres, Y up, Z forward. USD
  * wants metres, Y up, so points are used verbatim in SOURCE space (the DXF
  * sheet rotation from align.js is a drawing-only transform and is deliberately
@@ -15,33 +58,26 @@
  * Scene shape (matches Apple's own RoomPlan export):
  *
  *   #usda 1.0 ( defaultPrim = "room" metersPerUnit = 1 upAxis = "Y" )
- *   def Xform "room"
+ *   def Xform "room" ( kind = "assembly" )
  *   {
- *       def Xform "Section_grp"        # one empty Xform per captured room
- *       { def Xform "Kuhinja" { customData = {...} } }
- *       def Xform "Mesh_grp"           # every mesh, flat
- *       {
- *           def Mesh "Wall_1"  { customData = { Category="Wall" Identifier="W-A" } }
- *           def Mesh "Floor_1" ...
- *           def Mesh "Door_1" / "Window_1" / "Opening_1" / "Object_1" ...
- *       }
+ *       def Xform "Section_grp" ( kind = "group" )      # one assembly per room
+ *       def Xform "Mesh_grp" ( kind = "group" )         # one component per mesh
  *   }
  *
  * Geometry: a surface with 3D `polygonCorners` becomes that polygon (fan
- * triangulated by the renderer via faceVertexCounts/faceVertexIndices); any
- * other surface becomes an oriented box built from `dimensions` (x = length,
- * y = height, z = thickness) and placed by its 4x4 transform. A wall with no
- * measured thickness gets the Apple default of 0.16 m and is flagged
- * `string Thickness = "assumed"` so a reader is never misled.
+ * triangulated); any other surface becomes an oriented box built from
+ * `dimensions` (x = length, y = height, z = thickness) and placed by its 4x4
+ * transform. A wall with no measured thickness gets the Apple default of
+ * 0.16 m and is flagged `string Thickness = "assumed"` so a reader is never
+ * misled.
  *
- * Not exported: textures, UVs, materials, cameras, lights, semantics/panels.
- * An untextured, un-UV'd mesh is exactly what AR Quick Look needs to render
- * solid geometry, but it is not a photogrammetric reconstruction.
+ * Not exported: textures, UVs, cameras, lights, semantics/panels.
  *
  * API: buildUsda(capture, options) -> { files, text, summary, warnings, primCount }
  */
 const DEFAULT_THICKNESS = 0.16; // metres, Apple's assumed wall thickness
 const EPS = 1e-9;
+const MATERIAL_COLOR = '(1, 1, 1)'; // Apple's own diffuseColor for every element
 
 /* --------------------------------------------------------------- helpers -- */
 
@@ -73,7 +109,6 @@ function world(p, m) {
 
 const isRigid = (m) => Array.isArray(m) && m.length === 16 && m.every(Number.isFinite);
 
-function sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
 function unit(a) {
   const l = Math.hypot(a[0], a[1], a[2]);
@@ -128,14 +163,16 @@ function polygonOf(surface) {
   return list;
 }
 
-/** 8 corners + 6 quads of an oriented box, in world space. */
+/* ------------------------------------------------------------- geometry -- */
+
+/** 8 corners + 6 quads of an oriented box, in world space (CCW seen outside). */
 const BOX_FACES = [
-  { idx: [0, 3, 2, 1] }, // -Z
-  { idx: [4, 5, 6, 7] }, // +Z
-  { idx: [0, 1, 5, 4] }, // -Y
-  { idx: [3, 7, 6, 2] }, // +Y
-  { idx: [0, 4, 7, 3] }, // -X
-  { idx: [1, 2, 6, 5] }, // +X
+  [0, 3, 2, 1], // -Z
+  [4, 5, 6, 7], // +Z
+  [0, 1, 5, 4], // -Y
+  [3, 7, 6, 2], // +Y
+  [0, 4, 7, 3], // -X
+  [1, 2, 6, 5], // +X
 ];
 
 function boxGeometry(dx, dy, dz, m) {
@@ -146,11 +183,9 @@ function boxGeometry(dx, dy, dz, m) {
     [-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz],
     [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz],
   ];
-  const points = local.map((p) => world(p, m));
   return {
-    points,
-    counts: BOX_FACES.map(() => 4),
-    indices: BOX_FACES.map((f) => f.idx),
+    points: local.map((p) => world(p, m)),
+    faces: BOX_FACES.map((f) => f.slice()),
     kind: 'box',
   };
 }
@@ -158,51 +193,65 @@ function boxGeometry(dx, dy, dz, m) {
 function polygonGeometry(cornersWorld) {
   return {
     points: cornersWorld,
-    counts: [cornersWorld.length],
-    indices: [cornersWorld.map((_, i) => i)],
+    faces: [cornersWorld.map((_, i) => i)],
     kind: 'polygon',
   };
 }
 
 /* ------------------------------------------------------------- emit text -- */
 
-function attributeLines(geometry, indent) {
-  const pad = ' '.repeat(indent);
-  const flat = [].concat(...geometry.indices);
-  // Face-varying normals: one normal per face-vertex, so an 8-vertex box can
-  // still shade flat. If anything is degenerate we simply omit the attribute
-  // (USD computes what it can) rather than emit a NaN.
+/**
+ * Triangulate + split vertices, exactly the shape Apple's exporter produces:
+ * one vertex (and one normal) per face-vertex, `faceVertexCounts` all 3s and
+ * `faceVertexIndices` running 0..n-1. Flat shading without any `interpolation`
+ * metadata, and no index can ever fall outside `points`.
+ */
+function meshArrays(geometry) {
+  const points = [];
   const normals = [];
-  let normalsOk = true;
-  let cursor = 0;
-  for (const face of geometry.indices) {
-    const pts = face.map((i) => geometry.points[i]);
-    const n = polygonNormal(pts);
-    if (!n) { normalsOk = false; break; }
-    for (let i = 0; i < face.length; i += 1) normals.push(n);
-    cursor += face.length;
+  const counts = [];
+  const indices = [];
+  for (const face of geometry.faces) {
+    const poly = face.map((i) => geometry.points[i]);
+    if (poly.length < 3) continue;
+    const n = polygonNormal(poly);
+    if (!n) continue;
+    for (let t = 1; t < poly.length - 1; t += 1) {
+      const tri = [poly[0], poly[t], poly[t + 1]];
+      // drop a zero-area triangle rather than emit a degenerate face
+      const area = cross(
+        [tri[1][0] - tri[0][0], tri[1][1] - tri[0][1], tri[1][2] - tri[0][2]],
+        [tri[2][0] - tri[0][0], tri[2][1] - tri[0][1], tri[2][2] - tri[0][2]],
+      );
+      if (!(Math.hypot(area[0], area[1], area[2]) > 1e-12)) continue;
+      const base = points.length;
+      for (const p of tri) { points.push(p); normals.push(n); }
+      counts.push(3);
+      indices.push(base, base + 1, base + 2);
+    }
   }
-  if (cursor !== flat.length) normalsOk = false;
+  return { points, normals, counts, indices };
+}
 
-  const xs = geometry.points.map((p) => p[0]);
-  const ys = geometry.points.map((p) => p[1]);
-  const zs = geometry.points.map((p) => p[2]);
-  const extent = [
-    `(${num(Math.min(...xs))}, ${num(Math.min(...ys))}, ${num(Math.min(...zs))})`,
-    `(${num(Math.max(...xs))}, ${num(Math.max(...ys))}, ${num(Math.max(...zs))})`,
-  ];
-
+/**
+ * Attribute lines for one mesh, in Apple's exact (alphabetical) order:
+ *   extent, faceVertexCounts, faceVertexIndices, rel material:binding,
+ *   normals, points, subdivisionScheme
+ * No `interpolation` metadata: normals are one-per-point ("vertex", the USD
+ * default), which is what Apple writes.
+ */
+function attributeLines(mesh, bindingPath, indent) {
+  const pad = ' '.repeat(indent);
+  const xs = mesh.points.map((p) => p[0]);
+  const ys = mesh.points.map((p) => p[1]);
+  const zs = mesh.points.map((p) => p[2]);
   const out = [];
-  out.push(`${pad}float3[] extent = [${extent.join(', ')}]`);
-  out.push(`${pad}int[] faceVertexCounts = [${geometry.counts.join(', ')}]`);
-  // Indices are wrapped so a long wall never produces a 10 000-character line.
-  out.push(`${pad}int[] faceVertexIndices = [${wrapNumbers(flat, pad)}]`);
-  if (normalsOk && normals.length) {
-    out.push(`${pad}normal3f[] normals = [${wrapVectors(normals, pad)}] (`);
-    out.push(`${pad}    interpolation = "faceVarying"`);
-    out.push(`${pad})`);
-  }
-  out.push(`${pad}point3f[] points = [${wrapVectors(geometry.points, pad)}]`);
+  out.push(`${pad}float3[] extent = [${vec3([Math.min(...xs), Math.min(...ys), Math.min(...zs)])}, ${vec3([Math.max(...xs), Math.max(...ys), Math.max(...zs)])}]`);
+  out.push(`${pad}int[] faceVertexCounts = [${mesh.counts.join(', ')}]`);
+  out.push(`${pad}int[] faceVertexIndices = [${wrapNumbers(mesh.indices, pad)}]`);
+  if (bindingPath) out.push(`${pad}rel material:binding = </${bindingPath}>`);
+  out.push(`${pad}normal3f[] normals = [${wrapVectors(mesh.normals, pad)}]`);
+  out.push(`${pad}point3f[] points = [${wrapVectors(mesh.points, pad)}]`);
   out.push(`${pad}uniform token subdivisionScheme = "none"`);
   return out;
 }
@@ -238,6 +287,24 @@ function wrapTokens(tokens, indent) {
   }
   if (line) lines.push(line);
   return lines.join('\n' + pad);
+}
+
+/** Prim metadata block, Apple-shaped: 4-space indented entries, no commas. */
+function metadataBlock(lines, primIndent, entries) {
+  if (!entries.length) return;
+  const pad = ' '.repeat(primIndent + 4);
+  // Apple opens the block on the same line as the prim name: def Xform "X" (
+  lines[lines.length - 1] = `${lines[lines.length - 1]} (`;
+  for (const entry of entries) {
+    if (entry.raw) {
+      lines.push(`${pad}${entry.key} = {`);
+      for (const [k, v] of entry.fields) lines.push(`${pad}    ${k} = ${v}`);
+      lines.push(`${pad}}`);
+    } else {
+      lines.push(`${pad}${entry.key} = ${entry.value}`);
+    }
+  }
+  lines.push(`${' '.repeat(primIndent)})`);
 }
 
 /* ----------------------------------------------------------------- build -- */
@@ -371,51 +438,89 @@ function buildUsda(capture, options) {
   lines.push('#usda 1.0');
   lines.push('(');
   lines.push('    defaultPrim = "room"');
-  if (opts.doc) lines.push(`    doc = "${escapeString(opts.doc)}"`);
   lines.push('    metersPerUnit = 1');
   lines.push('    upAxis = "Y"');
+  if (opts.doc) lines.push(`    doc = "${escapeString(opts.doc)}"`);
   lines.push(')');
   lines.push('');
+
+  // Root assembly — Apple tags the stage root "assembly".
   lines.push('def Xform "room"');
+  metadataBlock(lines, 0, [{ key: 'kind', value: '"assembly"' }]);
   lines.push('{');
+
   lines.push('    def Xform "Section_grp"');
+  metadataBlock(lines, 4, [{ key: 'kind', value: '"group"' }]);
   lines.push('    {');
   sectionNames.forEach((s, i) => {
+    const fields = [['string Category', '"Room"']];
+    if (s.label != null) fields.push(['string Label', `"${escapeString(s.label)}"`]);
+    if (s.identifier != null) fields.push(['string Identifier', `"${escapeString(s.identifier)}"`]);
+    fields.push(['int Index', String(i)]);
+    if (s.story != null) fields.push(['int Story', String(Math.trunc(s.story))]);
     lines.push(`        def Xform "${s.name}"`);
+    metadataBlock(lines, 8, [
+      { key: 'customData', raw: true, fields },
+      { key: 'kind', value: '"assembly"' },
+    ]);
     lines.push('        {');
-    lines.push('            customData = {');
-    lines.push('                string Category = "Room"');
-    if (s.label != null) lines.push(`                string Label = "${escapeString(s.label)}"`);
-    if (s.identifier != null) lines.push(`                string Identifier = "${escapeString(s.identifier)}"`);
-    lines.push(`                int Index = ${i}`);
-    if (s.story != null) lines.push(`                int Story = ${Math.trunc(s.story)}`);
-    lines.push('            }');
     lines.push('        }');
+    if (i < sectionNames.length - 1) lines.push('');
   });
   lines.push('    }');
   lines.push('');
+
   lines.push('    def Xform "Mesh_grp"');
+  metadataBlock(lines, 4, [{ key: 'kind', value: '"group"' }]);
   lines.push('    {');
-  for (const prim of prims) {
-    lines.push(`        def Mesh "${prim.name}"`);
-    lines.push('        {');
-    for (const line of attributeLines(prim.geometry, 12)) lines.push(line);
-    lines.push('            customData = {');
-    lines.push(`                string Category = "${escapeString(prim.category)}"`);
-    if (prim.identifier != null) lines.push(`                string Identifier = "${escapeString(prim.identifier)}"`);
+  prims.forEach((prim, i) => {
+    const mesh = meshArrays(prim.geometry);
+    const materialName = `${prim.name}_color`;
+    const materialPath = `room/Mesh_grp/${prim.name}/${materialName}`;
+
+    // Leaf component, Apple-shaped: customData then kind (alphabetical).
+    const fields = [['string Category', `"${escapeString(prim.category)}"`]];
+    if (prim.identifier != null) fields.push(['string Identifier', `"${escapeString(prim.identifier)}"`]);
     if (prim.element.thicknessAssumed) {
       // The spec asks for the assumed flag to be unmistakable in customData.
-      lines.push('                string Thickness = "assumed"');
-      lines.push(`                double AssumedThickness = ${num(prim.element.thickness)}`);
+      fields.push(['string Thickness', '"assumed"']);
+      fields.push(['double AssumedThickness', num(prim.element.thickness)]);
     } else if (prim.element.thickness != null) {
-      lines.push(`                double Thickness = ${num(prim.element.thickness)}`);
+      fields.push(['double Thickness', num(prim.element.thickness)]);
     }
-    if (prim.element.poly) lines.push('                string Geometry = "source polygonCorners"');
-    else lines.push('                string Geometry = "oriented box from dimensions"');
-    for (const [k, v] of Object.entries(prim.extra)) lines.push(`                string ${k} = "${escapeString(v)}"`);
+    fields.push(['string Geometry', prim.element.poly ? '"source polygonCorners"' : '"oriented box from dimensions"']);
+    for (const [k, v] of Object.entries(prim.extra)) fields.push([`string ${k}`, `"${escapeString(v)}"`]);
+    fields.push(['string UUID', `"${stableUuid(`${prim.category}:${prim.identifier || prim.name}`)}"`]);
+
+    lines.push(`        def Xform "${prim.name}"`);
+    metadataBlock(lines, 8, [
+      { key: 'customData', raw: true, fields },
+      { key: 'kind', value: '"component"' },
+    ]);
+    lines.push('        {');
+    lines.push(`            def Mesh "${prim.name}"`);
+    lines.push('            {');
+    for (const line of attributeLines(mesh, materialPath, 16)) lines.push(line);
+    lines.push('            }');
+    lines.push('');
+    lines.push(`            def Material "${materialName}"`);
+    lines.push('            {');
+    lines.push(`                token outputs:surface.connect = </${materialPath}/surfaceShader.outputs:surface>`);
+    lines.push('');
+    lines.push('                def Shader "surfaceShader"');
+    lines.push('                {');
+    lines.push('                    uniform token info:id = "UsdPreviewSurface"');
+    lines.push(`                    color3f inputs:diffuseColor = ${MATERIAL_COLOR}`);
+    lines.push('                    color3f inputs:emissiveColor = (0, 0, 0)');
+    lines.push('                    normal3f inputs:normal = (1, 1, 1)');
+    lines.push('                    float inputs:occlusion = 1');
+    lines.push('                    float inputs:opacity = 1');
+    lines.push('                    token outputs:surface');
+    lines.push('                }');
     lines.push('            }');
     lines.push('        }');
-  }
+    if (i < prims.length - 1) lines.push('');
+  });
   lines.push('    }');
   lines.push('}');
   lines.push('');
@@ -428,7 +533,16 @@ function buildUsda(capture, options) {
     meshPrims: prims.length,
     byCategory,
     assumedThickness,
-    prims: prims.map((p) => ({ name: p.name, category: p.category, identifier: p.identifier, points: p.geometry.points.length, faces: p.geometry.counts.length })),
+    prims: prims.map((p) => {
+      const m = meshArrays(p.geometry);
+      return {
+        name: p.name,
+        category: p.category,
+        identifier: p.identifier,
+        points: m.points.length,
+        faces: m.counts.length,
+      };
+    }),
   };
 
   return {
@@ -445,4 +559,18 @@ function escapeString(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n\t]+/g, ' ');
 }
 
-module.exports = { buildUsda, sanitizeIdentifier, DEFAULT_THICKNESS };
+/** Deterministic UUID-shaped tag from a seed (Apple puts a UUID in customData). */
+function stableUuid(seed) {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < seed.length; i += 1) {
+    h1 = (h1 ^ seed.charCodeAt(i)) >>> 0;
+    h1 = Math.imul(h1, 0x01000193) >>> 0;
+    h2 = (h2 + seed.charCodeAt(i) * (i + 7)) >>> 0;
+    h2 = Math.imul(h2, 0x85ebca6b) >>> 0;
+  }
+  const hex = (h, n) => h.toString(16).toUpperCase().padStart(8, '0').slice(0, n);
+  return `${hex(h1, 8)}-${hex(h2, 4)}-4${hex(h1 ^ h2, 3)}-8${hex((h1 + h2) >>> 0, 3)}-${hex(h2, 4)}${hex(h1, 8)}`.slice(0, 36);
+}
+
+module.exports = { buildUsda, sanitizeIdentifier, DEFAULT_THICKNESS, meshArrays };

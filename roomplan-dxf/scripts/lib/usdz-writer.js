@@ -129,7 +129,7 @@ function buildArchive(files) {
 
     const header = Buffer.alloc(30);
     header.writeUInt32LE(0x04034b50, 0); // local file header signature
-    header.writeUInt16LE(20, 4); // version needed to extract (2.0)
+    header.writeUInt16LE(10, 4); // version needed to extract (1.0, STORE only)
     header.writeUInt16LE(0, 6); // general purpose flags (0 = stored, no descriptor)
     header.writeUInt16LE(0, 8); // compression method 0 = STORE
     header.writeUInt16LE(DOS_TIME, 10);
@@ -144,10 +144,11 @@ function buildArchive(files) {
     push(nameBuf);
 
     if (extraLength > 0) {
-      // One unknown extra field (id 0x0000) padded with zeros. Readers ignore
+      // Apple's USDZ alignment field (id 0x1986) padded with zeros. usdzip writes
+      // exactly this; a generic 0x0000 field is legal ZIP but QuickLook refuses it.
       // unknown ids; we only need the length so the payload lands on 64 bytes.
       const extra = Buffer.alloc(extraLength);
-      extra.writeUInt16LE(0x0000, 0);
+      extra.writeUInt16LE(0x1986, 0);
       extra.writeUInt16LE(extraLength - 4, 2);
       push(extra);
     }
@@ -165,8 +166,8 @@ function buildArchive(files) {
     const nameBuf = Buffer.from(entry.name, 'utf8');
     const cd = Buffer.alloc(46);
     cd.writeUInt32LE(0x02014b50, 0); // central directory header signature
-    cd.writeUInt16LE(20, 4); // version made by (2.0, MS-DOS)
-    cd.writeUInt16LE(20, 6); // version needed
+    cd.writeUInt16LE(10, 4); // version made by (1.0, MS-DOS)
+    cd.writeUInt16LE(10, 6); // version needed
     cd.writeUInt16LE(0, 8); // flags
     cd.writeUInt16LE(0, 10); // method STORE
     cd.writeUInt16LE(DOS_TIME, 12);
