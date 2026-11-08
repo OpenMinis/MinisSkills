@@ -286,7 +286,9 @@ transform convention, story clustering and projection rules.
 - `<name>.dxf` — DXF R2018 (`AC1032`), modelspace, metres, layers
   `S<story>_<KIND>` (`WALL`, `FLOOR`, `DOOR`, `WINDOW`, `OPENING`, `OBJECT`,
   `ROOM`, `LABEL`) for the plan, plus `FRAME`/`TITLE`/`NORTH` for the sheet
-  furniture (absent with `--no-frame`).
+  furniture (absent with `--no-frame`). Entity order is paint order: walls
+  first, the openings (`DOOR` 3 green / `WINDOW` 5 blue / `OPENING` 6 magenta,
+  wall weight) **on top of** them, then labels and ceiling annotations.
 - `<name>.md` — Markdown summary of `report-v1` (`--md`, implies `--report`):
   project title, per-story floor / ceiling (with method) / walls gross+net /
   paint, rooms with areas and warnings, `gaps[]` from the handoff block, the
@@ -608,6 +610,7 @@ node tests/test_schema.js            # both schemas + real capture/report output
 node tests/test_spec_golden.js       # SPEC §7 golden numbers, tolerance 1e-4
 node tests/test_plan_statistics.js   # G-9 against the ArchiPlan fixtures
 node tests/test_handoff.js           # G-10 (quantities[], gaps[], boundaries)
+node tests/test_opening_order.js     # openings painted above walls, coloured, DXF audited
 ```
 
 `tests/test_schema.js` validates a synthetic capture pushed through the real

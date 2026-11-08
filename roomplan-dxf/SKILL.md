@@ -65,6 +65,17 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
    `textHeight` in `sheetFurniture.sheets[].titleBlock.cells` if a value looks
    cut.
 
+   **Openings are drawn on top of the walls and coloured.** DXF model space has
+   no z-order, so viewers paint the ENTITIES section top to bottom; a door is
+   one thin centre line lying on the wall footprint, so a wall written after it
+   would hide it. `buildDXF` writes paint order (`FLOOR` → `WALL` → `ROOM` →
+   `OBJECT` → `DOOR`/`WINDOW`/`OPENING` → `LABEL` → `CEILING*`) and
+   `dxf-emit.py` re-applies the same table to any plan before writing, reporting
+   `drawOrder.openingsAboveWalls` plus `openingColors` in its summary. Colours:
+   door 3 (green), window 5 (blue), opening 6 (magenta), all at the wall's
+   0.35 mm lineweight so the mark covers the whole wall band. Details:
+   [references/dxf-output.md](references/dxf-output.md).
+
    **Location lookup is opt-in here (OFF by default) and needs the local Apple
    `apple-location` helper** (present in the iOS/Minis environment; reported as
    `unavailable` elsewhere). It sends the coordinates to the Apple on-device

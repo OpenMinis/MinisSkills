@@ -32,6 +32,58 @@ function layerFor(story, kind) {
   return `S${story}_${String(kind).toUpperCase()}`;
 }
 
+/**
+ * Draw order (z-order) of the plan, expressed as a paint priority.
+ *
+ * Many DXF viewers — and every renderer that simply paints entities in the
+ * order they appear in the ENTITIES section — draw the file top to bottom, so
+ * a later entity covers an earlier one. An opening is a single thin centre
+ * line lying ON the wall footprint it belongs to; if it is written before the
+ * wall, a viewer that shades or thickens the wall swallows it and the plan
+ * reads as a windowless box. Openings are therefore written AFTER the walls
+ * they interrupt (lower number = painted first). Sheet furniture (frame,
+ * title block, north arrow) is written by dxf-emit.py after the plan, so it is
+ * never covered either.
+ *
+ * The same table exists in scripts/lib/dxf-emit.py (DRAW_ORDER); both sides
+ * sort, so a plan produced by an older writer still comes out in this order.
+ */
+const DRAW_ORDER = {
+  FLOOR: 10,
+  WALL: 20,
+  ROOM: 30,
+  OBJECT: 40,
+  DOOR: 50,     // openings start here: above floor, walls, rooms and furniture
+  WINDOW: 50,
+  OPENING: 50,
+  LABEL: 60,    // room/story labels stay readable: never hidden by geometry
+  CEILING: 70,  // dashed annotations, the least structural thing on the sheet
+  CEILING_FLAT: 70,
+  CEILING_SEAM: 70,
+};
+const DRAW_ORDER_DEFAULT = 65;
+
+// Kind of an entity, taken from its layer name `S<n>_<KIND>`.
+function kindOfLayer(layer) {
+  const name = String(layer == null ? '' : layer);
+  const cut = name.indexOf('_');
+  return cut === -1 ? name : name.slice(cut + 1);
+}
+
+function drawOrderFor(entity) {
+  const kind = kindOfLayer(entity && entity.layer);
+  if (Object.prototype.hasOwnProperty.call(DRAW_ORDER, kind)) return DRAW_ORDER[kind];
+  return entity && entity.type === 'text' ? 60 : DRAW_ORDER_DEFAULT;
+}
+
+// Stable sort: equal priorities keep the order the decoder produced.
+function sortByDrawOrder(entities) {
+  return entities
+    .map((entity, index) => ({ entity, index, order: drawOrderFor(entity) }))
+    .sort((a, b) => (a.order - b.order) || (a.index - b.index))
+    .map((row) => row.entity);
+}
+
 // composed(alignment, surfaceTransform) then apply to a local point, then project.
 function projectLocal(localPoint, surfaceTransform, alignmentMatrix) {
   const composed = multiply(alignmentMatrix, surfaceTransform);
@@ -298,7 +350,9 @@ function buildDXF(model, opts) {
   const plan = {
     bounds: { minX, maxX, minZ: minY, maxZ: maxY },
     layers: Array.from(layerSet).sort(),
-    entities,
+    // Painted order, not decode order: openings land above the walls they sit
+    // in, annotations above the geometry they describe (see DRAW_ORDER).
+    entities: sortByDrawOrder(entities),
     stories,
     frame,
     // One frame per story, side by side, whenever the plan has more than one.
@@ -310,4 +364,4 @@ function buildDXF(model, opts) {
   return { plan, layers: plan.layers, entityCount: entities.length, stories: plan.stories, ceilingDiagnostics };
 }
 
-module.exports = { buildDXF, layerFor };
+module.exports = { buildDXF, layerFor, DRAW_ORDER, drawOrderFor, sortByDrawOrder };

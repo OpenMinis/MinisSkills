@@ -49,6 +49,54 @@ FRAME_LAYER = "FRAME"
 NORTH_LAYER = "NORTH"
 ELLIPSIS = "\u2026"
 
+# ---------------------------------------------------------------------------
+# Draw order (paint order)
+#
+# DXF has no per-entity z-order in model space: a viewer that renders entities
+# in file order paints the later ones on top. An opening (door/window/opening)
+# is a single thin centre line lying ON the wall footprint it belongs to, so if
+# the wall is written after it, a viewer that shades or thickens walls covers
+# the opening and the plan reads as a windowless box. Openings are therefore
+# written AFTER walls — the same table as DRAW_ORDER in lib/dxf-writer.js,
+# applied here as a safety net so that a plan produced by an older writer (or
+# hand-built JSON) still comes out with the openings on top. Lower = first.
+DRAW_ORDER = {
+    "FLOOR": 10,
+    "WALL": 20,
+    "ROOM": 30,
+    "OBJECT": 40,
+    "DOOR": 50,     # openings: above floor, walls, rooms, furniture
+    "WINDOW": 50,
+    "OPENING": 50,
+    "LABEL": 60,    # labels stay readable, never covered by geometry
+    "CEILING": 70,
+    "CEILING_FLAT": 70,
+    "CEILING_SEAM": 70,
+}
+DRAW_ORDER_DEFAULT = 65
+OPENING_KINDS = ("DOOR", "WINDOW", "OPENING")
+
+
+def kind_of_layer(layer_name):
+    """`S<n>_<KIND>` -> `<KIND>`; anything else is returned unchanged."""
+    name = "" if layer_name is None else str(layer_name)
+    return name.split("_", 1)[-1] if "_" in name else name
+
+
+def draw_order_of(entity):
+    """Paint priority of one plan entity (lower is painted first)."""
+    kind = kind_of_layer(entity.get("layer", "0"))
+    if kind in DRAW_ORDER:
+        return DRAW_ORDER[kind]
+    return 60 if entity.get("type") == "text" else DRAW_ORDER_DEFAULT
+
+
+def sort_by_draw_order(entities):
+    """Stable sort by paint priority: openings above walls, labels above both."""
+    decorated = [(draw_order_of(e), index, e) for index, e in enumerate(entities)]
+    decorated.sort(key=lambda row: (row[0], row[1]))
+    return [row[2] for row in decorated]
+
 
 def fmt_number(value):
     """Compact, locale-independent number for drawing text."""
@@ -406,6 +454,7 @@ def main():
         "FLOOR": 8,    # dark gray — visible but recessive vs. walls
         "DOOR": 3,     # green — standard architectural convention
         "WINDOW": 5,   # blue — standard architectural convention
+        "OPENING": 6,  # magenta — a hole with neither leaf nor glass is neither of those two
         "OBJECT": 9,   # light gray — furniture labels, de-emphasized
         "ROOM": 2,     # yellow — room outlines/labels
         "FRAME": 8,    # sheet furniture: recessive gray
@@ -418,8 +467,9 @@ def main():
         "CEILING_SEAM": 9,  # reserved for a source joint; not emitted for confirmed groups
         "WALL": 35,    # ~0.35mm — walls read as the thickest lines
         "FLOOR": 13,
-        "DOOR": 18,
-        "WINDOW": 18,
+        "DOOR": 35,    # openings carry the WALL weight: the coloured mark must
+        "WINDOW": 35,  # cover the whole painted wall band it lies in, or half
+        "OPENING": 35, # of it disappears under the wall's own 0.35 mm line
         "OBJECT": 9,
         "ROOM": 13,
         "FRAME": 18,
@@ -440,7 +490,7 @@ def main():
     for name in plan.get("layers", []):
         if name not in doc.layers:
             doc.layers.add(name=name, color=color_for(name))
-            doc.layers.get(name).lineweight = lineweight_for(name)
+            doc.layers.get(name).dxf.lineweight = lineweight_for(name)
             if name.endswith("_CEILING"):
                 doc.layers.get(name).dxf.linetype = "CEILING_DASHED"
                 doc.layers.get(name).dxf.true_color = 0xFF8000
@@ -453,7 +503,12 @@ def main():
 
     geometry_count = 0
     entity_story_count = {}
-    for e in plan.get("entities", []):
+    ordered_entities = sort_by_draw_order(plan.get("entities", []))
+    order_positions = [kind_of_layer(e.get("layer", "0")) for e in ordered_entities]
+    last_wall_index = max((i for i, k in enumerate(order_positions) if k == "WALL"), default=-1)
+    first_opening_index = next((i for i, k in enumerate(order_positions) if k in OPENING_KINDS), None)
+    openings_above_walls = first_opening_index is None or first_opening_index > last_wall_index
+    for e in ordered_entities:
         t = e["type"]
         layer = e.get("layer", "0")
         story = story_of(e)
@@ -477,6 +532,19 @@ def main():
 
     summary = {"geometryEntityCount": geometry_count, "titleBlock": None,
                "northArrow": None, "frame": None, "sheets": [], "sheetCount": 0,
+               # Evidence that the file order really puts openings on top of
+               # the walls, and which colour each opening layer carries.
+               "drawOrder": {
+                   "openingsAboveWalls": bool(openings_above_walls),
+                   "firstOpeningIndex": first_opening_index,
+                   "lastWallIndex": last_wall_index,
+                   "order": {k: DRAW_ORDER[k] for k in sorted(DRAW_ORDER, key=DRAW_ORDER.get)},
+                   "openingColors": {
+                       lyr.dxf.name: lyr.dxf.color for lyr in doc.layers
+                       if lyr.dxf.name != "0"
+                       and kind_of_layer(lyr.dxf.name) in OPENING_KINDS
+                   },
+               },
                "layout": {"mode": "single-sheet", "gapRatio": FRAME_GAP_RATIO}}
 
     meta = plan.get("meta")

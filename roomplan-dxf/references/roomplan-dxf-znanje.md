@@ -161,7 +161,7 @@ Polja/obilježja koja je razlikuju (točno kako su u kodu):
 - `doc.header["$INSUNITS"] = 6` → **metri**.
 - `doc.header["$LWDISPLAY"] = 1` → prikaz lineweighta (da zidovi čitaju deblje od labela).
 - `setup=True` dodaje standardne tablice; u stvarnom izlazu to konkretno daje: `$LUNITS=2`, `$MEASUREMENT=1`, `$CELTSCALE/$LTSCALE`, linetype tablicu (CONTINUOUS, ByLayer, ...), text style tablicu (`Standard`, `OpenSans-Light`, `OpenSans`, `OpenSans-Light-Italic`, ...), i slojeve **`0`** i **`Defpoints`**.
-- **Lineweight se postavlja na razini sloja** (`doc.layers.get(name).dxf.lineweight`), cijeli brojevi u 1/100 mm: `WALL=35`, `FLOOR=13`, `DOOR=18`, `WINDOW=18`, `OBJECT=9`, `ROOM=13`; `OPENING` i `LABEL` → default `13`. Slojevi `0`/`Defpoints` imaju lineweight `-3` (ByLayer/default).
+- **Lineweight se postavlja na razini sloja** (`doc.layers.get(name).dxf.lineweight`), cijeli brojevi u 1/100 mm: `WALL=35`, `FLOOR=13`, `DOOR=35`, `WINDOW=35`, `OPENING=35`, `OBJECT=9`, `ROOM=13`, `LABEL` → default `13`; `CEILING*=9`. Slojevi `0`/`Defpoints` imaju lineweight `-3` (ByLayer/default). *Ispravak 2026-11-08:* kod je pisao `layer.lineweight = ...` (običan Python atribut, ne DXF), pa je **svaki** sloj završavao na `-3`; sada piše `layer.dxf.lineweight` i vrijednosti su stvarno u datoteci. Otvori nose težinu zida (35) da obojana linija prekrije cijelu debljinu zida.
 - `$EXTMIN`/`$EXTMAX` ostaju na `1e+20` / `-1e+20` (vidi E — komentar u kodu tvrdi suprotno od snimljenog izlaza).
 
 **Web writer (`web/dxf-export.js`, `emitDXF`):**
@@ -189,7 +189,7 @@ Mapiranje entiteta → layer:
 | room (optimized) | `S<n>_ROOM` | closed LWPOLYLINE (`room.vertices`) |
 | label (optimized) | `S<n>_LABEL` | TEXT |
 
-**Boje** (konverter `LAYER_COLORS` u `dxf-emit.py`): `WALL=7` (crno/bijelo), `FLOOR=8` (tamno sivo), `DOOR=3` (zeleno), `WINDOW=5` (plavo), `OBJECT=9` (svijetlo sivo), `ROOM=2` (žuto). `OPENING` i `LABEL` **nisu** u dictu → `color_for()` vraća default `7`.
+**Boje** (konverter `LAYER_COLORS` u `dxf-emit.py`): `WALL=7` (crno/bijelo), `FLOOR=8` (tamno sivo), `DOOR=3` (zeleno), `WINDOW=5` (plavo), `OPENING=6` (magenta, dodano 2026-11-08 — prije je padalo na default `7` i nestajalo u zidu), `OBJECT=9` (svijetlo sivo), `ROOM=2` (žuto), `LABEL` → default `7`.
 Boja se određuje iz imena sloja: `kind = layer_name.split("_", 1)[-1]` (sve nakon prvog `_`); isto vrijedi za lineweight.
 
 **Tipovi linija:** svi slojevi koriste default `CONTINUOUS` (ne postavlja se drugi tip). Web eksplicitno upisuje `CONTINUOUS`.
@@ -398,5 +398,5 @@ Sljedeće nisam mogao potvrditi iz koda/docs/dnevnika (izričito neprovjereno):
 12. **Testni fixturei** (`test/test_scan.json`, `test/optimized_2floor.json`) su mali/sintetički; nisu isti kao "real captures" (56/72 entiteta) iz VERIFICATION.md, koji nisu u repou (samo u dnevniku).
 13. **`--jev` end-to-end** — traži `TYPESAFE_API_KEY`; nisam ga pokretao (nije postavljen u ovoj sesiji dostupan? nije testirano).
 14. **iSH Node `--jitless` na velikim captureima** — performanse/proizvodnost nisu mjerene; nema ograničenja u kodu.
-15. **Točna boja/lineweight slojeva `OPENING` i `LABEL`** u konverteru nisu definirane u dictovima → padaju na default (`7` boja, `13` lineweight); to je zaključak iz koda, nije eksplicitno dokumentirano.
+15. **Sloj `LABEL`** nije u dictovima → default (`7` boja, `13` lineweight). `OPENING` je od 2026-11-08 definiran (`6` magenta, lineweight `35`), pa na njemu nema više defaulta.
 16. **`README.md` "Status (v0.5)/(v0.6)" i `package.json` 0.5.0** — ne mogu potvrditi koja je "prava" verzija.

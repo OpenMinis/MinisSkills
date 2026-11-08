@@ -38,13 +38,23 @@ Ime: **`S<kat>_<TIP>`** (npr. `S0_WALL`, `S1_LABEL`). Tipovi: `WALL`, `FLOOR`, `
 |---|---|---|
 | WALL | 7 | 35 |
 | FLOOR | 8 | 13 |
-| DOOR | 3 | 18 |
-| WINDOW | 5 | 18 |
+| DOOR | 3 (zeleno) | 35 |
+| WINDOW | 5 (plavo) | 35 |
+| OPENING | 6 (magenta) | 35 |
 | OBJECT | 9 | 9 |
 | ROOM | 2 | 13 |
-| OPENING, LABEL | 7 (default) | 13 (default) |
+| LABEL | 7 (default) | 13 (default) |
 
-Boja i lineweight se u konverteru izvode **iz imena sloja** (`split("_", 1)[-1]`), pa neispravno ime sloja tiho daje default.
+Boja i lineweight se u konverteru izvode **iz imena sloja** (`split("_", 1)[-1]`), pa neispravno ime sloja tiho daje default. Lineweight se upisuje u samu tablicu slojeva (`layer.dxf.lineweight`) — ranija inačica je pisala običan atribut i svi su slojevi završavali na `-3` (ByLayer).
+
+### Redoslijed crtanja: otvori iznad zidova (od 2026-11-08)
+
+DXF u *model spaceu* nema z-red (osim tablice `SORTENTS`, koju ne pišemo), pa preglednici crtaju entityje **redom iz datoteke** i kasniji pokriva raniji. Vrata/prozor/otvor je **jedna tanka središnja linija koja leži NA zidnom footprintu**, pa bi je zid upisan poslije prekrio i tlocrt bi izgledao kao kutija bez otvora. Zato:
+
+- `lib/dxf-writer.js` na kraju `buildDXF` **stabilno sortira** `plan.entities` po `DRAW_ORDER`: `FLOOR 10`, `WALL 20`, `ROOM 30`, `OBJECT 40`, `DOOR/WINDOW/OPENING 50`, `LABEL 60`, `CEILING* 70` (nepoznato: 60 za tekst, inače 65). Redoslijed iz dekodera ostaje nepromijenjen unutar iste razine.
+- `lib/dxf-emit.py` primjenjuje **istu tablicu** (`DRAW_ORDER`) prije pisanja, pa i stariji ili ručno složen plan izlazi s otvorima na vrhu. Izvješće emita nosi `drawOrder.openingsAboveWalls`, `firstOpeningIndex`, `lastWallIndex` i `openingColors` (boja po sloju otvora).
+- Svi otvori imaju lineweight **35** (isti kao zid), da obojana linija prekrije cijelu debljinu zida, a ne pola; boja ih razlikuje (3/5/6). `OPENING` više ne pada na default 7 — prije je bio bijel kao zid i vizualno nestajao.
+
 
 ### Tekst
 

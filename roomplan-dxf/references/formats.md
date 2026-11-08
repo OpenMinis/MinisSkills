@@ -175,7 +175,13 @@ effectively zero or whose yaw is below 1e-12 keeps an identity matrix.
 
 Layers follow `S<story>_<KIND>` with KIND in `WALL`, `FLOOR`, `DOOR`,
 `WINDOW`, `OPENING`, `OBJECT`, `ROOM`, `LABEL`; the DXF writer assigns colours
-and lineweights per kind.
+and lineweights per kind (DOOR 3 green, WINDOW 5 blue, OPENING 6 magenta, all at
+the wall's 0.35 mm weight) and writes the entities in **paint order**: floors,
+walls, rooms, objects, then the openings, then labels and ceiling annotations.
+Openings are single centre lines lying on the wall footprint they interrupt, so
+writing them after the walls is what keeps them visible in viewers that paint
+the file top to bottom. The emitter re-applies the same order and reports
+`drawOrder.openingsAboveWalls` in its summary.
 
 ## Output contract
 
