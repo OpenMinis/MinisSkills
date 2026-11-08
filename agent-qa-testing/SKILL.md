@@ -22,6 +22,7 @@ Use agent-qa for web, Android, and iOS regression tests with advanced memidex me
 
 - Locate `agent-qa.config.yaml` and the requested test or suite. Run from that project directory; a global `--config <path>` must appear before the command.
 - Use the project's installed version and package manager. The examples below assume an npm installation and use `--no-install` to avoid downloading a different version. Replace `tests/checkout.yaml` with the selected test path.
+- The command examples and fixture observations were checked with agent-qa `0.2.3`. If the installed version differs, run the relevant command's `--help` and consult documentation for that version before using flags or interpreting output and exit codes. Report any mismatch; do not assume compatibility or silently change versions.
 - agent-qa requires Node.js 24+. If it is not installed or initialized, use the [official quickstart](https://vostride.com/docs/agent-qa/quickstart) and the user's chosen provider; preserve existing configuration and credentials.
 
 ```sh
