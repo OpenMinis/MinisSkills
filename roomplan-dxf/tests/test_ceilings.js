@@ -10,26 +10,32 @@ const ceiling={polygon:[[-2,-2],[2,-2],[2,2],[-2,2]],transform:[1,0,0,0,0,0,1,0,
 const room={identifier:'r',story:0,ceiling:[ceiling],ceilingCurrent:[ceiling],floorHeight:3,vertices:[{x:-3,z:-3},{x:3,z:-3},{x:3,z:3},{x:-3,z:3}],centerX:0,centerZ:0,area:36,category:'Other'};
 const model={kind:'optimized',surfaces:[floor],objects:[],rooms:[room],architecturalAlignment:{matrix:I}};
 let checks=0;function check(f){f();checks++;}const before=JSON.stringify(model),r=addCeilings(model,[]),d=r.diagnostics.records[0];
-check(()=>assert.strictEqual(d.heightM.min,2.5));check(()=>assert.strictEqual(d.heightM.max,2.5));check(()=>assert.strictEqual(d.label,'h 2,50 m'));
-check(()=>assert.strictEqual(r.annotations.filter(e=>e.type==='line').length,4));
+check(()=>assert.strictEqual(d.heightM.min,2.5));check(()=>assert.strictEqual(d.heightM.max,2.5));// a FLAT source ceiling is NOT drawn: no strips, no callout — the room label
+// already states the height (this is what left 7 dashed rectangles across the
+// reference plan).
+check(()=>assert.strictEqual(d.flatCeiling,true));check(()=>assert.strictEqual(d.ceilingDrawn,false));check(()=>assert.strictEqual(d.label,undefined));
+check(()=>assert.strictEqual(r.annotations.filter(e=>e.type==='line').length,0));
 check(()=>assert(r.annotations.filter(e=>e.type==='line').every(e=>Math.abs(e.a[0])!==2||Math.abs(e.a[1])!==2)));
 check(()=>assert.strictEqual(JSON.stringify(model),before));
 const tilted=JSON.parse(JSON.stringify(model));const angle=.3,t=tilted.rooms[0].ceiling[0].transform;t[5]=Math.sin(angle);t[6]=Math.cos(angle);t[9]=-Math.cos(angle);t[10]=Math.sin(angle);tilted.rooms[0].ceilingCurrent=null;
 const s=addCeilings(tilted,[]).diagnostics.records[0];
 check(()=>assert(Math.abs(s.heightM.min-(2.5-2*Math.sin(angle)))<1e-10));check(()=>assert(Math.abs(s.heightM.max-(2.5+2*Math.sin(angle)))<1e-10));
-const rot=JSON.parse(JSON.stringify(model));rot.architecturalAlignment.matrix=[0,0,-1,0,0,1,0,0,1,0,0,0,7,0,11,1];const rr=addCeilings(rot,[]);
-check(()=>assert.strictEqual(rr.diagnostics.records[0].heightM.min,2.5));
-check(()=>assert(Math.abs(rr.annotations[0].a[0]-(r.annotations[0].a[1]*-1+7))<1e-10));
-check(()=>assert(Math.abs(rr.annotations[0].a[1]-(r.annotations[0].a[0]-11))<1e-10));
+// rotation is applied to the drawing AND to the fall direction; a tilted plane
+// is the case that still draws lines.
+const tiltAnn=addCeilings(tilted,[]).annotations;
+const rot=JSON.parse(JSON.stringify(tilted));rot.architecturalAlignment={matrix:[0,0,-1,0,0,1,0,0,1,0,0,0,7,0,11,1]};const rr=addCeilings(rot,[]);
+check(()=>assert.strictEqual(rr.diagnostics.records[0].heightM.min,s.heightM.min));
+check(()=>assert(Math.abs(rr.annotations[0].a[0]-(tiltAnn[0].a[1]*-1+7))<1e-10));
+check(()=>assert(Math.abs(rr.annotations[0].a[1]-(tiltAnn[0].a[0]-11))<1e-10));
 const dup=JSON.parse(JSON.stringify(model));dup.rooms[0].ceiling.push(ceiling);dup.rooms[0].ceilingCurrent=null;
-check(()=>assert.strictEqual(addCeilings(dup,[]).annotations.filter(e=>e.type==='line').length,4));
+check(()=>assert.strictEqual(addCeilings(dup,[]).annotations.length,0));
 // raw source without explicit ceilings: the wall-top fallback now reconstructs
 // (here a flat ceiling, since no wall top edge is sloped) instead of giving up
 const raw=addCeilings({kind:'raw',surfaces:[floor,{kind:'wall',polygonCorners:corners}],objects:[]},[]);
 check(()=>assert.strictEqual(raw.diagnostics.records.length,1));
 check(()=>assert.strictEqual(raw.diagnostics.records[0].method,'flat'));
 check(()=>assert(Math.abs(raw.diagnostics.records[0].ceilingAreaM2-64)<1e-9));
-check(()=>assert.strictEqual(raw.annotations.filter(e=>e.type==='line').length,4));
+check(()=>assert.strictEqual(raw.annotations.length,0));
 check(()=>assert(raw.diagnostics.warnings.some(w=>w.code==='roomplan.ceiling-reconstructed-flat')));
 const rawEmpty=addCeilings({kind:'raw',surfaces:[floor],objects:[]},[]);
 check(()=>assert.strictEqual(rawEmpty.diagnostics.records.length,0));
@@ -39,14 +45,23 @@ const conflict=JSON.parse(JSON.stringify(model));conflict.rooms[0].floorHeight=4
 check(()=>assert.strictEqual(addCeilings(conflict,[]).diagnostics.records[0].heightM,null));
 check(()=>assert(sourcePolygon({...ceiling,transform:I.map((v,i)=>i===0?2:v)}).error));
 check(()=>assert(sourcePolygon({...ceiling,polygon:[[0,0],[1,1],[0,1],[1,0]]}).error));
-const off=buildDXF(model,{noFrame:true}),on=buildDXF(model,{noFrame:true,ceilings:true});
+const off=buildDXF(model,{noFrame:true,ceilings:false}),on=buildDXF(model,{noFrame:true});
 check(()=>assert.deepStrictEqual(on.plan.entities.filter(e=>!e.layer.endsWith('_CEILING')),off.plan.entities));
-check(()=>assert.strictEqual(buildDXF(model,{}).ceilingDiagnostics.enabled,false));
-const many=JSON.parse(JSON.stringify(model));many.surfaces.push({...floor,identifier:'f1',story:1});many.rooms.push({...room,identifier:'r1',story:1});const multi=buildDXF(many,{ceilings:true});
+check(()=>assert.strictEqual(buildDXF(model,{}).ceilingDiagnostics.enabled,true));
+check(()=>assert.strictEqual(buildDXF(model,{ceilings:false}).ceilingDiagnostics.enabled,false));
+// A FLAT ceiling adds nothing at all to the drawing: --ceilings on and off are
+// byte-identical, and no ceiling layer is even declared. "h 2.50" lives on the
+// room label, where a reader looks for it.
+check(()=>assert.strictEqual(on.plan.entities.filter(e=>String(e.layer).endsWith('_CEILING')).length,0));
+check(()=>assert(!on.plan.layers.some(n=>n.endsWith('_CEILING'))));
+// A genuinely sloped ceiling still draws: dashed band outline + fall line.
+const tiltDxf=buildDXF(tilted,{noFrame:true});
+check(()=>assert(tiltDxf.plan.entities.filter(e=>e.layer==='S0_CEILING'&&e.type==='line').length>=4));
+const many=JSON.parse(JSON.stringify(tilted));many.surfaces.push({...floor,identifier:'f1',story:1});many.rooms.push({...tilted.rooms[0],identifier:'r1',story:1});const multi=buildDXF(many,{});
 check(()=>assert.deepStrictEqual(multi.plan.stories.map(s=>s.story),[0,1]));check(()=>assert(multi.plan.entities.some(e=>e.layer==='S1_CEILING')));
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'ceiling-test-')),file=path.join(tmp,'test.dxf');
 const emit=cp.spawnSync('python3',[path.join(__dirname,'../scripts/lib/dxf-emit.py'),file],{input:JSON.stringify(multi.plan),encoding:'utf8'});check(()=>assert.strictEqual(emit.status,0,emit.stderr));
-const audit=cp.spawnSync('python3',['-c',`import ezdxf,sys,math\nd=ezdxf.readfile(sys.argv[1]);assert not d.audit().errors\nfor n in ['S0_CEILING','S1_CEILING']:\n l=d.layers.get(n);assert l.dxf.color==30 and l.dxf.true_color==0xFF8000 and l.dxf.linetype=='CEILING_DASHED'\n lines=[e for e in d.modelspace() if e.dxftype()=='LINE' and e.dxf.layer==n];assert len(lines)==4\n assert all(math.isfinite((e.dxf.end-e.dxf.start).magnitude) and (e.dxf.end-e.dxf.start).magnitude>0 for e in lines)\na=[e for e in d.modelspace() if e.dxftype()=='LINE' and e.dxf.layer=='S0_CEILING'][0]\nb=[e for e in d.modelspace() if e.dxftype()=='LINE' and e.dxf.layer=='S1_CEILING'][0]\nassert abs(a.dxf.start.x-b.dxf.start.x)>8\nassert abs(a.dxf.start.y-b.dxf.start.y)<1e-9`,file],{encoding:'utf8'});check(()=>assert.strictEqual(audit.status,0,audit.stderr));
+const audit=cp.spawnSync('python3',['-c',`import ezdxf,sys,math\nd=ezdxf.readfile(sys.argv[1]);assert not d.audit().errors\nfor n in ['S0_CEILING','S1_CEILING']:\n l=d.layers.get(n);assert l.dxf.color==30 and l.dxf.true_color==0xFF8000 and l.dxf.linetype=='CEILING_DASHED'\n lines=[e for e in d.modelspace() if e.dxftype()=='LINE' and e.dxf.layer==n];assert len(lines)>=4\n assert all(math.isfinite((e.dxf.end-e.dxf.start).magnitude) and (e.dxf.end-e.dxf.start).magnitude>0 for e in lines)\na=[e for e in d.modelspace() if e.dxftype()=='LINE' and e.dxf.layer=='S0_CEILING'][0]\nb=[e for e in d.modelspace() if e.dxftype()=='LINE' and e.dxf.layer=='S1_CEILING'][0]\nassert abs(a.dxf.start.x-b.dxf.start.x)>8\nassert abs(a.dxf.start.y-b.dxf.start.y)<1e-9`,file],{encoding:'utf8'});check(()=>assert.strictEqual(audit.status,0,audit.stderr));
 // Numerical rounding clips exactly, not an EPS widening; substantial spill stays unknown.
 const wall={identifier:'w',kind:'wall',story:0,transform:I,dimensions:{x:4,y:3,z:0}},opening={identifier:'o',kind:'opening',parentIdentifier:'w',story:0,transform:I.map((v,i)=>i===12?1.5000002:v),dimensions:{x:1,y:2,z:0}};
 const cap={kind:'raw',surfaces:[wall,opening],objects:[]},report=buildReport(cap),w=report.elements[0];

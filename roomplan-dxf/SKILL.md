@@ -120,17 +120,41 @@ Coordinates are metres in the source frame. DXF applies a computed raw rotation 
   is independent and not affiliated with, endorsed or certified by Apple or
   Autodesk.
 
-## Ceilings and heights (`--ceilings`, default off)
+## Ceilings and heights (`--ceilings`, DEFAULT ON; `--no-ceilings` to disable)
+
+Every room label carries its height — `Soba  12.40 m2  h 2.50` or
+`Soba  19.80 m2  h 1.65-2.48`. When a capture has no room polygon at all (raw
+Apple format) the label still exists, once per storey, at the centre of the
+storey's bounding box: `Kat 0 — 33.34 m2 — h 1.65-2.48`. A height is never
+invented and never printed as `0`; when it is unknown the `h` part is simply
+absent.
+
+**A slope is a strip, not the room.** A knee profile slopes only over the
+measured `run` next to the low wall and is flat at the ridge everywhere else, so
+the ceiling is split into TWO parts and only the strip is drawn:
+
+* `S<n>_CEILING` (orange, dashed, ACI 30 / truecolor `0xFF8000`, 3 cm offset):
+  the sloped band only — its outline, the fall line with the downhill arrow,
+  the ridge line where the band ends, and `h 1.65-2.48 (knee|section)`.
+* `S<n>_CEILING_FLAT` (thin, continuous, gray): the flat remainder's boundary
+  and `h 2.48 (flat)`. Never orange, never a strip.
+
+A ceiling that is flat — reconstructed flat, or an explicit source polygon with
+no tilt — draws **nothing at all** on any ceiling layer: the dashed rectangle
+across a plane with no slope was pure noise, and the room label already states
+the height. Gables keep two bands (and a flat plateau only when the section has
+a flat segment).
 
 Explicit optimized-source ceilings (`rooms[].ceiling` / `ceiling_curr`,
-`transform` + 2D `polygon`) are annotated on orange dashed `S<n>_CEILING`
-layers (ACI 30, truecolor `0xFF8000`, 3 cm offset). Annotations never alter wall
-or floor geometry or quantities. `h 2,50 m` / `h 2,10-2,85 m` labels are
+`transform` + 2D `polygon`) are still annotated on the orange dashed layer when
+they are genuinely tilted; a horizontal one is skipped as above. Annotations never alter wall
+or floor geometry or quantities. `h 2.50` / `h 2.10-2.85` labels are
 ceiling-to-floor vertical differences in one source-world space; the floor datum
 must be a covering measured floor polygon, and `room.floor_height` is used only
 as an explicitly labelled `supplied-floor-level` fallback. Without evidence the
 height stays null with `heightReason` and a warning; never `dimensions.y`, never
-a fixed 2.5 m. Raw input has no ceilings and is not reconstructed. See
+a fixed 2.5 m. Raw input has no room polygons, so its ceilings are
+reconstructed from wall tops and reported per storey. See
 [heights-ceilings.md](references/heights-ceilings.md).
 
 ## USDZ export (`--usdz`)
@@ -147,11 +171,32 @@ Layer shape (copied from Apple's own exporter, 105 reference layers):
 `room > Section_grp` holds one `kind = "assembly"` `Xform` per captured room
 (named from a sanitised label, e.g. `Kuhinja/dnevni` → `Kuhinja_dnevni`), and
 `room > Mesh_grp` holds one `kind = "component"` `Xform` per element
-(`Wall_1…`, `Floor_1…`, `Door_1…`, `Window_1…`, `Opening_1…`, `Object_1…`),
+(`Wall_1…`, `Floor_1…`, `CeilingSlope_1…`, `CeilingFlat_1…`, `Door_1…`,
+`Window_1…`, `Opening_1…`, `Object_1…`),
 each with `customData = { string Category string Identifier }`, each containing a
 `def Mesh` **and** its own `def Material "<Name>_color"` (UsdPreviewSurface)
-that the Mesh binds with `rel material:binding`. Prim metadata always sits in the
+that the Mesh binds with `rel material:binding`. The one exception is an
+OPENING (`Door_`/`Window_`/`Opening_`): it is an empty `Xform` carrying `Label`,
+`Width`, `Height` and `Role = "opening"` and no mesh at all, because the hole
+the wall was cut for is the element. Prim metadata always sits in the
 parenthesis block after the prim name, never inside the braces.
+
+Ceilings (`scripts/lib/ceiling-3d.js`) are real solids, so they are visible in
+AR Quick Look instead of being an annotation a USDZ cannot carry. A knee
+profile is **two prims** — `CeilingSlope_<n>` (the band from the knee up to the
+ridge, `Geometry = "sloped strip"`, `Method = "knee"`) and `CeilingFlat_<n>`
+(the remainder, `Geometry = "flat plane"`, `Method = "flat"`) — never one
+tilted sheet across the whole room. A flat ceiling is ONE prim with 2 triangles
+and normal −Y (seen from below); a gable is two `CeilingSlope_` planes meeting
+at a ridge, plus a `CeilingFlat_` plateau only when the section has a flat
+segment. `double Area` on each prim is its own FOOTPRINT area, so the strip's
+area stays checkable against `run × room depth`. The
+method is never used to invent geometry: `extrusion`/`unavailable` become a flat
+plane at the knee height plus `usdz.ceiling-approximated`, and a room with no
+footprint polygon gets no ceiling at all plus `usdz.ceiling-no-polygon`.
+Because Quick Look renders no text, room and ceiling prims carry the label in
+`customData`: `string Label`, `double Area`, `string Height` (`"2.50"` or
+`"1.60-2.50"`), `string Method`.
 
 Geometry: `polygonCorners` → that polygon, fan-triangulated — except for a
 WALL, where a flat plan polygon is extruded through the thickness into a prism

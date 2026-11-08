@@ -57,8 +57,9 @@ const USAGE = [
   'Options:',
   '  --force            overwrite existing outputs',
   '  --model            also write source-space <name>.capture.json (geo redacted unless --geo)',
-  '  --ceilings         explicit-source dashed orange ceiling annotations and verified floor-relative heights (default off)',
-  '  --no-ceilings      disable ceiling annotations; later toggle wins',
+  '  --ceilings         dashed orange ceiling plane, ridge/fall line, method and',
+  '                     floor-relative height for every room (DEFAULT ON)',
+  '  --no-ceilings      disable ceiling annotations entirely; later toggle wins',
   '  --report           also write <name>.report.json (totals, elements, statistics, handoff) and <name>.quantities.csv',
   '  --md               also write <name>.md, a Markdown summary of report-v1 (implies --report)',
   '  --usdz             also write <name>.usdz, an AR Quick Look model (RoomPlan geometry in metres)',
@@ -349,7 +350,7 @@ function main() {
   planMeta.placeLookup = placeLookup;
   for (const w of placeLookupWarnings(placeLookup)) planMeta.warnings.push(w);
 
-  const dxfResult = buildDXF(model, { noFrame: args.noFrame, planMeta, ceilings:args.flags.ceilings===true });
+  const dxfResult = buildDXF(model, { noFrame: args.noFrame, planMeta, ceilings:args.flags.ceilings!==false });
   if(quantityReport)quantityReport.ceilingDiagnostics=dxfResult.ceilingDiagnostics;
   for(const warning of dxfResult.ceilingDiagnostics.warnings||[])planMeta.warnings.push(warning);
 

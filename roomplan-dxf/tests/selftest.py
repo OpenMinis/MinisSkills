@@ -364,7 +364,10 @@ class ConverterTests(unittest.TestCase):
         original = src.read_bytes()
         manifest, doc, _ = self._check_drawing(
             out, "synthetic-raw",
-            expected_counts={"LWPOLYLINE": 8, "LINE": 3},
+            # 8 footprints, and NO ceiling annotation: every wall top here is
+            # flat, so the ceiling is flat — a flat ceiling is not drawn at all
+            # (no strips across the room); the storey label carries "h".
+            expected_counts={"LWPOLYLINE": 8, "LINE": 3, "TEXT": 2},
         )
         self.assertEqual(manifest["sourceFormat"], "raw")
         self.assertEqual(manifest["sourceSHA256"], digest)
@@ -383,6 +386,9 @@ class ConverterTests(unittest.TestCase):
         original = src.read_bytes()
         manifest, doc, _ = self._check_drawing(
             out, "synthetic-optimized",
+            # room outline + 2 opening centre lines; the ceiling is FLAT here
+            # (2.6 m walls, no sloped top edge), so it draws nothing — only the
+            # room label with "h 2.60" is added.
             expected_counts={"LWPOLYLINE": 5, "LINE": 2, "TEXT": 1},
         )
         self.assertEqual(manifest["sourceFormat"], "optimized")

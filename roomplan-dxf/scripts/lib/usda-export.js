@@ -77,6 +77,7 @@
  */
 const { buildWallWithHoles, indexOpeningsByParent } = require('./wall-holes');
 const { prismGeometry } = require('./polygon-prism');
+const { ceilingSolids, heightLabel } = require('./ceiling-3d');
 
 const DEFAULT_THICKNESS = 0.16; // metres, Apple's assumed wall thickness
 const EPS = 1e-9;
@@ -318,6 +319,8 @@ function metadataBlock(lines, primIndent, entries) {
  * @param {number} [options.thickness=0.16] assumed wall thickness, metres
  * @param {string} [options.fileName='room.usda'] root layer name inside the archive
  * @param {string} [options.doc] optional `doc` metadata string
+ * @param {boolean} [options.ceilings=true] emit one ceiling prim per room/zone
+ *   (SOURCE-WORLD geometry from lib/ceiling-3d.js; never an invented plane)
  * @returns {{files:Object<string,Buffer>, text:string, summary:object, warnings:object[], primCount:number}}
  */
 function buildUsda(capture, options) {
@@ -334,6 +337,21 @@ function buildUsda(capture, options) {
 
   const byCategory = {};
   const bump = (key) => { byCategory[key] = (byCategory[key] || 0) + 1; };
+
+  /* ---- ceilings (one solid per room/zone, SOURCE WORLD, never invented) -- */
+  // Computed before the section records so a room can carry its own Height and
+  // Method next to Label and Area: Quick Look has no text, so customData is the
+  // only place a reader can see a height at all.
+  const wantCeilings = opts.ceilings === undefined ? true : opts.ceilings !== false;
+  const ceilingResult = wantCeilings ? ceilingSolids(capture) : { ceilings: [], warnings: [] };
+  for (const warning of ceilingResult.warnings) warnings.push(warning);
+  const ceilingByRoom = new Map();
+  const ceilingByStory = new Map();
+  for (const c of ceilingResult.ceilings) {
+    if (c.roomIdentifier != null && !ceilingByRoom.has(String(c.roomIdentifier))) ceilingByRoom.set(String(c.roomIdentifier), c);
+    const s = Number.isFinite(c.story) ? c.story : 0;
+    if (!ceilingByStory.has(s)) ceilingByStory.set(s, c);
+  }
 
   /* ---- sections: one Xform per captured room ---------------------------- */
   const rooms = Array.isArray(capture && capture.rooms) ? capture.rooms : [];
@@ -354,6 +372,9 @@ function buildUsda(capture, options) {
         label: label == null ? null : String(label),
         identifier: room && room.identifier != null ? String(room.identifier) : null,
         story: room && Number.isFinite(room.story) ? room.story : null,
+        // The room's own measured area wins over the reconstructed ceiling
+        // area (which includes the slope surplus) for the room prim.
+        area: room && Number.isFinite(room.area) ? room.area : null,
       });
     });
   } else {
@@ -393,6 +414,39 @@ function buildUsda(capture, options) {
       return;
     }
 
+    if (extra && extra.Role === 'opening') {
+      // AN OPENING IS A HOLE. Emitting a box here put a solid plate straight
+      // across the opening the wall had just been cut for, so Quick Look showed
+      // a filled rectangle and the cut became invisible (7 such plates in the
+      // reference capture). The prim stays as an EMPTY Xform carrying the
+      // measured width/height, so the hole reads as a hole and the element is
+      // still addressable by name.
+      const width = Number.isFinite(dims.x) ? dims.x : null;
+      const height = Number.isFinite(dims.y) ? dims.y : null;
+      const depth = Number.isFinite(dims.z) && dims.z > 0
+        ? dims.z
+        : (Number.isFinite(s.wallThickness) && s.wallThickness > 0 ? s.wallThickness : null);
+      prims.push({
+        name: nextName(prefix),
+        category,
+        identifier,
+        geometry: null,
+        element: {
+          openingFields: true,
+          label: s && s.label != null ? String(s.label) : category,
+          width,
+          height,
+          depth,
+        },
+        extra: {},
+      });
+      bump(category);
+      warnings.push({
+        code: 'usdz.opening-hole-only',
+        message: `${category} "${identifier || 'anonymous'}" is exported as an empty Xform (no mesh): a plate across the opening would hide the hole cut for it${width != null && height != null ? ` (${width.toFixed(2)} x ${height.toFixed(2)} m)` : ''}.`,
+      });
+      return;
+    }
     const attached = identifier != null ? openingsByParent.get(identifier) || [] : [];
     const poly = polygonOf(s);
     if (poly) {
@@ -501,6 +555,80 @@ function buildUsda(capture, options) {
     buildOne(o, 'Object', o && o.category != null ? String(o.category) : 'Object');
   }
 
+  /* ---- ceilings: one mesh prim PER PART, downward-facing ---------------- */
+  // A knee profile is TWO prims, never one tilted sheet across the room: the
+  // sloped strip next to the low wall (CeilingSlope_n) and the flat remainder
+  // at the ridge (CeilingFlat_n). A flat ceiling stays ONE prim.
+  const ceilingSummary = { prims: 0, flat: 0, sloped: 0, gable: 0, approximated: 0, heightMin: null, heightMax: null, parts: [] };
+  if (wantCeilings) {
+    for (const c of ceilingResult.ceilings) {
+      const parts = (Array.isArray(c.parts) && c.parts.length
+        ? c.parts
+        : (c.surfaces || []).map((sf) => ({ kind: sf.kind || 'flat', polygons: [sf.points], heightMin: c.heightMin, heightMax: c.heightMax, heightLabel: c.heightLabel, area: c.area, method: c.method }))
+      ).filter((p) => Array.isArray(p.polygons) && p.polygons.some((pl) => Array.isArray(pl) && pl.length >= 3));
+      if (!parts.length) continue;
+      const identifier = c.roomIdentifier != null ? c.roomIdentifier : `story_${c.story}`;
+      for (const part of parts) {
+        const points = [];
+        const faces = [];
+        for (const pl of part.polygons) {
+          if (!Array.isArray(pl) || pl.length < 3) continue;
+          const pts = pl.map((p) => [p[0], p[1], p[2]]);
+          const n = polygonNormal(pts);
+          // A ceiling is seen from below: the winding must give normal -Y
+          // (slightly tilted for a slope, but never pointing up).
+          const ordered = n && n[1] > 0 ? pts.slice().reverse() : pts;
+          const base = points.length;
+          ordered.forEach((p) => points.push(p));
+          faces.push(ordered.map((_, k) => base + k));
+        }
+        if (!faces.length) continue;
+        // Classify from the geometry actually written, not from a method name:
+        // an explicit source ceiling can be a genuinely tilted plane.
+        const ysAll = points.map((p) => p[1]);
+        const ySpan = Math.max(...ysAll) - Math.min(...ysAll);
+        const flat = ySpan < 0.005;
+        const slope = !flat;
+        const namePrefix = slope ? 'CeilingSlope' : 'CeilingFlat';
+        const geometryText = flat
+          ? `flat plane at height ${part.heightLabel || c.heightLabel || ''}`
+          : (part.kind === 'gable' || c.ridge ? 'sloped strip, gable side' : 'sloped strip (knee to ridge)');
+        const fields = [
+          ['string Category', '"Ceiling"'],
+          ['string Identifier', `"${escapeString(identifier)}"`],
+        ];
+        if (c.label != null) fields.push(['string Label', `"${escapeString(c.label)}"`]);
+        if (Number.isFinite(part.area)) fields.push(['double Area', num(part.area)]);
+        if (part.heightLabel) fields.push(['string Height', `"${part.heightLabel}"`]);
+        if (Number.isFinite(part.heightMin)) fields.push(['double HeightMin', num(part.heightMin)]);
+        if (Number.isFinite(part.heightMax)) fields.push(['double HeightMax', num(part.heightMax)]);
+        fields.push(['string Method', `"${escapeString(flat ? 'flat' : (part.method || c.method || 'knee'))}"`]);
+        fields.push(['string Coverage', `"${escapeString(c.coverage || 'unknown')}"`]);
+        fields.push(['string Geometry', `"${escapeString(geometryText)}"`]);
+        if (slope && Number.isFinite(c.slopeTangent)) fields.push(['double Slope', num(c.slopeTangent)]);
+        fields.push(['double FloorElevation', num(c.floorY)]);
+        fields.push(['string UUID', `"${stableUuid(`Ceiling:${identifier}:${namePrefix}:${ceilingSummary.prims + 1}`)}"`]);
+        prims.push({
+          name: nextName(namePrefix),
+          category: 'Ceiling',
+          identifier: String(identifier),
+          geometry: { points, faces, kind: 'ceiling' },
+          element: { ceilingFields: fields, ceilingKind: flat ? 'flat' : 'slope', poly: true },
+          extra: {},
+        });
+        bump('Ceiling');
+        ceilingSummary.prims += 1;
+        if (flat) ceilingSummary.flat += 1;
+        else if (part.kind === 'gable' || c.ridge) ceilingSummary.gable += 1;
+        else ceilingSummary.sloped += 1;
+        if (String(c.method).match(/extrusion|unavailable|unknown/)) ceilingSummary.approximated += 1;
+        if (Number.isFinite(part.heightMin)) ceilingSummary.heightMin = ceilingSummary.heightMin == null ? part.heightMin : Math.min(ceilingSummary.heightMin, part.heightMin);
+        if (Number.isFinite(part.heightMax)) ceilingSummary.heightMax = ceilingSummary.heightMax == null ? part.heightMax : Math.max(ceilingSummary.heightMax, part.heightMax);
+        ceilingSummary.parts.push({ name: prims[prims.length - 1].name, identifier: String(identifier), kind: flat ? 'flat' : 'slope', area: part.area, height: part.heightLabel });
+      }
+    }
+  }
+
   /* ---- text ------------------------------------------------------------- */
   const lines = [];
   lines.push('#usda 1.0');
@@ -525,6 +653,14 @@ function buildUsda(capture, options) {
     if (s.label != null) fields.push(['string Label', `"${escapeString(s.label)}"`]);
     if (s.identifier != null) fields.push(['string Identifier', `"${escapeString(s.identifier)}"`]);
     fields.push(['int Index', String(i)]);
+    // Height label + area: the readable room annotation in a format that has
+    // no text rendering. Only measured/reconstructed values, never a default.
+    const c = (s.identifier != null ? ceilingByRoom.get(String(s.identifier)) : null)
+      || (s.story != null ? ceilingByStory.get(s.story) : null) || null;
+    const roomArea = Number.isFinite(s.area) ? s.area : (c && Number.isFinite(c.area) ? c.area : null);
+    if (roomArea != null) fields.push(['double Area', num(roomArea)]);
+    if (c && c.heightLabel) fields.push(['string Height', `"${c.heightLabel}"`]);
+    if (c && c.method) fields.push(['string Method', `"${escapeString(c.method)}"`]);
     if (s.story != null) fields.push(['int Story', String(Math.trunc(s.story))]);
     lines.push(`        def Xform "${s.name}"`);
     metadataBlock(lines, 8, [
@@ -542,12 +678,29 @@ function buildUsda(capture, options) {
   metadataBlock(lines, 4, [{ key: 'kind', value: '"group"' }]);
   lines.push('    {');
   prims.forEach((prim, i) => {
-    const mesh = meshArrays(prim.geometry);
+    const mesh = prim.geometry ? meshArrays(prim.geometry) : null;
     const materialName = `${prim.name}_color`;
     const materialPath = `room/Mesh_grp/${prim.name}/${materialName}`;
 
     // Leaf component, Apple-shaped: customData then kind (alphabetical).
-    const fields = [['string Category', `"${escapeString(prim.category)}"`]];
+    // A ceiling prim brings its own complete field list (Category, Identifier,
+    // Label, Area, Height, Method), so it must not be given a second copy.
+    // An opening prim carries its measured size instead: it has NO mesh.
+    const fields = [];
+    if (prim.element.ceilingFields) {
+      for (const f of prim.element.ceilingFields) fields.push(f);
+    } else if (prim.element.openingFields) {
+      fields.push(['string Category', `"${escapeString(prim.category)}"`]);
+      if (prim.identifier != null) fields.push(['string Identifier', `"${escapeString(prim.identifier)}"`]);
+      fields.push(['string Label', `"${escapeString(prim.element.label || prim.category)}"`]);
+      fields.push(['string Role', '"opening"']);
+      if (Number.isFinite(prim.element.width)) fields.push(['double Width', num(prim.element.width)]);
+      if (Number.isFinite(prim.element.height)) fields.push(['double Height', num(prim.element.height)]);
+      if (Number.isFinite(prim.element.depth)) fields.push(['double Thickness', num(prim.element.depth)]);
+      fields.push(['string Geometry', '"opening: hole only, no plate across the opening"']);
+      fields.push(['string UUID', `"${stableUuid(`${prim.category}:${prim.identifier || prim.name}`)}"`]);
+    } else {
+    fields.push(['string Category', `"${escapeString(prim.category)}"`]);
     if (prim.identifier != null) fields.push(['string Identifier', `"${escapeString(prim.identifier)}"`]);
     if (prim.element.thicknessAssumed) {
       // The spec asks for the assumed flag to be unmistakable in customData.
@@ -572,6 +725,7 @@ function buildUsda(capture, options) {
     }
     for (const [k, v] of Object.entries(prim.extra)) fields.push([`string ${k}`, `"${escapeString(v)}"`]);
     fields.push(['string UUID', `"${stableUuid(`${prim.category}:${prim.identifier || prim.name}`)}"`]);
+    }
 
     lines.push(`        def Xform "${prim.name}"`);
     metadataBlock(lines, 8, [
@@ -579,6 +733,13 @@ function buildUsda(capture, options) {
       { key: 'kind', value: '"component"' },
     ]);
     lines.push('        {');
+    if (!prim.geometry) {
+      // An opening: a named, sized, GEOMETRY-FREE node. The hole in the wall is
+      // the opening; a mesh here would fill it again.
+      lines.push('        }');
+      if (i < prims.length - 1) lines.push('');
+      return;
+    }
     lines.push(`            def Mesh "${prim.name}"`);
     lines.push('            {');
     for (const line of attributeLines(mesh, materialPath, 16)) lines.push(line);
@@ -624,16 +785,22 @@ function buildUsda(capture, options) {
     // Polygon walls are solids, not sheets: how many were extruded and their
     // total surface area (2 caps + one side per edge).
     prisms: prismSummary,
+    // Ceilings are geometry, not annotations: one prim per room/zone with a
+    // footprint, plus the height range and the method used to get it.
+    ceilings: ceilingSummary,
+    // A prim with no geometry is an OPENING (the hole is the element): it is
+    // reported with zero points and faces, never dropped from the list.
     prims: prims.map((p) => {
-      const m = meshArrays(p.geometry);
+      const m = p.geometry ? meshArrays(p.geometry) : null;
       return {
         name: p.name,
         category: p.category,
         identifier: p.identifier,
-        points: m.points.length,
-        faces: m.counts.length,
+        points: m ? m.points.length : 0,
+        faces: m ? m.counts.length : 0,
         cut: p.element.holed ? p.element.holed.openings.length : 0,
         prism: Boolean(p.element.prism),
+        emptyXform: !p.geometry,
       };
     }),
   };

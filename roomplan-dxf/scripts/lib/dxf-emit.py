@@ -360,7 +360,8 @@ def main():
     msp = doc.modelspace()
 
     LAYER_COLORS = {
-        "CEILING": 30, # orange ceiling annotations only
+        "CEILING": 30, # orange ceiling annotations only (the sloped band)
+        "CEILING_FLAT": 8, # thin gray boundary of the FLAT ceiling remainder, never orange
         "WALL": 7,     # black/white — primary structure, full contrast
         "FLOOR": 8,    # dark gray — visible but recessive vs. walls
         "DOOR": 3,     # green — standard architectural convention
@@ -373,6 +374,7 @@ def main():
     }
     LAYER_LINEWEIGHT = {
         "CEILING": 9,  # 0.09mm dashed annotation, never wall thickness
+        "CEILING_FLAT": 9,  # same thin weight, continuous line: no strip, just a boundary
         "WALL": 35,    # ~0.35mm — walls read as the thickest lines
         "FLOOR": 13,
         "DOOR": 18,

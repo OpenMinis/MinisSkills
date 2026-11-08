@@ -363,8 +363,11 @@ def Xform "room" ( kind = "assembly" )
   `polygonCorners`) is not cut and the manifest records
   `usdz.opening-not-cut`; a small overshoot under 20 mm is clamped and recorded
   as `usdz.opening-clamped`. The `Door_*` / `Window_*` prims stay in the file as
-  separate components marked `Role = "opening"`, and a cut wall carries
-  `int Openings`, `double CutArea` and `double ExposedArea`.
+  separate components carrying `Role = "opening"`, `double Width` and
+  `double Height` — but **no mesh**: a plate across an opening fills the hole
+  the wall was just cut for (7 such plates in the reference capture), so the
+  opening is the hole, and the warning `usdz.opening-hole-only` says so. A cut
+  wall carries `int Openings`, `double CutArea` and `double ExposedArea`.
 - Numbers are metres with a fixed 6 decimals and a `.` separator; a primitive
   with a non-finite transform or without usable geometry is **skipped with a
   warning** (the warning also lands in the manifest) instead of writing `NaN`.

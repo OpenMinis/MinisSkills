@@ -127,7 +127,9 @@ check(() => assert(near(zonesExplicit[0].ceilingArea, 16, 1e-9)));
 check(() => assert.strictEqual(zonesExplicit[0].fallDirection, undefined));
 const recExplicit = addCeilings(modelExplicit, []);
 check(() => assert(recExplicit.diagnostics.records.every((x) => x.method === 'explicit')));
-check(() => assert.strictEqual(recExplicit.annotations.filter((e) => e.type === 'line').length, 4));
+// a flat source ceiling is not drawn at all: nothing on the ceiling layer.
+check(() => assert.strictEqual(recExplicit.annotations.length, 0));
+check(() => assert.strictEqual(recExplicit.diagnostics.records[0].flatCeiling, true));
 
 // 9 ------------------------- reconstructed ceiling in DXF + bit-identity
 const gableRoom = { ...room, ceiling: null, ceilingCurrent: null, identifier: 'g' };
@@ -143,12 +145,14 @@ check(() => assert(rec.annotations.some((e) => e.type === 'line' && e.slopeIndic
 check(() => assert(rec.annotations.filter((e) => e.type === 'line').length >= 4));
 // fall-direction indicator is drawn for a sloped reconstruction
 check(() => assert(Array.isArray(rrec.slopeIndicatorLine) && rrec.slopeIndicatorLine.length === 2));
-const off = buildDXF(modelRecon, { noFrame: true });
-const on = buildDXF(modelRecon, { noFrame: true, ceilings: true });
+const off = buildDXF(modelRecon, { noFrame: true, ceilings: false });
+const on = buildDXF(modelRecon, { noFrame: true });
 check(() => assert.deepStrictEqual(on.plan.entities.filter((e) => !e.layer.endsWith('_CEILING')), off.plan.entities));
 check(() => assert(on.plan.entities.filter((e) => e.layer === 'S0_CEILING').length > 0));
 check(() => assert(on.plan.entities.some((e) => e.type === 'text' && e.layer === 'S0_CEILING' && /\(knee\)/.test(e.value))));
-check(() => assert.strictEqual(buildDXF(modelRecon, {}).ceilingDiagnostics.enabled, false));
+// ceilings are ON by default now; only the explicit opt-out turns them off
+check(() => assert.strictEqual(buildDXF(modelRecon, {}).ceilingDiagnostics.enabled, true));
+check(() => assert.strictEqual(buildDXF(modelRecon, {ceilings:false}).ceilingDiagnostics.enabled, false));
 
 // DXF file: audit clean, CEILING layer styling unchanged (ACI 30 / 0xFF8000)
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ceil-recon-'));

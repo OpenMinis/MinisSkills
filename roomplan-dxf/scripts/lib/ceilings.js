@@ -7,6 +7,7 @@
 const {polygon3D,inPolygon}=require('./quantities');
 const {apply,project}=require('./transform');
 const recon=require('./ceiling-reconstruct');
+const {splitCeilingPlan}=require('./ceiling-3d');
 const I=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
 const finite=Number.isFinite;
 const OFFSET_M=0.03, TRIM_M=0.03;
@@ -25,8 +26,12 @@ function sourcePolygon(c){
 function bbox(points){return [Math.min(...points.map(p=>p[0])),Math.min(...points.map(p=>p[1])),Math.max(...points.map(p=>p[0])),Math.max(...points.map(p=>p[1]))];}
 function segments(entities,story){return entities.filter(e=>e.story===story).flatMap(e=>e.type==='line'?[[e.a,e.b]]:e.type==='polyline'?e.points.slice(0,e.closed?e.points.length:e.points.length-1).map((p,i)=>[p,e.points[(i+1)%e.points.length]]):[]);}
 function overlaps(a,b){return a[0]<=b[2]&&a[2]>=b[0]&&a[1]<=b[3]&&a[3]>=b[1];}
-const fmt=h=>h.toFixed(2).replace('.',',');
-function heightLabel(h){return h.max-h.min<0.005?`h ${fmt(h.min)} m`:`h ${fmt(h.min)}\u2013${fmt(h.max)} m`;}
+const fmt=h=>h.toFixed(2);
+/** Absolute plan area of a drawing-space polygon (shoelace). */
+function shoelace(poly){let a=0;for(let i=0;i<poly.length;i+=1){const [x1,y1]=poly[i],[x2,y2]=poly[(i+1)%poly.length];a+=x1*y2-x2*y1;}return Math.abs(a)/2;}
+/** "h 2.50" for a flat ceiling, "h 1.65-2.48" for a sloped one: the exact same
+ *  string the room label and the USDZ customData carry. */
+function heightLabel(h){return h.max-h.min<0.005?`h ${fmt(h.min)}`:`h ${fmt(h.min)}-${fmt(h.max)}`;}
 
 /** 3 cm inward-offset, 3 cm trimmed dashed outline on the CEILING layer.
  * Never fabricates an offset outside a concave footprint. */
@@ -112,6 +117,14 @@ function slopeIndicator(poly,dirPlan,downhill,story,layer,annotations,record){
  return true;
 }
 
+/** Plan bounding box of the zone's wall transforms: [x0,z0,x1,z1] or null. */
+function wallBounds(walls){
+ const xs=[],zs=[];
+ for(const w of walls){const t=w&&w.transform;if(!Array.isArray(t)||t.length!==16)continue;if(finite(t[12])&&finite(t[14])){xs.push(t[12]);zs.push(t[14]);}}
+ if(!xs.length)return null;
+ return [Math.min(...xs),Math.min(...zs),Math.max(...xs),Math.max(...zs)];
+}
+
 function addCeilings(model,entities){
  const annotations=[],records=[],warnings=[],alignment=model.architecturalAlignment?.matrix||I,seen=new Set();
  const floors=(model.surfaces||[]).filter(s=>s.kind==='floor').map(s=>({s,...sourcePolygon(s)})).filter(f=>!f.error&&Math.max(...f.points.map(p=>p.y))-Math.min(...f.points.map(p=>p.y))<1e-5);
@@ -157,18 +170,27 @@ function addCeilings(model,entities){
     else if(max>6){r.heightReason='separation above 6.0 m storey plausibility bound';}
     else r.heightM={min,max,coverage:'computed',basis:'source-world ceiling Y minus covering horizontal same-story floor polygon Y',floorElevationM:floor};
    } else if(!r.heightM) r.heightReason=r.heightReason||'no covering horizontal same-story floor polygon and no usable supplied floor level';
-   outlineEdges(poly,story,layer,seen,annotations,r);
    // A tilted source ceiling plane is a slope: show its fall direction and its
    // real height range, not just a flat outline.
    const ny=src.geometry.n[1];
    r.planeTiltDeg=Math.abs(Math.acos(Math.min(1,Math.abs(ny))))*180/Math.PI;
-   if(r.planeTiltDeg>2.5){
+   if(r.planeTiltDeg<=2.5){
+    // FLAT source ceiling: nothing is drawn on the ceiling layer. A flat plane
+    // needs no dashed strips and no callout; the room label already states the
+    // height ("Room 40.49 m2  h 3.07").
+    r.flatCeiling=true;r.ceilingDrawn=false;
+    r.note='flat source ceiling: no ceiling-layer annotation, the room label carries the height';
+    if(!r.heightM)warn('roomplan.ceiling-height-unavailable',room.identifier,r.heightReason);
+    continue;
+   }
+   outlineEdges(poly,story,layer,seen,annotations,r);
+   {
     // downhill in plan = (n_x/n_y, -n_z/n_y) because plan y = -source z
     const dir=[src.geometry.n[0]/ny,-src.geometry.n[2]/ny];
     if(!slopeIndicator(poly,dir,'plus',story,layer,annotations,r))r.slopeIndicatorReason='no interior straight run along the plane gradient';
    }
    if(r.heightM){
-    const value=heightLabel(r.heightM),placed=placeLabel(poly,story,layer,entities,annotations,value);
+    const value=`${heightLabel(r.heightM)} (explicit)`,placed=placeLabel(poly,story,layer,entities,annotations,value);
     if(placed){r.label=value;r.labelPosition=placed.pos;}
     else {r.layoutReason='no collision-free conservative label bbox candidate';warn('roomplan.ceiling-label-layout',room.identifier,r.layoutReason);}
    }else warn('roomplan.ceiling-height-unavailable',room.identifier,r.heightReason);
@@ -193,21 +215,83 @@ function addCeilings(model,entities){
   for(const w of zone.warnings||[])warn(w.code,zone.roomIdentifier??null,w.reason);
   if(r.method==='flat')warn('roomplan.ceiling-reconstructed-flat',zone.roomIdentifier??null,'no wall top edge is sloped; flat ceiling reconstructed equal to the measured floor footprint');
   if(!finite(zone.ceilingArea)){warn('roomplan.ceiling-unavailable',zone.roomIdentifier??null,zone.reason||'no explicit ceiling and no reconstructable wall-top geometry');continue;}
-  // Drawing needs a footprint outline; the extrusion branch has none.
-  if(!zone.polygon){r.layoutReason='no room/zone footprint polygon; area reported without a dashed outline';warn('roomplan.ceiling-reconstruction-no-outline',zone.roomIdentifier??null,r.layoutReason);continue;}
+  // Drawing needs a footprint. Raw captures (no room polygons) have none, so
+  // the dashed ceiling plane is drawn over the walls' own plan bounding box —
+  // clearly an approximation, still visible, still labelled with its method.
+  let footprint=zone.polygon, synthesized=null;
+  if(!footprint){
+   const b=wallBounds(zone.walls||[]);
+   if(b){
+    footprint=[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]]];
+    synthesized='walls bounding box (no room/floor polygon in this capture)';
+    r.layoutReason=synthesized;
+    warn('roomplan.ceiling-reconstruction-no-outline',zone.roomIdentifier??null,'no room/floor footprint polygon; the ceiling plane is drawn over the walls bounding box');
+   }
+  }
+  if(!footprint){r.layoutReason='no footprint at all: no polygon and no walls';warn('roomplan.ceiling-reconstruction-no-outline',zone.roomIdentifier??null,r.layoutReason);continue;}
   // zone polygons are plan [x,z] pairs; lift to source world [x,0,z]
-  const poly=zone.polygon.map(p=>toPlan({x:p[0],y:0,z:p[1]}));
-  outlineEdges(poly,story,layer,seen,annotations,r);
-  // The reconstructed slope must be visible: fall line + downhill arrow.
-  if(zone.fallDirection&&zone.method!=='flat'){
-   if(!slopeIndicator(poly,zone.fallDirection.u,zone.fallDirection.downhill,story,layer,annotations,r))
+  const poly=footprint.map(p=>toPlan({x:p[0],y:0,z:p[1]}));
+  // If a footprint had to be synthesized (no room polygon), the band split
+  // would be drawn over a guessed outline: say so instead of pretending.
+  if(synthesized)warn('roomplan.ceiling-side-assumed',zone.roomIdentifier??null,'the sloped band is split over the walls bounding box, not a measured room polygon');
+  // fall direction in PLAN space, rotated by the same alignment as the polygon
+  // (fallDirection is a source-plan vector; the drawing may be rotated).
+  const planDir=zone.fallDirection&&Array.isArray(zone.fallDirection.u)?(()=>{const v=apply(alignment,{x:zone.fallDirection.u[0],y:0,z:-zone.fallDirection.u[1]});return [v.x,-v.z];})():null;
+  const segs=zone.section&&Array.isArray(zone.section.segments)?zone.section.segments:[];
+  const slopeSegs=segs.filter(s=>s.isSlope&&finite(s.run)&&s.run>0);
+  const flatSegs=segs.filter(s=>!s.isSlope&&finite(s.run));
+  const widest=list=>list.reduce((a,s)=>(a==null||s.run>a.run?s:a),null);
+  const slopeSeg=widest(slopeSegs),flatSeg=widest(flatSegs);
+  const kneeH=finite(zone.kneeHeightM)?zone.kneeHeightM:null;
+  const ridgeH=finite(zone.ridgeHeightM)?zone.ridgeHeightM:null;
+  const split=(zone.method!=='flat'&&planDir&&slopeSeg&&finite(kneeH)&&finite(ridgeH)&&ridgeH-kneeH>0.005)
+    ?splitCeilingPlan(poly,planDir,zone.fallDirection.downhill,{run:slopeSeg.run,knee:kneeH,ridge:ridgeH,flatRun:flatSeg?flatSeg.run:0})
+    :null;
+  if(!split){
+   // A FLAT ceiling is not drawn at all: strips and a height callout across a
+   // plane that has no slope were pure noise, and the room label already
+   // states "h 2.48". Nothing but the room label belongs on S0_CEILING.
+   r.flatCeiling=true;r.ceilingDrawn=false;
+   r.note='flat ceiling not drawn on the ceiling layer; the room label carries the height';
+   continue;
+  }
+  const slopeParts=split.parts.filter(p=>p.kind==='slope');
+  const flatParts=split.parts.filter(p=>p.kind==='flat');
+  // 1. the SLOPED band: dashed orange outline, fall arrow, knee label.
+  r.ceilingDrawn=true;
+  r.bandAreaM2=slopeParts.reduce((a,p)=>a+shoelace(p.poly),0);
+  r.flatAreaM2=flatParts.reduce((a,p)=>a+shoelace(p.poly),0);
+  for(const part of slopeParts)outlineEdges(part.poly,story,layer,seen,annotations,r);
+  // 2. the RIDGE: where the band ends and the flat remainder begins.
+  for(const line of split.ridgeLines||[]){
+   annotations.push({type:'line',layer,story,a:line[0],b:line[1]});
+  }
+  if(split.ridgeLines&&split.ridgeLines.length){
+   const line=split.ridgeLines[0];
+   annotations.push({type:'text',layer,story,pos:[line[0][0]+0.10,line[0][1]+0.10],height:0.10,value:'ridge'});
+   r.ridgeLine=line;
+  }
+  if(slopeParts.length&&planDir){
+   if(!slopeIndicator(slopeParts[0].poly,planDir,zone.fallDirection.downhill,story,layer,annotations,r))
     r.slopeIndicatorReason='no interior straight run along the fall direction';
   }
-  const ht=heightLabel(r.heightM||{min:NaN,max:NaN});
-  const value=finite((r.heightM||{}).min)?`\u2248 ${ht} (${r.method})`:`\u2248 ${zone.ceilingArea.toFixed(2).replace('.',',')} m2 (${r.method})`;
-  const placed=placeLabel(poly,story,layer,entities,annotations,value);
-  if(placed){r.label=value;r.labelPosition=placed.pos;if(placed.forced)warn('roomplan.ceiling-label-layout',zone.roomIdentifier??null,'label placed at the footprint centroid without a collision-free candidate');}
-  else {r.layoutReason='no collision-free conservative label bbox candidate';warn('roomplan.ceiling-label-layout',zone.roomIdentifier??null,r.layoutReason);}
+  if(slopeParts.length){
+   const ht=heightLabel({min:kneeH,max:ridgeH});
+   const value=`${ht} (${zone.method})`;
+   const placed=placeLabel(slopeParts[0].poly,story,layer,entities,annotations,value);
+   if(placed){r.label=value;r.labelPosition=placed.pos;if(placed.forced)warn('roomplan.ceiling-label-layout',zone.roomIdentifier??null,'label placed at the band centroid without a collision-free candidate');}
+   else {r.layoutReason='no collision-free conservative label bbox candidate';warn('roomplan.ceiling-label-layout',zone.roomIdentifier??null,r.layoutReason);}
+  }
+  // 3. the FLAT remainder: a thin continuous boundary and "h 2.48 (flat)" on
+  // its own layer — no orange strips, ever.
+  if(flatParts.length){
+   const flatLayer=`S${story}_CEILING_FLAT`;
+   for(const part of flatParts)outlineEdges(part.poly,story,flatLayer,seen,annotations,r);
+   const value=`h ${ridgeH.toFixed(2)} (flat)`;
+   const placed=placeLabel(flatParts[0].poly,story,flatLayer,entities,annotations,value);
+   if(placed){r.flatLabel=value;r.flatLabelPosition=placed.pos;}
+   else warn('roomplan.ceiling-label-layout',zone.roomIdentifier??null,'flat-part label had no collision-free candidate');
+  }
  }
  if(!(model.rooms||[]).length&&!records.length)warn('roomplan.ceiling-missing',null,'no explicit room ceilings and no decodable wall-top geometry; ceiling left unavailable');
  warnings.push({code:'roomplan.ceiling-annotation-layout',reason:'3cm offset/trim dashed annotations only; text collision search is conservative and not a CAD layout guarantee; wall geometry and quantities unchanged'});

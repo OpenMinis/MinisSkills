@@ -111,6 +111,7 @@ function buildDXF(model, opts) {
   }
 
   const alignment = (model.architecturalAlignment && model.architecturalAlignment.matrix) || [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+  const floorAreaByStory = new Map();
   const isOptimized = model.kind === 'optimized';
 
   for (const s of model.surfaces) {
@@ -122,6 +123,15 @@ function buildDXF(model, opts) {
       if (!s.polygonCorners || s.polygonCorners.length < 3) continue; // no usable polygon; skip (manifest warns separately)
       const pts = polygonDXF(s.polygonCorners, s.transform, alignment);
       trackAll(pts); trackAllStory(pts);
+      // shoelace area of the drawn footprint: the datum for a story label when
+      // no ceiling could be reconstructed
+      let area = 0;
+      for (let i = 0; i < pts.length; i += 1) {
+        const [x1, y1] = pts[i];
+        const [x2, y2] = pts[(i + 1) % pts.length];
+        area += x1 * y2 - x2 * y1;
+      }
+      floorAreaByStory.set(currentStory, (floorAreaByStory.get(currentStory) || 0) + Math.abs(area) / 2);
       push({ type: 'polyline', layer, points: pts, closed: true });
       continue;
     }
@@ -165,7 +175,24 @@ function buildDXF(model, opts) {
     push({ type: 'polyline', layer, points: pts, closed: true });
   }
 
-  // Room labels (optimized only — raw format has no room polygons/labels)
+  // Room labels. Heights come from lib/ceiling-3d.js, i.e. from the SAME
+  // reconstruction the ceiling annotations use; a height is never invented and
+  // never omitted when it was determined.
+  const { ceilingHeights } = require('./ceiling-3d');
+  const labelHeights = ceilingHeights(model);
+  const labelledStories = new Set();
+  const roomLabelText = (name, area, h) => {
+    const parts = [name, `${area.toFixed(2)} m2`];
+    if (h && h.heightLabel) parts.push(`h ${h.heightLabel}`);
+    return parts.join('  ');
+  };
+  const storyLabelText = (story, area, h) => {
+    const parts = [`Kat ${story}`, `${area.toFixed(2)} m2`];
+    if (h && h.heightLabel) parts.push(`h ${h.heightLabel}`);
+    return parts.join(' \u2014 ');
+  };
+
+  // Room labels (optimized — raw format has no room polygons/labels)
   if (Array.isArray(model.rooms)) {
     for (const r of model.rooms) {
       currentStory = Number.isFinite(r.story) ? r.story : 0;
@@ -182,12 +209,39 @@ function buildDXF(model, opts) {
       const centerDXF = projectLocal({ x: r.centerX, y: 0, z: r.centerZ }, [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1], alignment);
       track(centerDXF.x, centerDXF.y);
       trackStory(centerDXF.x, centerDXF.y);
-      push({ type: 'text', layer: labelLayer, pos: [centerDXF.x, centerDXF.y], height: 0.18, value: `${r.label ?? `[${r.category}; id=${r.identifier}]`}  ${r.area.toFixed(2)} m2` });
+      const h = labelHeights.byRoom.get(String(r.identifier)) || labelHeights.byStory.get(currentStory) || null;
+      push({ type: 'text', layer: labelLayer, pos: [centerDXF.x, centerDXF.y], height: 0.18, value: roomLabelText(r.label ?? `[${r.category}; id=${r.identifier}]`, r.area, h) });
+      labelledStories.add(currentStory);
     }
   }
 
-  let ceilingDiagnostics = {enabled:false,reason:'conservative default off; use --ceilings'};
-  if(options.ceilings){
+  // Story-level label: raw captures have no room polygons at all, and a plan
+  // with no text on it leaves the user without the one number they came for.
+  // Placed at the centre of the story's bounding box, area from the ceiling
+  // (footprint) or the floor polylines, height from the reconstruction.
+  for (const [story, b] of storyBounds) {
+    if (labelledStories.has(story)) continue;
+    if (!Number.isFinite(b.minX)) continue;
+    const floorArea = floorAreaByStory.get(story);
+    const h = labelHeights.byStory.get(story) || null;
+    // Room/floor area, not the ceiling area: the slope surplus belongs to the
+    // ceiling, and a plan label must state the floor the user stands on.
+    const area = floorArea > 0 ? floorArea : (h && Number.isFinite(h.area) && h.area > 0 ? h.area : null);
+    if (!(area > 0)) continue;
+    currentStory = story;
+    const layer = layerFor(story, 'label');
+    layerSet.add(layer);
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    track(cx, cy);
+    trackStory(cx, cy);
+    push({ type: 'text', layer, pos: [cx, cy], height: 0.18, value: storyLabelText(story, area, h) });
+  }
+
+  // Ceilings are ON by default: a plan without its ceiling is a plan the user
+  // asked for and did not get. --no-ceilings is the explicit opt-out.
+  let ceilingDiagnostics = {enabled:false,reason:'disabled by --no-ceilings'};
+  if(options.ceilings !== false){
     const result=require('./ceilings').addCeilings(model,entities);
     ceilingDiagnostics=result.diagnostics;
     for(const entity of result.annotations){currentStory=entity.story;layerSet.add(entity.layer);const pts=entity.type==='line'?[entity.a,entity.b]:[entity.pos];trackAll(pts);trackAllStory(pts);push(entity);}

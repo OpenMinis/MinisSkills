@@ -269,10 +269,18 @@ check('sanitizeIdentifier keeps USD identifiers legal', () => {
 });
 
 const meshNames = (t) => [...t.matchAll(/def Mesh "([^"]+)"/g)].map((m) => m[1]);
-check('fixture: 9 mesh prims (4 walls, 1 floor, 1 door, 1 window, 2 objects)', () => {
+check('fixture: 7 mesh prims (4 walls, 1 floor, 2 objects) + 2 empty opening Xforms', () => {
+  // Openings carry NO mesh on purpose: a plate across a door or window hid the
+  // hole the wall was cut for. They stay named, sized Xforms instead.
   assert.deepStrictEqual(meshNames(fxText).sort(), [
-    'Door_1', 'Floor_1', 'Object_1', 'Object_2', 'Wall_1', 'Wall_2', 'Wall_3', 'Wall_4', 'Window_1',
+    'Floor_1', 'Object_1', 'Object_2', 'Wall_1', 'Wall_2', 'Wall_3', 'Wall_4',
   ]);
+  assert(/def Xform "Door_1"/.test(fxText) && /def Xform "Window_1"/.test(fxText), 'opening prims must still exist');
+  for (const name of ['Door_1', 'Window_1']) {
+    const i = fxText.indexOf(`def Xform "${name}"`);
+    const chunk = fxText.slice(i, fxText.indexOf('\n        }', i));
+    assert(!/def Mesh/.test(chunk), `${name} must not carry a mesh (it would fill the opening)`);
+  }
   assert.deepStrictEqual(fxUsda.summary.byCategory, {
     Room: 1, Wall: 4, Floor: 1, Door: 1, Window: 1, sofa: 1, table: 1,
   });
@@ -294,9 +302,17 @@ check('each element is a kind="component" Xform carrying customData Category + I
     if (/kind = "component"/.test(meta)) leaves.push([null, m[1], meta]);
   }
   assert.strictEqual(leaves.length, 9, `expected 9 component Xforms, got ${leaves.length}`);
+  const openings = new Set(['Door_1', 'Window_1']);
   for (const [, name, meta] of leaves) {
     assert(/string Category = "[^"]+"/.test(meta), `${name} has no Category`);
     assert(/string Identifier = "[^"]+"/.test(meta), `${name} has no Identifier`);
+    if (openings.has(name)) {
+      // An OPENING is a hole: named, sized, and deliberately free of geometry.
+      assert(/string Role = "opening"/.test(meta), `${name} must declare Role = "opening"`);
+      assert(/double Width = [\d.]+/.test(meta) && /double Height = [\d.]+/.test(meta), `${name} must carry Width and Height`);
+      assert(!fxText.includes(`def Mesh "${name}"`), `${name} must not fill its own opening`);
+      continue;
+    }
     assert(`def Mesh "${name}"`.length && fxText.includes(`def Mesh "${name}"`), `${name} has no Mesh`);
     assert(fxText.includes(`def Material "${name}_color"`), `${name} has no Material`);
     assert(fxText.includes(`rel material:binding = </room/Mesh_grp/${name}/${name}_color>`), `${name} is not bound to its material`);
@@ -382,8 +398,10 @@ check('an unmeasured wall gets 0.16 m and is flagged assumed', () => {
 check('numbers: fixed 6 decimals, dot separator, no NaN/Infinity', () => {
   for (const [label, text] of [['fixture', fxText], ['polygon', polyText]]) {
     assert(!/NaN|Infinity|null/.test(text.replace(/"(?:[^"\\]|\\.)*"/g, '""')), `${label}: non-finite token in layer`);
-    // "#usda 1.0" is the format version, not a geometric number.
-    const body = text.replace(/^#usda 1\.0/, '#usda');
+    // "#usda 1.0" is the format version, not a geometric number. Quoted
+    // customData strings are labels (e.g. string Height = "2.50"), not
+    // geometry: strip them before the number scan, after the NaN scan above.
+    const body = text.replace(/^#usda 1\.0/, '#usda').replace(/"(?:[^"\\]|\\.)*"/g, '""');
     const nums = body.match(/[-\d]*\.[\d]+/g) || [];
     assert(nums.length > 0);
     for (const n of nums) assert(/^-?\d+\.\d{6}$/.test(n), `${label}: ${n} is not 6-decimal`);
@@ -395,11 +413,13 @@ check('a primitive with a bad transform is skipped with a warning, not written a
   const broken = JSON.parse(JSON.stringify(polyCapture));
   broken.surfaces[1].transform = [1, 0, 0, 0, 0, Number.NaN, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   const res = buildUsda(broken, {});
-  assert.strictEqual(res.primCount, 4, 'the broken wall should be dropped');
+  // 5 elements (2 walls, floor, door, object) + 1 ceiling (flat, 2.50 m) - 1 broken
+  assert.strictEqual(res.primCount, 5, 'the broken wall should be dropped');
   const skipped = res.warnings.filter((w) => w.code === 'usdz.skipped-non-rigid');
   assert.strictEqual(skipped.length, 1);
   // the polygon wall the door names cannot be cut either, and says so
-  assert(res.warnings.every((w) => ['usdz.skipped-non-rigid', 'usdz.opening-not-cut'].includes(w.code)));
+  assert(res.warnings.every((w) => ['usdz.skipped-non-rigid', 'usdz.opening-not-cut', 'usdz.opening-hole-only'].includes(w.code)),
+    JSON.stringify(res.warnings.map((w) => w.code)));
   assert(!/NaN/.test(res.text));
 });
 check('a surface with no geometry at all is skipped with a warning', () => {
@@ -407,7 +427,7 @@ check('a surface with no geometry at all is skipped with a warning', () => {
   empty.surfaces[2] = { identifier: 'F-BAD', kind: 'floor', story: 0, dimensions: { x: 0, y: 0, z: 0 }, transform: I4 };
   const res = buildUsda(empty, {});
   assert(res.warnings.some((w) => w.code === 'usdz.skipped-no-geometry'));
-  assert.strictEqual(res.primCount, 4);
+  assert.strictEqual(res.primCount, 5);
 });
 check('normals: one per point, no interpolation metadata (Apple shape)', () => {
   // Apple writes a normal for every point and relies on USD's default
@@ -531,8 +551,9 @@ check('CLI: optimized capture -> one Section Xform per room label', () => {
   const text = entryRanges(buf)[0].data.toString('utf8');
   assert(text.includes('def Xform "Kuhinja"'), 'room label missing as a section');
   assert(text.includes('string Label = "Kuhinja"'), 'source label must survive sanitising');
-  // 2 walls + 1 floor, and the floor keeps its source polygon
-  assert.strictEqual((text.match(/def Mesh /g) || []).length, 3);
+  // 2 walls + 1 floor + 1 ceiling, and the floor keeps its source polygon
+  assert.strictEqual((text.match(/def Mesh /g) || []).length, 4);
+  assert(text.includes('Category = "Ceiling"'), 'the room ceiling must be in the USDZ');
   assert(text.includes('string Geometry = "source polygonCorners"'), 'optimized floor polygon not exported');
 });
 

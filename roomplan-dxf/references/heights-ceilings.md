@@ -61,6 +61,24 @@ plohi kata (0,855 m) za 0,95 m — sukob se prijavljuje, ne rješava nagađanjem
 - Postojeća zidna/podna geometrija i sve količine ostaju nepromijenjene; offset
   nikad ne ulazi u `netAreaM2`.
 
+### Ravan strop i kosi pojas (8.11.2026)
+
+Profil s prelomom (knee) ima kosinu **samo uz niski zid**, u dužini mjerenog
+`run` (Project hh: 1,2248 m), a dalje je ravan na ridžu. Zato:
+
+- **`S<n>_CEILING` nosi samo kosi pojas**: njegov isprekidani obris, liniju pada
+  sa strelicom, liniju ridža i oznaku `h 1.65-2.48 (knee)`.
+- **`S<n>_CEILING_FLAT`** (tanka neprekidna linija, siva, nikad narančasta)
+  nosi granicu ravnog dijela i oznaku `h 2.48 (flat)`.
+- **Ravan strop se ne crta uopće** — ni rekonstruirani ni eksplicitni s
+  nagibom < 2,5°. Visinu nosi oznaka sobe (`Room  40.49 m2  h 3.07`); trake
+  preko cijelog stropa bile su čisti šum.
+- Dvovodni krov (gable, `downhill === 'both'`) daje dva pojasa s ridžom u
+  sredini, plus ravni plato samo ako profil ima ravni segment.
+
+Isti rez se koristi u 3D-u (`lib/ceiling-3d.js`, `splitCeilingPlan`) i u DXF-u
+(`lib/ceilings.js`), pa se površina pojasa u planu i u USDZ-u ne može razići.
+
 ## Nedostupno / ograničenja
 
 - Raw format: nema stropova → `roomplan.ceiling-missing`, bez rekonstrukcije iz
