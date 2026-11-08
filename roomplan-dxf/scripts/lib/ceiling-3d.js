@@ -46,7 +46,6 @@ function pointInPolygon(p, poly, tol = 1e-7) {
 /** Mean source-world Y of the floor polygons that cover this zone. */
 function floorElevation(model, zone) {
   const room = zone.room;
-  if (room && finite(room.floorHeight)) return { y: room.floorHeight, basis: 'room.floor_height' };
   const surfaces = (model && model.surfaces) || [];
   const story = finite(zone.story) ? zone.story : 0;
   const floors = surfaces.filter((s) => s && s.kind === 'floor' && (finite(s.story) ? s.story : 0) === story);
@@ -69,18 +68,8 @@ function floorElevation(model, zone) {
     if (best == null) best = y;
   }
   if (best != null) return { y: best, basis: 'covering floor polygon' };
-  // last resort: the lowest point of the zone's own wall polygons (RoomPlan
-  // wall outlines start at the floor)
-  const ys = [];
-  for (const w of zone.walls || []) {
-    for (const c of Array.isArray(w.polygonCorners) ? w.polygonCorners : []) {
-      if (!c || !finite(c.x) || !finite(c.y) || !finite(c.z) || !Array.isArray(w.transform)) continue;
-      const t = w.transform;
-      ys.push(t[1] * c.x + t[5] * c.y + t[9] * c.z + t[13]);
-    }
-  }
-  if (ys.length) return { y: Math.min(...ys), basis: 'lowest wall polygon vertex' };
-  return { y: 0, basis: 'stage origin (no floor datum measured)' };
+  if (room && finite(room.floorHeight)) return { y: room.floorHeight, basis: 'supplied-floor-level' };
+  return { y: null, basis: 'unknown', heightReason: 'no measured or supplied floor datum' };
 }
 
 function planCentroid(poly) {
@@ -301,8 +290,8 @@ function makePart(kind, polygons, floorY, method, extra) {
   const polys = (Array.isArray(polygons[0][0]) ? polygons : [polygons]).map((pl) => pl.map((p) => [p[0], p[1], p[2]]));
   const all = polys.reduce((a, pl) => a.concat(pl), []);
   const ys = all.map((p) => p[1]);
-  const min = Math.min(...ys) - floorY;
-  const max = Math.max(...ys) - floorY;
+  const min = finite(floorY) ? Math.min(...ys) - floorY : null;
+  const max = finite(floorY) ? Math.max(...ys) - floorY : null;
   return {
     kind,
     method: method || null,
@@ -372,6 +361,7 @@ function ceilingSolids(model) {
         warnings.push({ code: 'usdz.ceiling-no-polygon', message: `Room "${label || base.roomIdentifier || base.key}" has an explicit ceiling array but no usable polygon (USDZ): no ceiling emitted rather than an invented one.` });
         continue;
       }
+      if (geoms.length > 1) warnings.push({ code: 'usdz.ceiling-overlap-unresolved', message: 'Multiple supplied surfaces retained with multiplicity; source overlaps/alternative hypotheses unresolved. Mesh correctness does not verify a unique physical total.' });
       const fe = floorElevation(model, zone);
       base.floorY = fe.y;
       base.floorBasis = fe.basis;
@@ -383,9 +373,11 @@ function ceilingSolids(model) {
         for (const p of g.points) { if (p[1] < min) min = p[1]; if (p[1] > max) max = p[1]; }
         base.surfaces.push({ points: g.points.map((p) => [p[0], p[1], p[2]]), kind: 'flat' });
       }
-      base.heightMin = min - fe.y;
-      base.heightMax = max - fe.y;
-      if (!(base.heightMin > 0.3)) {
+      base.heightMin = finite(fe.y) ? min - fe.y : null;
+      base.heightMax = finite(fe.y) ? max - fe.y : null;
+      base.heightReason = finite(fe.y) ? null : fe.heightReason;
+      if (!finite(fe.y)) warnings.push({ code: 'usdz.ceiling-height-unknown', message: 'Explicit ceiling preserved; height is null without a floor datum.' });
+      if (finite(base.heightMin) && !(base.heightMin > 0.3)) {
         warnings.push({ code: 'usdz.ceiling-height-implausible', message: `Room "${label || base.roomIdentifier}" explicit ceiling sits ${base.heightMin.toFixed(3)} m above the floor datum (${fe.basis}): height reported as measured, not corrected.` });
       }
       base.heightLabel = heightLabel(base.heightMin, base.heightMax);
@@ -408,6 +400,10 @@ function ceilingSolids(model) {
       continue;
     }
     const fe = floorElevation(model, zone);
+    if (!finite(fe.y)) {
+      warnings.push({ code: 'usdz.ceiling-height-unknown', message: 'Reconstruction not lifted: no measured or supplied floor datum.' });
+      continue;
+    }
     base.floorY = fe.y;
     base.floorBasis = fe.basis;
 

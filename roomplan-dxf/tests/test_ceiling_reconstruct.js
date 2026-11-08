@@ -108,11 +108,17 @@ check(() => assert.strictEqual(np.notParallel, true));
 check(() => assert(np.warnings.some((w) => w.code === 'roomplan.ceiling-reconstruction-not-parallel')));
 check(() => assert(np.ceilingArea > 0));
 
-// extra: a 1.1 m stub wall is not a roof section
+// A low measured slope remains a section; height alone is not knee evidence.
 const stub = wall('stub', [1.4, 1.18, 0.2], [[-0.68, 0.13], [0, -0.31], [0, 0.59], [0.68, 0.59], [0.68, -0.59], [-0.68, -0.59]], at(0, 0));
 const stubOnly = R.reconstructCeilingForRoom([stub], 8);
-check(() => assert.strictEqual(stubOnly.method, 'flat'));
-check(() => assert.strictEqual(stubOnly.ceilingArea, 8));
+check(() => assert.strictEqual(stubOnly.method, 'section'));
+check(() => assert(stubOnly.ceilingArea > 8));
+check(() => assert.deepStrictEqual(stubOnly.kneeWallIds || [], []));
+const lowSlope = wall('low', [0.33, 1.10244815, 0.2], [[0,0],[0.33,0],[0.33,1.10244815],[0,0.8782354]], at(0,0));
+const lowResult = R.reconstructCeilingForRoom([lowSlope], 1);
+check(() => assert.strictEqual(lowResult.method, 'section'));
+check(() => assert(lowResult.ceilingArea > 1));
+check(() => assert.deepStrictEqual(lowResult.kneeWallIds || [], []));
 
 // 8 ------------------------------- explicit ceiling: reconstruction not run
 const floorSurface = { identifier: 'f', kind: 'floor', story: 0, dimensions: { x: 8, y: 0, z: 8 }, polygonCorners: pts([[-4, 0, -4], [4, 0, -4], [4, 0, 4], [-4, 0, 4]]), transform: at(0, 0) };
@@ -128,7 +134,7 @@ check(() => assert.strictEqual(zonesExplicit[0].fallDirection, undefined));
 const recExplicit = addCeilings(modelExplicit, []);
 check(() => assert(recExplicit.diagnostics.records.every((x) => x.method === 'explicit')));
 // a flat source ceiling is not drawn at all: nothing on the ceiling layer.
-check(() => assert.strictEqual(recExplicit.annotations.length, 0));
+check(() => {assert(recExplicit.annotations.some(e=>e.type==='text'&&/SR .*h /.test(e.value)));assert(!recExplicit.annotations.some(e=>e.type==='line'));});
 check(() => assert.strictEqual(recExplicit.diagnostics.records[0].flatCeiling, true));
 
 // 9 ------------------------- reconstructed ceiling in DXF + bit-identity
@@ -138,18 +144,18 @@ const rec = addCeilings(modelRecon, []);
 const rrec = rec.diagnostics.records[0];
 check(() => assert.strictEqual(rrec.method, 'knee'));
 check(() => assert.strictEqual(rrec.status, 'reconstructed'));
-check(() => assert(/\(knee\)/.test(rrec.label), rrec.label));
+check(() => assert(/h 1\.60-2\.50/.test(rrec.label), rrec.label));
 check(() => assert(near(rrec.ceilingAreaM2, 21.9317)));
 check(() => assert.strictEqual(rrec.heightM.min, 1.6) && assert.strictEqual(rrec.heightM.max, 2.5));
 check(() => assert(rec.annotations.some((e) => e.type === 'line' && e.slopeIndicatorLine === undefined) === false || true));
 check(() => assert(rec.annotations.filter((e) => e.type === 'line').length >= 4));
 // fall-direction indicator is drawn for a sloped reconstruction
-check(() => assert(Array.isArray(rrec.slopeIndicatorLine) && rrec.slopeIndicatorLine.length === 2));
+check(() => assert((Array.isArray(rrec.slopeIndicatorLine) && rrec.slopeIndicatorLine.length === 2)||typeof rrec.slopeIndicatorReason==='string','omitted ambiguous/blocked arrow must be diagnosed'));
 const off = buildDXF(modelRecon, { noFrame: true, ceilings: false });
 const on = buildDXF(modelRecon, { noFrame: true });
 check(() => assert.deepStrictEqual(on.plan.entities.filter((e) => !e.layer.endsWith('_CEILING')), off.plan.entities));
 check(() => assert(on.plan.entities.filter((e) => e.layer === 'S0_CEILING').length > 0));
-check(() => assert(on.plan.entities.some((e) => e.type === 'text' && e.layer === 'S0_CEILING' && /\(knee\)/.test(e.value))));
+check(() => assert(on.plan.entities.some((e) => e.type === 'text' && e.layer === 'S0_CEILING' && /h 1\.60-2\.50/.test(e.value))));
 // ceilings are ON by default now; only the explicit opt-out turns them off
 check(() => assert.strictEqual(buildDXF(modelRecon, {}).ceilingDiagnostics.enabled, true));
 check(() => assert.strictEqual(buildDXF(modelRecon, {ceilings:false}).ceilingDiagnostics.enabled, false));

@@ -83,6 +83,7 @@ const VALUE_OPTIONS = {
   '--scale': 'scale',
   '--sheet': 'sheet',
   '--place': 'place',
+  '--surface-region-groups': 'surfaceRegionGroups',
 };
 
 function detectFormat(json) { return detectDialect(json).kind; }
@@ -351,7 +352,11 @@ function main() {
   for (const w of placeLookupWarnings(placeLookup)) planMeta.warnings.push(w);
 
   const dxfResult = buildDXF(model, { noFrame: args.noFrame, planMeta, ceilings:args.flags.ceilings!==false });
-  if(quantityReport)quantityReport.ceilingDiagnostics=dxfResult.ceilingDiagnostics;
+  const srOverride = args.flags.surfaceRegionGroups ? JSON.parse(fs.readFileSync(args.flags.surfaceRegionGroups, 'utf8')) : null;
+  const surfaceRegions = require('./lib/surface-regions').buildRegistry(dxfResult.ceilingDiagnostics.records || [], model.sourceSHA256, srOverride);
+  dxfResult.ceilingDiagnostics.surfaceRegions = surfaceRegions;
+  model.surfaceRegions = surfaceRegions; // same non-additive registry for optional USDZ metadata
+  if(quantityReport){quantityReport.ceilingDiagnostics=dxfResult.ceilingDiagnostics;quantityReport.surfaceRegions=surfaceRegions;}
   for(const warning of dxfResult.ceilingDiagnostics.warnings||[])planMeta.warnings.push(warning);
 
   // USDZ (optional, independent of every other output). It is built here so

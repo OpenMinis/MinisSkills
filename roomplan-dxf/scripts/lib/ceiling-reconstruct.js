@@ -57,7 +57,6 @@ const SEGMENT_MIN_RISE_M = 0.02;
 // A "roof section" lower than this is not a roof: RoomPlan emits partial-height
 // walls (under-window walls, half walls) whose polygon top edge looks sloped but
 // belongs to a 1.1 m stub, not to the room's ceiling.
-const MIN_RIDGE_HEIGHT_M = 1.8;
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 
@@ -212,12 +211,9 @@ function reconstructCeilingForRoom(rawWalls, floorArea) {
     };
   }
 
-  // Only full-height sloped walls can describe a roof; a 1.1 m stub wall with a
-  // sloped top edge is a partial wall, not a ceiling section.
-  const roofCandidates = walls.filter((w) => w.hasSlope && w.height >= MIN_RIDGE_HEIGHT_M);
-  const shortSloped = walls.filter((w) => w.hasSlope && w.height < MIN_RIDGE_HEIGHT_M);
-  const profileWalls = roofCandidates;
-  const flatWalls = walls.filter((w) => !w.hasSlope).concat(shortSloped);
+  // Height alone cannot invalidate a measured slope or make it a knee wall.
+  const profileWalls = walls.filter((w) => w.hasSlope);
+  const flatWalls = walls.filter((w) => !w.hasSlope);
 
   if (!profileWalls.length) {
     // No sloped top edge on any wall -> flat ceiling = floor footprint.
@@ -320,7 +316,7 @@ function reconstructCeilingForRoom(rawWalls, floorArea) {
     ridgeHeightM: section.ridgeHeight, kneeHeightM: section.kneeWallHeight,
     heightMin: section.kneeWallHeight, heightMax: section.ridgeHeight,
     notParallel, fallDirection, profileWallCount: profileWalls.length, wallCount: walls.length,
-    ignoredShortSlopedWalls: shortSloped.map((w) => ({ identifier: w.identifier, heightM: w.height })),
+    ignoredShortSlopedWalls: [], // no height-only exclusion
   };
   const warnings = [];
   let ceilingArea = null, method = null, status = null, coverage = null, reason = null, roomLength = null;
@@ -454,6 +450,8 @@ function hasExplicitCeiling(room) {
 /** Newell-type area of an explicit source ceiling polygon, in source units. */
 function explicitCeilingGeometry(entry) {
   if (!entry || !Array.isArray(entry.transform) || entry.transform.length !== 16) return null;
+  if (['holes', 'holeRings', 'interiors'].some(k => entry[k] && entry[k].length)) throw new Error('planar-polygon: unsupported ceiling hole rings; decompose into simple faces');
+  if (Array.isArray(entry.polygon) && Array.isArray(entry.polygon[0]) && Array.isArray(entry.polygon[0][0])) throw new Error('planar-polygon: unsupported nested ceiling hole rings');
   let local = null;
   if (Array.isArray(entry.polygon) && entry.polygon.length >= 3) {
     local = entry.polygon.map((q) => (Array.isArray(q) && q.length === 2 ? { x: q[0], y: q[1], z: 0 } : null));
@@ -472,7 +470,9 @@ function explicitCeilingGeometry(entry) {
     n[2] += (a[0] - b[0]) * (a[1] + b[1]);
   }
   const area = Math.hypot(...n) / 2;
-  if (!(area > 1e-6) || Math.abs(n[1]) < 1e-9) return null;
+  if (!(area > 1e-6)) return null;
+  // Validate the source ring without rejecting vertical measured upstands.
+  require('./planar-polygon').triangulate(pts);
   const ys = pts.map((p) => p[1]);
   return {
     area,
@@ -640,7 +640,7 @@ function ceilingByZone(zones) {
 }
 
 module.exports = {
-  SLOPE_PARALLEL_TOL_DEG, KNEE_MATCH_TOL_M, KNEE_SIDE_TOL_M, SLOPE_MIN_RISE_M, SEGMENT_MIN_RISE_M, MIN_RIDGE_HEIGHT_M,
+  SLOPE_PARALLEL_TOL_DEG, KNEE_MATCH_TOL_M, KNEE_SIDE_TOL_M, SLOPE_MIN_RISE_M, SEGMENT_MIN_RISE_M,
   topProfile, topEdgeSloped, wallHeightAt, slopeCutTriangles, profileLength, wallSegment,
   profileWall, reconstructCeilingForRoom, reconstructCeiling, ceilingByZone,
   collectZones, zoneCeilings, hasExplicitCeiling, explicitCeilingGeometry, shoelace2D,

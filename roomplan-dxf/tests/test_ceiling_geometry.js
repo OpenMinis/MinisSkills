@@ -319,17 +319,18 @@ check('DXF: a flat ceiling draws NOTHING on the ceiling layer (no strips across 
   const res = buildDXF(model(FLAT_WALL), { noFrame: true });
   assert.strictEqual(ceilEntities(res, 'S0_CEILING').length, 0, 'a flat ceiling must not be drawn');
   assert(!res.plan.layers.includes('S0_CEILING'), 'no ceiling layer may even be declared');
-  // the height still reaches the room label
+  // Height belongs to exactly one regional annotation, not the room title.
   const room = labelOf(res).map((e) => e.value).find((v) => v.startsWith('Soba'));
-  assert(/h 2\.50$/.test(room), `label was "${room}"`);
+  assert(!/h 2\.50/.test(room));
+  assert.strictEqual(ceilEntities(res,'S0_CEILING_FLAT').filter(e=>e.type==='text' && /h 2\.50/.test(e.value)).length,1);
 });
 
 check('DXF HRT: a flat explicit ceiling leaves S0_CEILING empty, the room label carries h 3.07', () => {
   const res = buildDXF(HRT, { noFrame: true });
   assert.strictEqual(ceilEntities(res, 'S0_CEILING').length, 0, `expected 0 ceiling entities, got ${JSON.stringify(ceilEntities(res, 'S0_CEILING'))}`);
-  assert.strictEqual(ceilEntities(res, 'S0_CEILING_FLAT').length, 0, 'nothing at all for a flat ceiling');
+  const ft=ceilEntities(res,'S0_CEILING_FLAT');assert(/SR .*h 3\.07/.test(ft.filter(e=>e.type==='text').map(e=>e.value).join('  ')));assert(!ft.some(e=>e.type==='line'),'flat source region must not duplicate perimeter');
   const room = labelOf(res).map((e) => e.value).find((v) => v.startsWith('Room'));
-  assert(/Room {2}40\.49 m2 {2}h 3\.07/.test(room), `label was "${room}"`);
+  assert(/Room {2}40\.49 m2/.test(room));assert(!/h 3\.07/.test(room),'source height is independently labelled');
 });
 
 check('DXF hh: only the sloped band is orange — the flat remainder gets its own thin layer', () => {
@@ -337,11 +338,11 @@ check('DXF hh: only the sloped band is orange — the flat remainder gets its ow
   const band = ceilEntities(res, 'S0_CEILING');
   assert(band.filter((e) => e.type === 'line').length >= 4, 'band outline missing');
   const texts = band.filter((e) => e.type === 'text').map((e) => e.value);
-  assert(texts.some((v) => /h 1\.65-2\.48 \(knee\)/.test(v)), `band height/method text missing: ${JSON.stringify(texts)}`);
+  assert(texts.some((v) => /h 1\.65-2\.48/.test(v)), `band height/method text missing: ${JSON.stringify(texts)}`);
   const flatLayer = ceilEntities(res, 'S0_CEILING_FLAT');
   assert(flatLayer.length > 0, 'the flat remainder must still be bounded and labelled');
   const flatTexts = flatLayer.filter((e) => e.type === 'text').map((e) => e.value);
-  assert(flatTexts.some((v) => /h 2\.48 \(flat\)/.test(v)), `flat label missing: ${JSON.stringify(flatTexts)}`);
+  assert(flatTexts.some((v) => /h 2\.48/.test(v)), `flat label missing: ${JSON.stringify(flatTexts)}`);
   assert(!flatTexts.some((v) => /knee/.test(v)), 'the flat part must not be labelled as a knee');
 });
 
@@ -359,7 +360,7 @@ check('DXF room label carries the area and "h 1." for a sloped ceiling', () => {
   const labels = labelOf(res).map((e) => e.value);
   const room = labels.find((v) => v.startsWith('Soba'));
   assert(room, `no room label: ${JSON.stringify(labels)}`);
-  assert(/Soba {2}64\.00 m2 {2}h 1\.60-2\.50/.test(room), `label was "${room}"`);
+  assert(/^Soba {2}64\.00 m2$/.test(room), `title must contain name/area only: "${room}"`);
 });
 
 check('DXF: sloped ceiling is visible (band outline + fall line + method text)', () => {
@@ -367,9 +368,9 @@ check('DXF: sloped ceiling is visible (band outline + fall line + method text)',
   const ceil = ceilEntities(res, 'S0_CEILING');
   assert(ceil.filter((e) => e.type === 'line').length >= 4, 'dashed band outline missing');
   const texts = ceil.filter((e) => e.type === 'text').map((e) => e.value);
-  assert(texts.some((v) => /h 1\.60-2\.50 \(section\)/.test(v)), `method/height text missing: ${JSON.stringify(texts)}`);
+  assert(texts.some((v) => /h 1\.60-2\.50/.test(v)), `method/height text missing: ${JSON.stringify(texts)}`);
   // 4 dashed outline edges + the fall line = 5 (a pure ramp has no flat part)
-  assert.strictEqual(ceil.filter((e) => e.type === 'line').length, 5, 'fall line missing');
+  assert.strictEqual(ceil.filter(e=>e.role==='downhill-arrow').length,3,'one short LINE arrow required');assert(!ceil.some(e=>e.value==='↓'),'unicode arrow forbidden');
 });
 
 check('DXF: --no-ceilings removes every ceiling entity', () => {
@@ -401,7 +402,7 @@ check('DXF room label of a room without a polygon is "Kat N — area — h" at t
   const res = buildDXF(raw, { noFrame: true });
   const story = labelOf(res).map((e) => e.value).find((v) => v.startsWith('Kat'));
   assert(story, `no story label: ${JSON.stringify(labelOf(res).map((e) => e.value))}`);
-  assert(/^Kat 0 \u2014 64\.00 m2/.test(story), `label was "${story}"`);
+  assert(/^Kat 0 {2}64\.00 m2$/.test(story), `label was "${story}"`);
 });
 
 /* ------------------------------------------------------- openings: holes -- */

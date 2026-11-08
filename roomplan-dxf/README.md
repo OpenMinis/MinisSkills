@@ -16,6 +16,34 @@ meta.json ─┴─► roomplan-to-dxf.js ──► scan.dxf + scan.roomplan.jso
                                           └──► inspect_dxf.py (audit)
 ```
 
+## Current source-region annotation contract (2026-11-08)
+
+- Explicit supplied ceiling polygons are retained as source regions, labelled
+  `SR <room identifier>.<index>`. Read `sourceRegionId`, `interpretation`,
+  `regionPlanM`, `worldCornersM` and `heightM` in ceiling diagnostics.
+- Multiple supplied surfaces are alternatives that may overlap or conflict:
+  `roomplan.ceiling-source-alternatives`. No minimum/maximum physical envelope
+  is selected or verified. An individual region height is not a certified
+  room-wide clear height; source regions are not additive physical quantities.
+- Explicit horizontal source regions retain their thin gray outline and SR
+  height label on `S<n>_CEILING_FLAT`; they are not orange slope bands.
+  Reconstructed flat ceilings do not acquire a whole-room dashed slope outline.
+- Layout tests a conservative TEXT envelope inside each polygon, then a local
+  external callout with a checked leader. If neither fits, annotation remains
+  visible with `UNRESOLVED` and `layoutStatus: unresolved-visible-no-leader`;
+  no unsafe leader is fabricated. This is an unresolved association requiring
+  review, not successful in-region placement. Arbitrary CAD font substitutions
+  and full paper plotting remain outside this guarantee.
+- Short downhill arrows are checked within the region; annotation offsets do
+  not change source geometry or measurement quantities. Per-story framing
+  translates geometry and text together once, after source-space alignment.
+- `supplied-floor-level` is an explicitly supplied scalar fallback, not a
+  measured floor plane. Positive separations up to 6 m can remain visible,
+  including low heights; do not silently clamp them to plausible room heights.
+- A structurally clean DXF requires audit `errors: 0` AND `fixes: 0`. It does
+  not resolve source conflicts, low heights, unknown heights, unresolved labels
+  or establish a verified physical envelope. Review diagnostics separately.
+
 ## Requirements
 
 - **Node.js 16+** — the converter is plain CommonJS with zero npm packages.

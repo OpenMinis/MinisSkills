@@ -413,12 +413,12 @@ check('a primitive with a bad transform is skipped with a warning, not written a
   const broken = JSON.parse(JSON.stringify(polyCapture));
   broken.surfaces[1].transform = [1, 0, 0, 0, 0, Number.NaN, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   const res = buildUsda(broken, {});
-  // 5 elements (2 walls, floor, door, object) + 1 ceiling (flat, 2.50 m) - 1 broken
-  assert.strictEqual(res.primCount, 5, 'the broken wall should be dropped');
+  // No covering measured polygon/supplied datum: no invented ceiling at stage 0.
+  assert.strictEqual(res.primCount, 4, 'broken wall and undatumed reconstructed ceiling omitted');
   const skipped = res.warnings.filter((w) => w.code === 'usdz.skipped-non-rigid');
   assert.strictEqual(skipped.length, 1);
   // the polygon wall the door names cannot be cut either, and says so
-  assert(res.warnings.every((w) => ['usdz.skipped-non-rigid', 'usdz.opening-not-cut', 'usdz.opening-hole-only'].includes(w.code)),
+  assert(res.warnings.every((w) => ['usdz.skipped-non-rigid', 'usdz.opening-not-cut', 'usdz.opening-hole-only', 'usdz.ceiling-height-unknown'].includes(w.code)),
     JSON.stringify(res.warnings.map((w) => w.code)));
   assert(!/NaN/.test(res.text));
 });
@@ -427,7 +427,8 @@ check('a surface with no geometry at all is skipped with a warning', () => {
   empty.surfaces[2] = { identifier: 'F-BAD', kind: 'floor', story: 0, dimensions: { x: 0, y: 0, z: 0 }, transform: I4 };
   const res = buildUsda(empty, {});
   assert(res.warnings.some((w) => w.code === 'usdz.skipped-no-geometry'));
-  assert.strictEqual(res.primCount, 5);
+  assert(res.warnings.some((w) => w.code === 'usdz.ceiling-height-unknown'));
+  assert.strictEqual(res.primCount, 4);
 });
 check('normals: one per point, no interpolation metadata (Apple shape)', () => {
   // Apple writes a normal for every point and relies on USD's default

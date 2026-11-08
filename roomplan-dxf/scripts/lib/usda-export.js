@@ -215,26 +215,23 @@ function meshArrays(geometry) {
   const normals = [];
   const counts = [];
   const indices = [];
+  if (geometry.holes && geometry.holes.length) throw new Error('planar-polygon: unsupported hole rings; decompose into simple faces');
+  const { triangulate } = require('./planar-polygon');
+  let surfaceArea3D = 0, projectedArea = 0, renderMeshArea = 0;
   for (const face of geometry.faces) {
-    const poly = face.map((i) => geometry.points[i]);
-    if (poly.length < 3) continue;
-    const n = polygonNormal(poly);
-    if (!n) continue;
-    for (let t = 1; t < poly.length - 1; t += 1) {
-      const tri = [poly[0], poly[t], poly[t + 1]];
-      // drop a zero-area triangle rather than emit a degenerate face
-      const area = cross(
-        [tri[1][0] - tri[0][0], tri[1][1] - tri[0][1], tri[1][2] - tri[0][2]],
-        [tri[2][0] - tri[0][0], tri[2][1] - tri[0][1], tri[2][2] - tri[0][2]],
-      );
-      if (!(Math.hypot(area[0], area[1], area[2]) > 1e-12)) continue;
+    if (!Array.isArray(face) || face.some(i => !Number.isInteger(i) || !geometry.points[i])) throw new Error('planar-polygon: invalid face / unsupported hole rings');
+    const result = triangulate(face.map(i => geometry.points[i]));
+    surfaceArea3D += result.surfaceArea3D;
+    projectedArea += result.projectedArea;
+    renderMeshArea += result.renderMeshArea;
+    for (const tri of result.triangles) {
       const base = points.length;
-      for (const p of tri) { points.push(p); normals.push(n); }
+      for (const p of tri) { points.push(p); normals.push(result.normal); }
       counts.push(3);
       indices.push(base, base + 1, base + 2);
     }
   }
-  return { points, normals, counts, indices };
+  return { points, normals, counts, indices, surfaceArea3D, projectedArea, renderMeshArea };
 }
 
 /**
@@ -577,7 +574,7 @@ function buildUsda(capture, options) {
           const n = polygonNormal(pts);
           // A ceiling is seen from below: the winding must give normal -Y
           // (slightly tilted for a slope, but never pointing up).
-          const ordered = n && n[1] > 0 ? pts.slice().reverse() : pts;
+          const ordered = n && n[1] > 1e-9 ? pts.slice().reverse() : pts;
           const base = points.length;
           ordered.forEach((p) => points.push(p));
           faces.push(ordered.map((_, k) => base + k));
@@ -590,7 +587,9 @@ function buildUsda(capture, options) {
         const flat = ySpan < 0.005;
         const slope = !flat;
         const namePrefix = slope ? 'CeilingSlope' : 'CeilingFlat';
-        const geometryText = flat
+        const vertical = faces.every(face => Math.abs(polygonNormal(face.map(i => points[i]))[1]) < 1e-9);
+        const geometryText = vertical ? 'vertical supplied surface; semantic classification unresolved'
+          : flat
           ? `flat plane at height ${part.heightLabel || c.heightLabel || ''}`
           : (part.kind === 'gable' || c.ridge ? 'sloped strip, gable side' : 'sloped strip (knee to ridge)');
         const fields = [
@@ -606,7 +605,8 @@ function buildUsda(capture, options) {
         fields.push(['string Coverage', `"${escapeString(c.coverage || 'unknown')}"`]);
         fields.push(['string Geometry', `"${escapeString(geometryText)}"`]);
         if (slope && Number.isFinite(c.slopeTangent)) fields.push(['double Slope', num(c.slopeTangent)]);
-        fields.push(['double FloorElevation', num(c.floorY)]);
+        if (Number.isFinite(c.floorY)) fields.push(['double FloorElevation', num(c.floorY)]);
+        else fields.push(['string HeightReason', '"unknown: no measured or supplied floor datum"']);
         fields.push(['string UUID', `"${stableUuid(`Ceiling:${identifier}:${namePrefix}:${ceilingSummary.prims + 1}`)}"`]);
         prims.push({
           name: nextName(namePrefix),
@@ -642,7 +642,9 @@ function buildUsda(capture, options) {
 
   // Root assembly — Apple tags the stage root "assembly".
   lines.push('def Xform "room"');
-  metadataBlock(lines, 0, [{ key: 'kind', value: '"assembly"' }]);
+  const rootMetadata = [{ key: 'kind', value: '"assembly"' }];
+  if(capture.surfaceRegions)rootMetadata.unshift({key:'customData',raw:true,fields:[['string SurfaceRegionRegistry',`"${escapeString(JSON.stringify(capture.surfaceRegions))}"`]]});
+  metadataBlock(lines, 0, rootMetadata);
   lines.push('{');
 
   lines.push('    def Xform "Section_grp"');
@@ -687,6 +689,12 @@ function buildUsda(capture, options) {
     // Label, Area, Height, Method), so it must not be given a second copy.
     // An opening prim carries its measured size instead: it has NO mesh.
     const fields = [];
+    if (mesh) {
+      fields.push(['double SurfaceArea3D', num(mesh.surfaceArea3D)]);
+      fields.push(['double ProjectedArea', num(mesh.projectedArea)]);
+      fields.push(['double RenderMeshArea', num(mesh.renderMeshArea)]);
+      fields.push(['string AreaMetric', '"sum of authored faces with multiplicity; not verified physical total"']);
+    }
     if (prim.element.ceilingFields) {
       for (const f of prim.element.ceilingFields) fields.push(f);
     } else if (prim.element.openingFields) {

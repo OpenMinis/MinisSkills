@@ -217,10 +217,12 @@ function buildReport(capture,root={}) {
  /** Structured warning (SPEC section 3): message and severity are mandatory, a
   * code is stable, extra fields (roomIdentifier, differenceM2) are kept. */
  const warn=(code,message,severity='warning',extra={})=>{warnings.push({code,message,severity,...extra});};
+ for (const z of ceilingZones.filter(z=>z.source==='explicit' && (z.geometry||[]).length>1)) warn('roomplan.ceiling-overlap-unresolved','Multiple supplied ceiling surfaces retained. Source surface sum includes multiplicity; overlapping/alternative producer hypotheses are unresolved, not a verified physical ceiling total. No surface was deleted.','warning',{roomIdentifier:z.roomIdentifier});
  let livingAreaInput=null;
  /** SPEC section 3 assumptions[]: plain strings, one assumption each. The old
   * conventions.caveat string lives here now (defect C-1). */
  const assumptions=[
+  'Explicit ceiling area is the supplied 3D surface sum with multiplicity, not a verified physical envelope or paint quantity. Projection and mesh metrics are separate.',
   'Room-side quantities are references and not additive: a shared wall appears once in the totals and on both room sides.',
   'No surveyed accuracy is claimed; source geometry is trusted only as far as the producer wrote it.',
   'Ceiling areas are reconstructed from wall-top profiles unless the producer supplies a ceiling polygon; a supplied ceiling always wins.',
@@ -386,7 +388,7 @@ function buildReport(capture,root={}) {
   const complete=known.length===zones.length;
   return {value:known.reduce((s,z)=>s+z.ceilingArea,0),status:st,coverage:complete?'complete':'partial',
    included:known.length,expected:zones.length,byStatus,
-   reason:complete?`sum of ${known.length} ${st} ceiling area(s)`:known.length+' of '+zones.length+' ceilings measured; '+[...new Set(zones.filter(z=>!finite(z.ceilingArea)).map(z=>z.reason||'ceiling area unavailable'))].join('; ')};
+   reason:complete?`sum of ${known.length} ${st} ceiling area(s)${suppliedOnly ? '; supplied surfaceArea3D with multiplicity, not a verified physical total; complete refers only to source coverage' : ''}`:known.length+' of '+zones.length+' ceilings measured; '+[...new Set(zones.filter(z=>!finite(z.ceilingArea)).map(z=>z.reason||'ceiling area unavailable'))].join('; ')};
  }
  function totals(list,story) {
   const zones=story===undefined?ceilingZones:ceilingZones.filter(z=>z.story===story);
@@ -524,6 +526,12 @@ function csvCell(v) {
 function quantitiesCSV(report) {
  const header=['Kat','Tip','ID','Izvorni_ID','Kategorija','Broj','Povrsina_bruto_m2','Bruto_podrijetlo','Povrsina_neto_m2','Neto_podrijetlo','Povrsina_bojanje_m2','Bojanje_podrijetlo','Bojanje_odbijeno_m2','Debljina_m','Debljina_podrijetlo','Sobe_reference','Provenance','Napomena'];
  const rows=report.elements.map(e=>[e.story,e.kind,e.id,e.identifier,e.category,e.count,e.id,e.identifier,e.category,e.count,e.area.value,e.area.status,e.netArea.value,e.netArea.status,e.paintArea?e.paintArea.value:null,e.paintArea?e.paintArea.status:null,e.paintRule?e.paintRule.deductedM2:null,e.thickness.value,e.thickness.status,e.roomRefs,e.sourceRecords,e.notes.join(' | ')]);
+ if(report.surfaceRegions){
+  for(const r of report.surfaceRegions.regions){
+   const row=Array(header.length).fill(null);row[0]=r.story;row[1]='SurfaceRegionReference';row[2]=r.id;row[16]=r.origin;row[17]=JSON.stringify({sourceRefs:r.sourceRefs,sourceAreaReferenceM2:r.areaM2,quantityBasis:report.surfaceRegions.quantityBasis});rows.push(row);
+  }
+  for(const g of report.surfaceRegions.groups){const row=Array(header.length).fill(null);row[1]='SurfaceRegionGroupReference';row[2]=g.id;row[16]=g.confirmation;row[17]=JSON.stringify(g);rows.push(row);}
+ }
  return '\uFEFF'+[header,...rows].map(r=>r.map(csvCell).join(';')).join('\r\n')+'\r\n';
 }
 module.exports={buildReport,quantitiesCSV,csvCell,polygon3D,inPolygon,PAINT_FREE_OPENING_M2,paintMeasure};

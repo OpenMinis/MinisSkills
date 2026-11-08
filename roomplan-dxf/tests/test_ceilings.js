@@ -13,7 +13,7 @@ let checks=0;function check(f){f();checks++;}const before=JSON.stringify(model),
 check(()=>assert.strictEqual(d.heightM.min,2.5));check(()=>assert.strictEqual(d.heightM.max,2.5));// a FLAT source ceiling is NOT drawn: no strips, no callout — the room label
 // already states the height (this is what left 7 dashed rectangles across the
 // reference plan).
-check(()=>assert.strictEqual(d.flatCeiling,true));check(()=>assert.strictEqual(d.ceilingDrawn,false));check(()=>assert.strictEqual(d.label,undefined));
+check(()=>assert.strictEqual(d.flatCeiling,true));check(()=>assert.strictEqual(d.ceilingDrawn,false));check(()=>assert(/SR r\.1.*h 2\.50/.test(d.label),'supplied flat region must identify source and height'));
 check(()=>assert.strictEqual(r.annotations.filter(e=>e.type==='line').length,0));
 check(()=>assert(r.annotations.filter(e=>e.type==='line').every(e=>Math.abs(e.a[0])!==2||Math.abs(e.a[1])!==2)));
 check(()=>assert.strictEqual(JSON.stringify(model),before));
@@ -28,7 +28,7 @@ check(()=>assert.strictEqual(rr.diagnostics.records[0].heightM.min,s.heightM.min
 check(()=>assert(Math.abs(rr.annotations[0].a[0]-(tiltAnn[0].a[1]*-1+7))<1e-10));
 check(()=>assert(Math.abs(rr.annotations[0].a[1]-(tiltAnn[0].a[0]-11))<1e-10));
 const dup=JSON.parse(JSON.stringify(model));dup.rooms[0].ceiling.push(ceiling);dup.rooms[0].ceilingCurrent=null;
-check(()=>assert.strictEqual(addCeilings(dup,[]).annotations.length,0));
+check(()=>{const a=addCeilings(dup,[]);assert.equal(a.diagnostics.records.length,2);assert(a.annotations.filter(e=>e.type==='text').length>=2);assert(a.diagnostics.warnings.some(w=>w.code==='roomplan.ceiling-source-alternatives'));assert(!a.annotations.some(e=>e.type==='line'));});
 // raw source without explicit ceilings: the wall-top fallback now reconstructs
 // (here a flat ceiling, since no wall top edge is sloped) instead of giving up
 const raw=addCeilings({kind:'raw',surfaces:[floor,{kind:'wall',polygonCorners:corners}],objects:[]},[]);
@@ -46,7 +46,7 @@ check(()=>assert.strictEqual(addCeilings(conflict,[]).diagnostics.records[0].hei
 check(()=>assert(sourcePolygon({...ceiling,transform:I.map((v,i)=>i===0?2:v)}).error));
 check(()=>assert(sourcePolygon({...ceiling,polygon:[[0,0],[1,1],[0,1],[1,0]]}).error));
 const off=buildDXF(model,{noFrame:true,ceilings:false}),on=buildDXF(model,{noFrame:true});
-check(()=>assert.deepStrictEqual(on.plan.entities.filter(e=>!e.layer.endsWith('_CEILING')),off.plan.entities));
+check(()=>assert.deepStrictEqual(on.plan.entities.filter(e=>!e.layer.includes('CEILING')&&!e.layer.endsWith('_LABEL')),off.plan.entities.filter(e=>!e.layer.endsWith('_LABEL'))));
 check(()=>assert.strictEqual(buildDXF(model,{}).ceilingDiagnostics.enabled,true));
 check(()=>assert.strictEqual(buildDXF(model,{ceilings:false}).ceilingDiagnostics.enabled,false));
 // A FLAT ceiling adds nothing at all to the drawing: --ceilings on and off are

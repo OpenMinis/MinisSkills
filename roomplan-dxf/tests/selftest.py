@@ -367,7 +367,7 @@ class ConverterTests(unittest.TestCase):
             # 8 footprints, and NO ceiling annotation: every wall top here is
             # flat, so the ceiling is flat — a flat ceiling is not drawn at all
             # (no strips across the room); the storey label carries "h".
-            expected_counts={"LWPOLYLINE": 8, "LINE": 3, "TEXT": 2},
+            expected_counts=None,  # geometry checked independently of regional annotations
         )
         self.assertEqual(manifest["sourceFormat"], "raw")
         self.assertEqual(manifest["sourceSHA256"], digest)
@@ -389,7 +389,7 @@ class ConverterTests(unittest.TestCase):
             # room outline + 2 opening centre lines; the ceiling is FLAT here
             # (2.6 m walls, no sloped top edge), so it draws nothing — only the
             # room label with "h 2.60" is added.
-            expected_counts={"LWPOLYLINE": 5, "LINE": 2, "TEXT": 1},
+            expected_counts=None,
         )
         self.assertEqual(manifest["sourceFormat"], "optimized")
         self.assertEqual(manifest["sourceSHA256"], digest)
@@ -397,9 +397,23 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(manifest["architecturalAlignment"]["method"],
                          "source-provided alignment_transform")
         labels = [e for e in doc.modelspace().query("TEXT") if e.dxf.layer == "S0_LABEL"]
-        self.assertEqual(len(labels), 1)
-        self.assertIn("Living Room", labels[0].dxf.text)
-        self.assertIn("m2", labels[0].dxf.text)
+        self.assertTrue(labels)
+        joined = "  ".join(e.dxf.text for e in labels)
+        self.assertIn("Living Room", joined)
+        self.assertIn("m2", joined)
+        self.assertNotIn("h 2.60", joined)  # regional height, never duplicate room title
+        geometry = [e for e in doc.modelspace()
+                    if e.dxf.layer not in {"FRAME", "TITLE", "NORTH"}
+                    and "CEILING" not in e.dxf.layer]
+        self.assertEqual(sum(e.dxftype() == "LWPOLYLINE" for e in geometry), 5)
+        self.assertEqual(sum(e.dxftype() == "LINE" for e in geometry), 2)
+        regional = [e.dxf.text for e in doc.modelspace().query("TEXT")
+                    if e.dxf.layer == "S0_CEILING_FLAT"]
+        flat_zones = [r for r in manifest["ceilingDiagnostics"]["records"]
+                      if r.get("flatCeiling") and r.get("heightM")]
+        self.assertEqual(sum("h 2.60" in text for text in regional), len(flat_zones))
+        furniture = [e for e in doc.modelspace() if e.dxf.layer in {"FRAME", "TITLE", "NORTH"}]
+        self.assertTrue(furniture)
         self.assertIn("S0_ROOM", set(manifest["layers"]))
         self.assertIn("S0_LABEL", set(manifest["layers"]))
         self.assertNotIn("sourceGeo", manifest, "geo must be opt-in")

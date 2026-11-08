@@ -120,14 +120,46 @@ Coordinates are metres in the source frame. DXF applies a computed raw rotation 
   is independent and not affiliated with, endorsed or certified by Apple or
   Autodesk.
 
+## Surface Region registry and grouping
+
+SR means **Surface Region**, supplied or reconstructed. See [SR legend and limits](references/surface-regions.md). CLI `--surface-region-groups <sidecar.json>` supports explicit source-SHA256-scoped user-confirmed groups without flattening or double-counting. Registry is shared by CLI manifest/report, CSV/MD references and USDZ root metadata; group label/outline rendering remains pending.
+
+## Current source-region annotation contract (2026-11-08)
+
+- Explicit supplied ceiling polygons are retained as source regions, labelled
+  `SR <room identifier>.<index>`. Read `sourceRegionId`, `interpretation`,
+  `regionPlanM`, `worldCornersM` and `heightM` in ceiling diagnostics.
+- Multiple supplied surfaces are alternatives that may overlap or conflict:
+  `roomplan.ceiling-source-alternatives`. No minimum/maximum physical envelope
+  is selected or verified. An individual region height is not a certified
+  room-wide clear height; source regions are not additive physical quantities.
+- Explicit horizontal source regions retain their thin gray outline and SR
+  height label on `S<n>_CEILING_FLAT`; they are not orange slope bands.
+  Reconstructed flat ceilings do not acquire a whole-room dashed slope outline.
+- Layout tests a conservative TEXT envelope inside each polygon, then a local
+  external callout with a checked leader. If neither fits, annotation remains
+  visible with `UNRESOLVED` and `layoutStatus: unresolved-visible-no-leader`;
+  no unsafe leader is fabricated. This is an unresolved association requiring
+  review, not successful in-region placement. Arbitrary CAD font substitutions
+  and full paper plotting remain outside this guarantee.
+- Short downhill arrows are checked within the region; annotation offsets do
+  not change source geometry or measurement quantities. Per-story framing
+  translates geometry and text together once, after source-space alignment.
+- `supplied-floor-level` is an explicitly supplied scalar fallback, not a
+  measured floor plane. Positive separations up to 6 m can remain visible,
+  including low heights; do not silently clamp them to plausible room heights.
+- A structurally clean DXF requires audit `errors: 0` AND `fixes: 0`. It does
+  not resolve source conflicts, low heights, unknown heights, unresolved labels
+  or establish a verified physical envelope. Review diagnostics separately.
+
 ## Ceilings and heights (`--ceilings`, DEFAULT ON; `--no-ceilings` to disable)
 
-Every room label carries its height — `Soba  12.40 m2  h 2.50` or
-`Soba  19.80 m2  h 1.65-2.48`. When a capture has no room polygon at all (raw
-Apple format) the label still exists, once per storey, at the centre of the
-storey's bounding box: `Kat 0 — 33.34 m2 — h 1.65-2.48`. A height is never
-invented and never printed as `0`; when it is unknown the `h` part is simply
-absent.
+Room and storey titles contain name and area only, separated by ASCII spaces.
+Heights appear on their own Surface Region annotations: each slope part gets
+its regional height, and each flat reconstruction zone gets one height label
+without a perimeter. Supplied face labels retain their SR identifiers. A height
+is never invented or printed as `0`; unknown source-region heights remain
+explicitly unknown.
 
 **A slope is a strip, not the room.** A knee profile slopes only over the
 measured `run` next to the low wall and is flat at the ridge everywhere else, so
@@ -139,15 +171,14 @@ the ceiling is split into TWO parts and only the strip is drawn:
 * `S<n>_CEILING_FLAT` (thin, continuous, gray): the flat remainder's boundary
   and `h 2.48 (flat)`. Never orange, never a strip.
 
-A ceiling that is flat — reconstructed flat, or an explicit source polygon with
-no tilt — draws **nothing at all** on any ceiling layer: the dashed rectangle
+A reconstructed ceiling that is flat draws no whole-room slope outline: the dashed rectangle
 across a plane with no slope was pure noise, and the room label already states
 the height. Gables keep two bands (and a flat plateau only when the section has
 a flat segment).
 
 Explicit optimized-source ceilings (`rooms[].ceiling` / `ceiling_curr`,
 `transform` + 2D `polygon`) are still annotated on the orange dashed layer when
-they are genuinely tilted; a horizontal one is skipped as above. Annotations never alter wall
+they are genuinely tilted; a horizontal supplied source region retains its gray outline and SR label. Annotations never alter wall
 or floor geometry or quantities. `h 2.50` / `h 2.10-2.85` labels are
 ceiling-to-floor vertical differences in one source-world space; the floor datum
 must be a covering measured floor polygon, and `room.floor_height` is used only
@@ -198,8 +229,19 @@ Because Quick Look renders no text, room and ceiling prims carry the label in
 `customData`: `string Label`, `double Area`, `string Height` (`"2.50"` or
 `"1.60-2.50"`), `string Method`.
 
-Geometry: `polygonCorners` → that polygon, fan-triangulated — except for a
-WALL, where a flat plan polygon is extruded through the thickness into a prism
+Geometry: `polygonCorners` → that polygon, validated planar ear-clipped (all
+mesh faces use `scripts/lib/planar-polygon.js`; never angle-sort vertices).
+Non-planar/self-intersecting rings and unsupported explicit hole rings fail
+clearly, rather than inventing a filled polygon. Grid-decomposed opening cells
+remain separate faces, preserving their holes. `SurfaceArea3D`, `ProjectedArea`
+and `RenderMeshArea` are separate USD metadata; legacy ceiling `Area` remains
+footprint for compatibility. Supplied ceiling sums retain every source plane,
+including vertical upstands and 0.84 m low ceilings; multiplicity/alternative
+source hypotheses warn and are not a verified physical total. Unknown relative
+height is null, never inferred from stage zero. Public tests:
+`node tests/test_planar_polygon.js`, `python3 tests/test_planar_polygon_shapely.py`
+(requires Shapely), `node tests/test_source_preservation.js`.
+For a WALL, a flat plan polygon is extruded through the thickness into a prism
 (2 ear-clipped caps + one side per edge, `scripts/lib/polygon-prism.js`), because
 a zero-thickness wall is paper and vanishes under backface culling; otherwise an
 oriented box from `dimensions` (x length, y height, z thickness) placed by the

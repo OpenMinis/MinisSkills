@@ -36,14 +36,10 @@ function heightLabel(h){return h.max-h.min<0.005?`h ${fmt(h.min)}`:`h ${fmt(h.mi
 /** 3 cm inward-offset, 3 cm trimmed dashed outline on the CEILING layer.
  * Never fabricates an offset outside a concave footprint. */
 function outlineEdges(poly,story,layer,seen,annotations,record){
- const signed=poly.reduce((s,p,j)=>{const q=poly[(j+1)%poly.length];return s+p[0]*q[1]-q[0]*p[1];},0),sign=signed>=0?1:-1;
  for(let j=0;j<poly.length;j++){
-  const a=poly[j],b=poly[(j+1)%poly.length],dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy);if(!finite(len)||len<=0.06)continue;
-  const u=[dx/len,dy/len],n=[-u[1]*sign,u[0]*sign];
-  const aa=a.map((v,k)=>v+n[k]*OFFSET_M+u[k]*TRIM_M),bb=b.map((v,k)=>v+n[k]*OFFSET_M-u[k]*TRIM_M);
-  if(![aa,bb,aa.map((v,k)=>(v+bb[k])/2)].every(p=>inPolygon(p,poly,1e-7))){record.skippedOffsetEdges=(record.skippedOffsetEdges||0)+1;continue;}
-  const key=JSON.stringify([story,...[aa,bb].map(p=>p.map(v=>Math.round(v*1e6))).sort((a,b)=>a[0]-b[0]||a[1]-b[1])]);if(seen.has(key))continue;seen.add(key);
-  annotations.push({type:'line',story,layer,a:aa,b:bb});
+  const a=poly[j],b=poly[(j+1)%poly.length];
+  const key=JSON.stringify([story,...[a,b].map(p=>p.map(v=>Math.round(v*1e6))).sort((a,b)=>a[0]-b[0]||a[1]-b[1])]);
+  if(seen.has(key))continue;seen.add(key);annotations.push({type:'line',story,layer,a,b,role:'source-region-boundary'});
  }
 }
 
@@ -51,71 +47,7 @@ function outlineEdges(poly,story,layer,seen,annotations,record){
  * Ladders down to a smaller text height and finally to a forced centroid
  * placement, because a ceiling height range that cannot be drawn is not
  * reported at all — silent omission was worse than a warned overlap. */
-function placeLabel(poly,story,layer,entities,annotations,value){
- const b=bbox(poly),cx=(b[0]+b[2])/2,cy=(b[1]+b[3])/2;
- for(const height of [0.12,0.09,0.07,0.05]){
-  const width=value.length*height*0.65;
-  const obstacles=segments([...entities,...annotations],story).map(bbox);
-  for(const e of [...entities,...annotations].filter(e=>e.story===story&&e.type==='text'))obstacles.push([e.pos[0],e.pos[1],e.pos[0]+e.height*e.value.length*0.65,e.pos[1]+e.height]);
-  const candidates=[[cx-width/2,cy],...[-0.3,0.3,-0.6,0.6].flatMap(t=>[[cx-width/2,cy+t],[cx-width/2+t,cy]])];
-  const pos=candidates.find(p=>{const box=[p[0]-0.03,p[1]-0.03,p[0]+width+0.03,p[1]+height+0.03],corners=[[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]];return corners.every(p=>inPolygon(p,poly))&&!obstacles.some(b=>overlaps(box,b));});
-  if(pos){annotations.push({type:'text',layer,story,pos,height,value});return {pos,forced:false};}
- }
- // last resort: centroid, scaled to fit the footprint's shorter side
- const span=Math.min(b[2]-b[0],b[3]-b[1]);
- const height=Math.max(0.05,Math.min(0.12,(span*0.8)/(Math.max(value.length,1)*0.65)));
- const pos=[cx-(value.length*height*0.65)/2,cy-height/2];
- annotations.push({type:'text',layer,story,pos,height,value});
- return {pos,forced:true};
-}
-
-/** Dashed slope indicator: a line across the footprint along the fall
- * direction plus a small arrow at the downhill end. Stays inside the
- * footprint so it never crosses the wall lines. */
-function slopeIndicator(poly,dirPlan,downhill,story,layer,annotations,record){
- const L=Math.hypot(dirPlan[0],dirPlan[1]);
- if(!(L>1e-6))return false;
- const u=[dirPlan[0]/L,dirPlan[1]/L],v=[-u[1],u[0]];
- const c=[poly.reduce((s,p)=>s+p[0],0)/poly.length,poly.reduce((s,p)=>s+p[1],0)/poly.length];
- const rel=p=>[(p[0]-c[0])*u[0]+(p[1]-c[1])*u[1],(p[0]-c[0])*v[0]+(p[1]-c[1])*v[1]];
- const ts=poly.map(p=>rel(p)[0]),vs=poly.map(p=>rel(p)[1]);
- const s0=Math.min(...ts),s1=Math.max(...ts),v0=Math.min(...vs),v1=Math.max(...vs);
- if(s1-s0<0.5)return false;
- const at=(t,vv)=>[c[0]+u[0]*t+v[0]*vv,c[1]+u[1]*t+v[1]*vv];
- // Longest straight inside run along the fall direction, tried at several
- // lateral positions so concave footprints (L-shaped rooms) still get one.
- const STEP=Math.max(0.05,(s1-s0)/40);
- let best=null;
- for(let k=0;k<=8;k++){
-  const vv=v0+(v1-v0)*(k/8);
-  let runStart=null;
-  for(let t=s0;t<=s1+1e-9;t+=STEP){
-   const inside=inPolygon(at(t,vv),poly,1e-6);
-   if(inside&&runStart===null)runStart=t;
-   if((!inside||t+STEP>s1+1e-9)&&runStart!==null){
-    const runEnd=inside?Math.min(t+STEP,s1):t-STEP;
-    if(runEnd-runStart>0.4&&(!best||runEnd-runStart>best.len))best={len:runEnd-runStart,a:at(runStart,vv),b:at(runEnd,vv),vv};
-    runStart=null;
-   }
-  }
- }
- if(!best)return false;
- const inset=Math.min(0.25,best.len*0.15);
- const len=Math.hypot(best.b[0]-best.a[0],best.b[1]-best.a[1])||1;
- const a=[best.a[0]+(best.b[0]-best.a[0])*inset/len,best.a[1]+(best.b[1]-best.a[1])*inset/len];
- const b=[best.b[0]-(best.b[0]-best.a[0])*inset/len,best.b[1]-(best.b[1]-best.a[1])*inset/len];
- annotations.push({type:'line',story,layer,a,b});
- record.slopeIndicatorLine=[a,b];
- if(downhill!=='both'){
-  const tip=downhill==='plus'?b:a,back=downhill==='plus'?a:b;
-  const d=Math.hypot(tip[0]-back[0],tip[1]-back[1])||1;
-  const arrow=[tip[0]+((tip[0]-back[0])/d)*Math.min(0.18,d*0.3),tip[1]+((tip[1]-back[1])/d)*Math.min(0.18,d*0.3)];
-  if(!annotations.some(e=>e.story===story&&e.value==='\u2193'&&Math.hypot(e.pos[0]-arrow[0],e.pos[1]-arrow[1])<0.25))
-   annotations.push({type:'text',layer,story,pos:arrow,height:0.14,value:'\u2193'});
-  record.slopeDownhillEnd=tip;
- } else record.slopeDownhillEnd='both (ridge between two eaves)';
- return true;
-}
+const {place:placeLabel,arrow:drawArrow}=require('./ceiling-layout');
 
 /** Plan bounding box of the zone's wall transforms: [x0,z0,x1,z1] or null. */
 function wallBounds(walls){
@@ -127,6 +59,7 @@ function wallBounds(walls){
 
 function addCeilings(model,entities){
  const annotations=[],records=[],warnings=[],alignment=model.architecturalAlignment?.matrix||I,seen=new Set();
+ const slopeIndicator=(p,d,down,st,l,out,r)=>drawArrow(p,d,down,st,l,out,r,entities);
  const floors=(model.surfaces||[]).filter(s=>s.kind==='floor').map(s=>({s,...sourcePolygon(s)})).filter(f=>!f.error&&Math.max(...f.points.map(p=>p.y))-Math.min(...f.points.map(p=>p.y))<1e-5);
  const toPlan=p=>{const q=project(apply(alignment,p));return [q.x,q.y];};
  const warn=(code,roomIdentifier,reason)=>warnings.push({code,roomIdentifier,reason});
@@ -136,12 +69,13 @@ function addCeilings(model,entities){
   const base=room.ceiling,current=room.ceilingCurrent;
   if(base&&current&&JSON.stringify(base)!==JSON.stringify(current)){warn('roomplan.ceiling-conflicting-variants',room.identifier,'ceiling and ceiling_curr differ; no selection guessed; wall-top reconstruction not run over conflicting explicit geometry');continue;}
   const list=current||base;
-  if(!Array.isArray(list)||!list.length)continue; // fallback layer handles this room
+  if(!Array.isArray(list)||!list.length)continue;
+  if(list.length>1)warn('roomplan.ceiling-source-alternatives',room.identifier,'Multiple supplied source regions may overlap or conflict; all retained and labelled SR; no min/max physical envelope selected'); // fallback layer handles this room
   for(let i=0;i<list.length;i++){
    const src=sourcePolygon(list[i]),r={roomIdentifier:room.identifier,story:room.story,source:`rooms[].${current?'ceiling_curr':'ceiling'}[${i}]`,coverage:'source-derived',status:'supplied',method:'explicit',heightM:null,annotationOffsetM:OFFSET_M,annotationTrimM:TRIM_M};records.push(r);
    if(src.error){r.reason=src.error;warn('roomplan.ceiling-unsupported',room.identifier,src.error);continue;}
    const points=src.points,poly=points.map(toPlan),story=room.story,layer=`S${story}_CEILING`;
-   r.worldCornersM=points;r.sourceAreaM2=src.geometry.area;r.ceilingAreaM2=src.geometry.area;r.worldElevationRangeM=[Math.min(...points.map(p=>p.y)),Math.max(...points.map(p=>p.y))];
+   r.sourceRegionId=`SR ${room.identifier}.${i+1}`;r.interpretation="supplied alternative source surface; not a selected physical envelope";r.regionPlanM=poly;r.worldCornersM=points;r.sourceAreaM2=src.geometry.area;r.ceilingAreaM2=src.geometry.area;r.worldElevationRangeM=[Math.min(...points.map(p=>p.y)),Math.max(...points.map(p=>p.y))];
    if(finite(room.area)&&room.area>0&&Math.abs(src.geometry.area-room.area)/room.area>0.2)warn('roomplan.ceiling-area-discrepancy',room.identifier,`ceiling polygon area ${src.geometry.area.toFixed(2)} m2 differs >20% from room.area ${room.area.toFixed(2)} m2`);
    if(Math.abs(src.geometry.n[1])<1e-5){r.reason='ceiling plane vertical; no supported height function';warn('roomplan.ceiling-vertical',room.identifier,r.reason);continue;}
    // Only an actual same-story horizontal floor polygon covering every vertex
@@ -159,10 +93,10 @@ function addCeilings(model,entities){
    }
    if(floor==null&&!r.heightReason&&suppliedFloor!=null){
     const values=points.map(p=>p.y-suppliedFloor),min=Math.min(...values),max=Math.max(...values);
-    if(min>=1.5&&max<=6){
-     r.heightM={min,max,coverage:'supplied-floor-level',basis:'source-world ceiling Y minus source-supplied room.floor_height; no covering measured floor polygon; per-storey plausibility 1.5-6.0 m',floorElevationM:suppliedFloor};
+    if(min>0&&max<=6){
+     r.heightM={min,max,coverage:'supplied-floor-level',basis:'source-world ceiling Y minus source-supplied room.floor_height; no covering measured floor polygon; positive separation, maximum 6.0 m',floorElevationM:suppliedFloor};
      warn('roomplan.ceiling-height-from-supplied-floor-level',room.identifier,'height uses supplied room.floor_height because no measured floor polygon covers the ceiling; not a measured floor plane');
-    } else r.heightReason=`ceiling minus supplied floor_height ${min.toFixed(3)}-${max.toFixed(3)} m outside plausible 1.5-6.0 m storey range`;
+    } else r.heightReason=`ceiling minus supplied floor_height ${min.toFixed(3)}-${max.toFixed(3)} m outside positive-to-6.0 m supported separation`;
    }
    if(floor!=null){
     const values=points.map(p=>p.y-floor),min=Math.min(...values),max=Math.max(...values);
@@ -179,7 +113,8 @@ function addCeilings(model,entities){
     // needs no dashed strips and no callout; the room label already states the
     // height ("Room 40.49 m2  h 3.07").
     r.flatCeiling=true;r.ceilingDrawn=false;
-    r.note='flat source ceiling: no ceiling-layer annotation, the room label carries the height';
+    r.note='supplied flat source region: height only, no perimeter';
+    {const value=`${r.sourceRegionId}  ${r.heightM?heightLabel(r.heightM):'h unknown'}`;r.layout=placeLabel(poly,story,`S${story}_CEILING_FLAT`,entities,annotations,value);r.label=value;}
     if(!r.heightM)warn('roomplan.ceiling-height-unavailable',room.identifier,r.heightReason);
     continue;
    }
@@ -190,10 +125,10 @@ function addCeilings(model,entities){
     if(!slopeIndicator(poly,dir,'plus',story,layer,annotations,r))r.slopeIndicatorReason='no interior straight run along the plane gradient';
    }
    if(r.heightM){
-    const value=`${heightLabel(r.heightM)} (explicit)`,placed=placeLabel(poly,story,layer,entities,annotations,value);
-    if(placed){r.label=value;r.labelPosition=placed.pos;}
+    const value=`${r.sourceRegionId}  ${heightLabel(r.heightM)}`,placed=placeLabel(poly,story,layer,entities,annotations,value);
+    if(placed){r.label=value;r.labelPosition=placed.pos;r.layout=placed;}
     else {r.layoutReason='no collision-free conservative label bbox candidate';warn('roomplan.ceiling-label-layout',room.identifier,r.layoutReason);}
-   }else warn('roomplan.ceiling-height-unavailable',room.identifier,r.heightReason);
+   }else {warn('roomplan.ceiling-height-unavailable',room.identifier,r.heightReason);r.layout=placeLabel(poly,story,layer,entities,annotations,`${r.sourceRegionId}  h unknown`);}
   }
  }
 
@@ -202,6 +137,7 @@ function addCeilings(model,entities){
   if(zone.source==='explicit')continue; // never reconstruct over supplied geometry
   const story=finite(zone.story)?zone.story:0, layer=`S${story}_CEILING`;
   const r={roomIdentifier:zone.roomIdentifier,zoneKey:zone.key,story,source:'wall-top reconstruction',
+   sourceRefs:(zone.walls||[]).map(w=>({kind:'wall',identifier:w.identifier??null,sourceRoomIndex:w.sourceRoomIndex??null})),
    status:zone.status,coverage:zone.coverage,method:zone.method||null,
    ceilingAreaM2:finite(zone.ceilingArea)?zone.ceilingArea:null,
    floorAreaM2:finite(zone.floorArea)?zone.floorArea:null,
@@ -252,7 +188,8 @@ function addCeilings(model,entities){
    // plane that has no slope were pure noise, and the room label already
    // states "h 2.48". Nothing but the room label belongs on S0_CEILING.
    r.flatCeiling=true;r.ceilingDrawn=false;
-   r.note='flat ceiling not drawn on the ceiling layer; the room label carries the height';
+   r.note='flat reconstructed ceiling: one regional height label, no perimeter';
+   if(r.heightM){const value=heightLabel(r.heightM);r.label=value;r.layout=placeLabel(poly,story,`S${story}_CEILING_FLAT`,entities,annotations,value);}
    continue;
   }
   const slopeParts=split.parts.filter(p=>p.kind==='slope');
@@ -268,7 +205,7 @@ function addCeilings(model,entities){
   }
   if(split.ridgeLines&&split.ridgeLines.length){
    const line=split.ridgeLines[0];
-   annotations.push({type:'text',layer,story,pos:[line[0][0]+0.10,line[0][1]+0.10],height:0.10,value:'ridge'});
+   // Ridge is geometric only; no uncontained label.
    r.ridgeLine=line;
   }
   if(slopeParts.length&&planDir){
@@ -277,22 +214,24 @@ function addCeilings(model,entities){
   }
   if(slopeParts.length){
    const ht=heightLabel({min:kneeH,max:ridgeH});
-   const value=`${ht} (${zone.method})`;
-   const placed=placeLabel(slopeParts[0].poly,story,layer,entities,annotations,value);
-   if(placed){r.label=value;r.labelPosition=placed.pos;if(placed.forced)warn('roomplan.ceiling-label-layout',zone.roomIdentifier??null,'label placed at the band centroid without a collision-free candidate');}
+   const value=ht;
+   r.slopeLayouts=slopeParts.map(part=>placeLabel(part.poly,story,layer,entities,annotations,value));
+   const placed=r.slopeLayouts[0];
+   if(placed){r.label=value;r.labelPosition=placed.pos;r.layout=placed;if(placed.forced)warn('roomplan.ceiling-label-layout',zone.roomIdentifier??null,'label placed at the band centroid without a collision-free candidate');}
    else {r.layoutReason='no collision-free conservative label bbox candidate';warn('roomplan.ceiling-label-layout',zone.roomIdentifier??null,r.layoutReason);}
   }
   // 3. the FLAT remainder: a thin continuous boundary and "h 2.48 (flat)" on
   // its own layer — no orange strips, ever.
   if(flatParts.length){
    const flatLayer=`S${story}_CEILING_FLAT`;
-   for(const part of flatParts)outlineEdges(part.poly,story,flatLayer,seen,annotations,r);
-   const value=`h ${ridgeH.toFixed(2)} (flat)`;
+   // No duplicated flat perimeter.
+   const value=`h ${ridgeH.toFixed(2)}`;
    const placed=placeLabel(flatParts[0].poly,story,flatLayer,entities,annotations,value);
    if(placed){r.flatLabel=value;r.flatLabelPosition=placed.pos;}
    else warn('roomplan.ceiling-label-layout',zone.roomIdentifier??null,'flat-part label had no collision-free candidate');
   }
  }
+ for(const r of records)if(r.layout?.status==='unresolved-visible-no-leader')warn('roomplan.ceiling-label-unresolved',r.roomIdentifier,'Annotation preserved visibly in external rail without unsafe leader');
  if(!(model.rooms||[]).length&&!records.length)warn('roomplan.ceiling-missing',null,'no explicit room ceilings and no decodable wall-top geometry; ceiling left unavailable');
  warnings.push({code:'roomplan.ceiling-annotation-layout',reason:'3cm offset/trim dashed annotations only; text collision search is conservative and not a CAD layout guarantee; wall geometry and quantities unchanged'});
  return {annotations,diagnostics:{enabled:true,engine:'explicit source ceilings first, wall-top reconstruction (ported ArchiDrawing G1 knee/section/extrusion core) as fallback; drawing only',records,warnings}};

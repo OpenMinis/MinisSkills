@@ -130,6 +130,14 @@ function renderMarkdown(report, opts = {}) {
   L.push('');
   L.push('`supplied` = preuzeto iz izvora i nije preračunato; `computed` = izračunato iz provjerene geometrije; `reconstructed` = izvedeno iz modela (npr. strop iz profila zidova); `estimated` = izvedeno iz eksplicitne pretpostavke; `unavailable` = iz ovog izvora nije moguće znati. `complete`/`partial` govori je li nešto izmjereno za sve očekivane elemente — `partial` zbroj nikad nije ukupna vrijednost zgrade.');
   L.push('');
+  if(report.surfaceRegions){
+    const sr=report.surfaceRegions;
+    L.push('## Surface Regions (SR) — reference, ne dodatne količine','',esc(sr.quantityBasis),'');
+    L.push('| SR | Podrijetlo | Izvor | Površina izvora m² (referenca) |','|---|---|---|---:|');
+    for(const r of sr.regions)L.push(`| ${esc(r.id)} | ${esc(r.origin)} | ${esc(JSON.stringify(r.sourceRefs))} | ${r.areaM2==null?'n/a':r.areaM2.toFixed(10)} |`);
+    for(const g of sr.groups)L.push(`\n${esc(g.id)}: ${esc(g.confirmation)}, ${g.faceCount} faces, ${esc(g.members.join(', '))}; area reference ${g.areaM2}; bend ${g.bendAngleDegrees??'unknown'} degrees. Not an additional quantity; no flattening.`);
+    L.push('');
+  }
   return L.join('\n');
 }
 

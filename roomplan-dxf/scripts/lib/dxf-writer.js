@@ -183,13 +183,13 @@ function buildDXF(model, opts) {
   const labelledStories = new Set();
   const roomLabelText = (name, area, h) => {
     const parts = [name, `${area.toFixed(2)} m2`];
-    if (h && h.heightLabel) parts.push(`h ${h.heightLabel}`);
+    // Heights are region annotations, not a duplicate room title.
     return parts.join('  ');
   };
   const storyLabelText = (story, area, h) => {
     const parts = [`Kat ${story}`, `${area.toFixed(2)} m2`];
-    if (h && h.heightLabel) parts.push(`h ${h.heightLabel}`);
-    return parts.join(' \u2014 ');
+    // Heights are region annotations, not a duplicate room title.
+    return parts.join('  ');
   };
 
   // Room labels (optimized — raw format has no room polygons/labels)
@@ -210,7 +210,9 @@ function buildDXF(model, opts) {
       track(centerDXF.x, centerDXF.y);
       trackStory(centerDXF.x, centerDXF.y);
       const h = labelHeights.byRoom.get(String(r.identifier)) || labelHeights.byStory.get(currentStory) || null;
-      push({ type: 'text', layer: labelLayer, pos: [centerDXF.x, centerDXF.y], height: 0.18, value: roomLabelText(r.label ?? `[${r.category}; id=${r.identifier}]`, r.area, h) });
+      const value=roomLabelText(r.label ?? `[${r.category}; id=${r.identifier}]`, r.area, (r.ceilingCurrent?.length||r.ceiling?.length)?null:h);
+      const placed=[];require('./ceiling-layout').place(pts,currentStory,labelLayer,entities,placed,value);
+      for(const e of placed){if(e.pos){track(...e.pos);trackStory(...e.pos);}push(e);}
       labelledStories.add(currentStory);
     }
   }
@@ -235,7 +237,10 @@ function buildDXF(model, opts) {
     const cy = (b.minY + b.maxY) / 2;
     track(cx, cy);
     trackStory(cx, cy);
-    push({ type: 'text', layer, pos: [cx, cy], height: 0.18, value: storyLabelText(story, area, h) });
+    const f=model.surfaces.find(s=>s.kind==='floor'&&s.story===story&&s.polygonCorners?.length>=3);
+    const region=f?polygonDXF(f.polygonCorners,f.transform,alignment):[[b.minX,b.minY],[b.maxX,b.minY],[b.maxX,b.maxY],[b.minX,b.maxY]];
+    const placed=[];require('./ceiling-layout').place(region,story,layer,entities,placed,storyLabelText(story,area,h));
+    for(const e of placed){if(!f)e.regionBasis='story bbox, not measured room';if(e.pos){track(...e.pos);trackStory(...e.pos);}push(e);}
   }
 
   // Ceilings are ON by default: a plan without its ceiling is a plan the user
@@ -247,6 +252,12 @@ function buildDXF(model, opts) {
     for(const entity of result.annotations){currentStory=entity.story;layerSet.add(entity.layer);const pts=entity.type==='line'?[entity.a,entity.b]:[entity.pos];trackAll(pts);trackAllStory(pts);push(entity);}
   }
 
+  // Text insert is NOT its full extent; reserve review strip, then pack sheets.
+  const sheetAnnotations = require('./ceiling-layout').finalizeSheetAnnotations(entities);
+  for (const sheet of sheetAnnotations) {
+    const b=storyBounds.get(sheet.story);if(b)Object.assign(b,sheet.bounds);
+    track(sheet.bounds.minX,sheet.bounds.minY);track(sheet.bounds.maxX,sheet.bounds.maxY);
+  }
   if (!Number.isFinite(minX)) { minX = maxX = minY = maxY = 0; }
 
   // Sheet furniture lives on its own layers; the plan geometry above is
@@ -281,6 +292,7 @@ function buildDXF(model, opts) {
     frame,
     // One frame per story, side by side, whenever the plan has more than one.
     multiSheet: frame && stories.length > 1,
+    annotationStrips: sheetAnnotations,
     meta: frame && options.planMeta ? (options.planMeta.dxfMeta || options.planMeta) : null,
   };
 
