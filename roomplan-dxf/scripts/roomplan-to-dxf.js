@@ -45,6 +45,7 @@ const { applyArchitecturalAlignment } = require('./lib/align');
 const { buildDXF } = require('./lib/dxf-writer');
 const { buildManifest } = require('./lib/manifest');
 const { resolveInput, readMeta, applyMetaFallback } = require('./lib/source-input');
+const groupSidecar = require('./lib/group-sidecar');
 const { buildPlanMeta, storyLabel } = require('./lib/plan-meta');
 const {detectDialect} = require('./lib/dialect');
 const {buildCapture} = require('./lib/capture-export');
@@ -75,6 +76,11 @@ const USAGE = [
   '  --north-flip       north = (alignmentOffset - heading) mod 360 (default)',
   '  --no-north-flip    legacy north = 180 - heading + alignmentOffset',
   '  --no-frame         no frame, title block or north arrow (stories not separated)',
+  '  --surface-region-groups <file>  user-confirmed Surface Region groups (JSON,',
+  '                     source-SHA256 scoped). Without this flag the converter',
+  '                     auto-discovers <scan>.surface-region-groups.json or',
+  '                     surface-region-groups.json beside the scan; a sidecar for',
+  '                     a different capture is ignored with a warning',
 ].join('\n');
 
 const VALUE_OPTIONS = {
@@ -357,9 +363,41 @@ function main() {
   planMeta.placeLookup = placeLookup;
   for (const w of placeLookupWarnings(placeLookup)) planMeta.warnings.push(w);
 
-  const srOverride = args.flags.surfaceRegionGroups ? JSON.parse(fs.readFileSync(args.flags.surfaceRegionGroups, 'utf8')) : null;
+  // Surface Region GROUPS: explicit path wins. Without it a sidecar beside the
+  // scan is auto-discovered by fixed name; a sidecar for a DIFFERENT capture is
+  // ignored with a warning (never applied, never silently dropped).
+  let srOverride = null;
+  const srSource = { mode: 'none', path: null, relative: null };
+  if (args.flags.surfaceRegionGroups) {
+    const srFile = path.resolve(args.flags.surfaceRegionGroups);
+    srOverride = JSON.parse(fs.readFileSync(srFile, 'utf8'));
+    Object.assign(srSource, { mode: 'explicit', path: srFile, relative: groupSidecar.displayPath(srFile, args.inputPath, resolved) });
+  } else {
+    const found = groupSidecar.discover(args.inputPath, resolved);
+    if (found.present.length > 1) planMeta.warnings.push({
+      code: 'roomplan.surface-region-groups-sidecar-ambiguous',
+      message: `${found.present.length} Surface Region group sidecars sit beside this scan (${found.present.map((p) => groupSidecar.displayPath(p, args.inputPath, resolved)).join(', ')}); the most specific one was used: ${groupSidecar.displayPath(found.path, args.inputPath, resolved)}.`,
+    });
+    if (found.path) {
+      const loaded = groupSidecar.load(found.path, model.sourceSHA256);
+      if (loaded.override) {
+        srOverride = loaded.override;
+        Object.assign(srSource, { mode: 'auto-discovered', path: found.path, relative: groupSidecar.displayPath(found.path, args.inputPath, resolved) });
+      } else {
+        planMeta.warnings.push({
+          code: 'roomplan.surface-region-groups-sidecar-ignored',
+          message: `Auto-discovered Surface Region group sidecar ${groupSidecar.displayPath(found.path, args.inputPath, resolved)} was not applied: ${loaded.reason}${loaded.detail ? ` (${loaded.detail})` : ''}. No group is confirmed for this scan; groups stay empty rather than borrowing a confirmation for other source geometry.`,
+        });
+      }
+    }
+  }
   const dxfResult = buildDXF(model, { noFrame: args.noFrame, planMeta, ceilings:args.flags.ceilings!==false, surfaceRegionGroups:srOverride, sourceSHA256:model.sourceSHA256 });
   const surfaceRegions = require('./lib/surface-regions').buildRegistry(dxfResult.ceilingDiagnostics.records || [], model.sourceSHA256, srOverride);
+  // Provenance of the grouping: which file confirmed it, or that none did.
+  surfaceRegions.groupsSource = Object.assign({}, srSource, {
+    sourceSHA256: model.sourceSHA256,
+    confirmedGroupCount: surfaceRegions.groups.length,
+  });
   dxfResult.ceilingDiagnostics.surfaceRegions = surfaceRegions;
   model.surfaceRegions = surfaceRegions; // same non-additive registry for optional USDZ metadata
   if(quantityReport){quantityReport.ceilingDiagnostics=dxfResult.ceilingDiagnostics;quantityReport.surfaceRegions=surfaceRegions;}

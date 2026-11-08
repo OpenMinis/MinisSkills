@@ -136,6 +136,7 @@ function renderMarkdown(report, opts = {}) {
     L.push('| SR | Podrijetlo | Izvor | Površina izvora m² (referenca) |','|---|---|---|---:|');
     for(const r of sr.regions)L.push(`| ${esc(r.id)} | ${esc(r.origin)} | ${esc(JSON.stringify(r.sourceRefs))} | ${r.areaM2==null?'n/a':r.areaM2.toFixed(10)} |`);
     for(const g of sr.groups)L.push(`\n${esc(g.id)}: ${esc(g.confirmation)}, ${g.faceCount} faces, ${esc(g.members.join(', '))}; area reference ${g.areaM2}; bend ${g.bendAngleDegrees??'unknown'} degrees. Not an additional quantity; no flattening.`);
+    if(sr.groupsSource)L.push('',`Potvrda grupa: ${esc(sr.groupsSource.mode)}${sr.groupsSource.relative?` (${esc(sr.groupsSource.relative)})`:''}; potvrđenih grupa ${sr.groupsSource.confirmedGroupCount??0}. Bez potvrde grupa nema, a izostanak potvrde nije tvrdnja da plohe nisu ista kosina.`);
     L.push('');
   }
   return L.join('\n');

@@ -8,7 +8,15 @@ CLI `--surface-region-groups <sidecar.json>` reads an explicit, source-SHA256-sc
 {"sourceSHA256":"<exact input SHA256>","groups":[{"id":"K1","confirmation":"user-confirmed","members":["SR example.1","SR example.2"]}]}
 ```
 
-A mismatched hash, unknown face, duplicate member, or cross-room/story group fails. Without confirmation there is no confirmed grouping. A group retains all component faces; its area is a reference sum, never an additional quantity. Grouping does not flatten planes or delete horizontal caps, and it does not change any face's area. It records grouping metadata and computes the source-normal bend angle for two-face groups.
+A mismatched hash, unknown face, duplicate member, or cross-room/story group fails.
+Without the flag the converter AUTO-DISCOVERS a sidecar beside the scan using only fixed names, most specific first:
+
+1. `<scanDir>/<scanBase>.surface-region-groups.json`
+2. `<projectDir>/surface-region-groups.json`
+3. `<scanDir>/surface-region-groups.json` (for a scan at `data/scan.json`)
+
+The same `sourceSHA256` gate applies. An explicit `--surface-region-groups` always wins over a discovered file. When two files exist the most specific one is used and `roomplan.surface-region-groups-sidecar-ambiguous` records the others. A discovered sidecar that cannot be read, is not a JSON object, or names a DIFFERENT source SHA256 is NOT applied: it is reported as `roomplan.surface-region-groups-sidecar-ignored` and conversion finishes with no groups, because a directory may legitimately hold a confirmation for another capture. An explicit path stays a hard error in that situation. Provenance is recorded as `surfaceRegions.groupsSource` (`mode` = `explicit` | `auto-discovered` | `none`, `path`, `relative`, `sourceSHA256`, `confirmedGroupCount`) in the report JSON and the Markdown line `Potvrda grupa:`; the sidecar warnings above travel with the other plan warnings into the `.roomplan.json` manifest. Nothing is inferred from a missing sidecar: no sidecar means no confirmed grouping, not a claim that the faces are not one slope.
+ Without confirmation there is no confirmed grouping. A group retains all component faces; its area is a reference sum, never an additional quantity. Grouping does not flatten planes or delete horizontal caps, and it does not change any face's area. It records grouping metadata and computes the source-normal bend angle for two-face groups.
 
 On the SHEET a confirmed group is drawn as ONE piece:
 

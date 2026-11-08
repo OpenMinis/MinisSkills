@@ -15,7 +15,7 @@
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 FILES="roomplan-to-dxf.js lib/align.js lib/decode-optimized.js lib/decode-raw.js
-       lib/dxf-emit.py lib/dxf-writer.js lib/manifest.js lib/model.js lib/story.js
+       lib/dxf-emit.py lib/dxf-writer.js lib/group-sidecar.js lib/manifest.js lib/model.js lib/story.js
        lib/transform.js"
 
 sha_of() {

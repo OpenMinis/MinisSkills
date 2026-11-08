@@ -1,6 +1,7 @@
 ---
 name: roomplan-dxf
 description: 'Convert RoomPlan or Polycam scans to audited DXF and quantities: room areas, ceilings from slopes, wall net/paint, handoff table.'
+triggers: "RoomPlan, Polycam, DXF, tlocrt"
 ---
 
 # RoomPlan scan to DXF
@@ -139,7 +140,7 @@ Coordinates are metres in the source frame. DXF applies a computed raw rotation 
 
 ## Surface Region registry and grouping
 
-SR means **Surface Region**, supplied or reconstructed. See [SR legend and limits](references/surface-regions.md). CLI `--surface-region-groups <sidecar.json>` supports explicit source-SHA256-scoped user-confirmed groups without flattening or double-counting. Registry is shared by CLI manifest/report, CSV/MD references and USDZ root metadata; group label/outline rendering remains pending.
+SR means **Surface Region**, supplied or reconstructed. See [SR legend and limits](references/surface-regions.md). CLI `--surface-region-groups <sidecar.json>` supports explicit source-SHA256-scoped user-confirmed groups without flattening or double-counting; without the flag a sidecar beside the scan is auto-discovered by fixed name (`<scan>.surface-region-groups.json`, `surface-region-groups.json`), and a stale one for another capture is ignored with a warning. Registry is shared by CLI manifest/report, CSV/MD references and USDZ root metadata; provenance is `surfaceRegions.groupsSource`.
 
 ## Current source-region annotation contract (2026-11-08)
 
