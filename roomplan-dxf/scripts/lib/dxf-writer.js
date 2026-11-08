@@ -301,6 +301,7 @@ function buildDXF(model, opts) {
   if(options.ceilings !== false){
     const result=require('./ceilings').addCeilings(model,entities);
     ceilingDiagnostics=result.diagnostics;
+    if(Array.isArray(result.envelope))ceilingDiagnostics.envelope=result.envelope;
     for(const entity of result.annotations){currentStory=entity.story;layerSet.add(entity.layer);const pts=entity.type==='line'?[entity.a,entity.b]:[entity.pos];trackAll(pts);trackAllStory(pts);push(entity);}
     // A confirmed Surface Region group is drawn ONCE for the whole slope: the
     // per-face SR labels and the extra per-face fall arrows are withdrawn, and

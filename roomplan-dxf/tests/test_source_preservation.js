@@ -13,5 +13,13 @@ model.surfaces=[{kind:'floor',story:0,transform:I,polygonCorners:[{x:0,y:0,z:0},
 c=ceilingSolids(model).ceilings[0];assert.strictEqual(c.heightMin,.84);assert.strictEqual(c.floorBasis,'covering floor polygon');
 room.ceiling.push(JSON.parse(JSON.stringify(room.ceiling[0])));
 const result=ceilingSolids(model);assert.strictEqual(result.ceilings[0].surfaces.length,2);assert(result.warnings.some(w=>w.code==='usdz.ceiling-overlap-unresolved'));
-assert(Math.abs(zoneCeilings(model)[0].ceilingArea-2*.19469455)<1e-10);
-console.log('source preservation: vertical upstand / low .84 / datum precedence / unknown null / duplicate retained and warned PASS');
+// These synthetic surfaces are VERTICAL planes (zero plan extent), so no
+// plan-union envelope exists: the arithmetic sum is kept WITH the fallback flag
+// instead of silently returning 0. Horizontal stacking is covered by
+// tests/test_ceiling_envelope.js.
+const zz=zoneCeilings(model)[0];
+assert.strictEqual(zz.ceilingEnvelope.usedFallback,true);
+assert(Math.abs(zz.ceilingArea-2*.19469455)<1e-10,`fallback surface sum ${zz.ceilingArea}`);
+assert(Math.abs(zz.surfaceAreaSumM2-2*.19469455)<1e-9,`surface sum ${zz.surfaceAreaSumM2}`);
+assert.strictEqual(zz.stackedCount,2);
+console.log('source preservation: vertical upstand / low .84 / datum precedence / unknown null / duplicate retained and warned / vertical plane keeps surface-sum fallback PASS');

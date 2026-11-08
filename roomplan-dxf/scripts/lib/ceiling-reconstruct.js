@@ -59,6 +59,7 @@ const SEGMENT_MIN_RISE_M = 0.02;
 // belongs to a 1.1 m stub, not to the room's ceiling.
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+const { envelopeArea } = require('./polygon-union');
 
 function cornersOf(w) {
   return Array.isArray(w && w.polygonCorners)
@@ -561,13 +562,29 @@ function zoneCeilings(model) {
       const room = z.room;
       const list = (Array.isArray(room.ceilingCurrent) && room.ceilingCurrent.length ? room.ceilingCurrent : room.ceiling) || [];
       const geoms = list.map(explicitCeilingGeometry).filter(Boolean);
-      const area = geoms.length ? geoms.reduce((a, g) => a + g.area, 0) : null;
+      // ENVELOPE, not the sum of the supplied surfaces. Producers emit several
+      // ceiling surfaces for one room that share the same plan footprint at
+      // different heights ("stacked"), or overlapping roof pieces; summing them
+      // double counted the same square metre (Koraljka: three co-located
+      // surfaces in one room = 3x the footprint). The ceiling quantity is the
+      // plan union of the footprints, with each surface's own tilt kept.
+      const env = geoms.length ? envelopeArea(geoms.map((g, i) => ({
+        ref: `source-surface-${i + 1}`, planRing: g.planPolygon, surfaceAreaM2: g.area,
+      }))) : null;
+      const area = env && finite(env.envelopeAreaM2) ? env.envelopeAreaM2 : null;
       out.push({
         ...z, source: 'explicit', method: 'explicit', status: 'supplied',
         coverage: area != null ? 'source-derived' : 'unavailable',
-        ceilingArea: area, geometry: geoms,
+        ceilingArea: area,
+        ceilingEnvelope: env,
+        envelopePlanAreaM2: env ? env.envelopePlanAreaM2 : null,
+        surfaceAreaSumM2: env ? env.surfaceAreaSumM2 : null,
+        stackedCount: env ? env.surfaceCount : 0,
+        geometry: geoms,
         reason: area != null
-          ? 'explicit source ceiling polygon(s); wall-top reconstruction not run (explicit geometry always wins)'
+          ? (env.usedFallback
+            ? `explicit source ceiling polygon(s) SUMMED, not enveloped: a supplied surface has no plan footprint; ${env.surfaceCount} supplied surface(s), surface sum ${env.surfaceAreaSumM2.toFixed(3)} m2; wall-top reconstruction not run (explicit geometry always wins)`
+            : `explicit source ceiling polygon(s) measured as a plan-union envelope, not a sum of surfaces; ${env.surfaceCount} supplied surface(s), ${(env.overlapAreaM2 || 0).toFixed(3)} m2 of footprint overlap counted once; surface sum ${env.surfaceAreaSumM2.toFixed(3)} m2 retained as a diagnostic; wall-top reconstruction not run (explicit geometry always wins)`)
           : 'explicit ceiling array present but no usable polygon; reconstruction deliberately skipped',
       });
       continue;

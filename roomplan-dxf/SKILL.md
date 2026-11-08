@@ -151,6 +151,27 @@ SR means **Surface Region**, supplied or reconstructed. See [SR legend and limit
   `roomplan.ceiling-source-alternatives`. No minimum/maximum physical envelope
   is selected or verified. An individual region height is not a certified
   room-wide clear height; source regions are not additive physical quantities.
+- **Ceiling QUANTITY is an ENVELOPE, never a sum of surfaces.** Producers often
+  emit several ceiling surfaces for one room that share the same plan footprint
+  at different heights ("stacked"), or overlapping roof pieces; adding them
+  double counted the same square metre (Koraljka, 2026-11-08: one room carried
+  three co-located surfaces and reported 3x its area; a second room reported
+  41.74 m2 against a 19.64 m2 room). `ceilingArea` is the exact plan union of
+  the supplied footprints (`scripts/lib/polygon-union.js`: x-sweep over split
+  edges, no rasterisation, no bounding box), and only the exclusive part of a
+  surface contributes, with its own developed-area tilt factor
+  (`surfaceArea/planArea`, so a real slope keeps its extra area while a stacked
+  duplicate adds 0 m2). Exclusive parts are assigned largest surface first;
+  when overlapping surfaces have different tilts the developed area depends on
+  that order and `roomplan.ceiling-envelope-order-sensitive` reports the
+  bounds. The arithmetic surface sum is retained as a diagnostic
+  (`surfaceAreaSumM2`, `overlapAreaM2`, `doubleCountAvoidedM2`) and the
+  per-surface SR records, labels and heights are untouched — no surface is
+  deleted or merged. A supplied surface with no plan extent (a vertical plane)
+  makes the union undefined for that room: the surface sum is then reported
+  with `usedFallback` and `roomplan.ceiling-envelope-unavailable`. On Koraljka
+  the envelope changed the ceiling total from 100.32 m2 (sum) to 69.65 m2
+  (envelope), which matches the sum of the declared room areas.
 - Explicit horizontal source regions retain their thin gray outline and SR
   height label on `S<n>_CEILING_FLAT`; they are not orange slope bands.
   Reconstructed flat ceilings do not acquire a whole-room dashed slope outline.

@@ -547,7 +547,7 @@ totals         floorArea, ceilingArea, wallAreaGross, wallAreaNet, openingArea,
                wallLength, paintArea, livingArea, roomsWithoutArea,
                counts{roomCount, wallCount, doorCount, windowCount, objectCount}
 elements[]     { id, kind, story, area, roomRefs[], slopeCut? }   (ids, not "keys")
-rooms[]        { id, identifier, story, declaredArea, polygonArea, ceilingArea{...method}, volume }
+rooms[]        { id, identifier, story, declaredArea, polygonArea, ceilingArea{...method,envelope}, volume }
 warnings[]     { code, message, severity }   (extra fields allowed, those three are not)
 assumptions[]  [ string ]                     (was conventions.caveat)
 statistics     plan-statistics block (G-9) or null

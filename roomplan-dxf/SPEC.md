@@ -74,7 +74,16 @@ totals: { floorArea, ceilingArea, wallAreaGross, wallAreaNet, openingArea,
 // "3 rooms could not be measured" is only meaningful with the number checked.
 stories: [ { story, label, totals, rooms: [ id, ... ] } ]
 rooms:   [ { id, identifier, label, story, declaredArea, polygonArea,
-             polygonMinusDeclared, ceilingArea { ...method }, volume } ]
+             polygonMinusDeclared, ceilingArea { ...method, envelope? }, volume } ]
+// ceilingArea is an ENVELOPE, not a sum of supplied surfaces: every plan square
+// metre counts once (exact plan union of the supplied footprints, exclusive
+// part assigned largest surface first, each part scaled by its own
+// surfaceArea/planArea tilt factor). ceilingArea.envelope reports surfaceCount,
+// envelopePlanAreaM2, surfaceAreaSumM2, overlapAreaM2, orderSensitive, boundsM2;
+// totals.ceilingArea.envelope adds doubleCountAvoidedM2. A zero-plan (vertical)
+// supplied surface degrades the room to the surface-sum fallback and warns
+// roomplan.ceiling-envelope-unavailable; differing tilts across overlapping
+// surfaces warn roomplan.ceiling-envelope-order-sensitive with the bounds.
 elements: [ { id, kind, story, area, roomRefs[], slopeCut? } ]
 statistics: plan-statistics block (§5 G-9) | null
 handoff:    handoff block with quantities[] and gaps[] (§5 G-10) | null

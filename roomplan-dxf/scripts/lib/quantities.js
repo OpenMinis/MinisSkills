@@ -217,12 +217,13 @@ function buildReport(capture,root={}) {
  /** Structured warning (SPEC section 3): message and severity are mandatory, a
   * code is stable, extra fields (roomIdentifier, differenceM2) are kept. */
  const warn=(code,message,severity='warning',extra={})=>{warnings.push({code,message,severity,...extra});};
- for (const z of ceilingZones.filter(z=>z.source==='explicit' && (z.geometry||[]).length>1)) warn('roomplan.ceiling-overlap-unresolved','Multiple supplied ceiling surfaces retained. Source surface sum includes multiplicity; overlapping/alternative producer hypotheses are unresolved, not a verified physical ceiling total. No surface was deleted.','warning',{roomIdentifier:z.roomIdentifier});
+ for (const z of ceilingZones.filter(z=>z.source==='explicit' && (z.geometry||[]).length>1)) warn('roomplan.ceiling-overlap-unresolved','Multiple supplied ceiling surfaces retained as source regions. The ceiling quantity is their plan-union ENVELOPE (every square metre counted once, stacked duplicates add 0 m2); the arithmetic surface sum is kept only as a diagnostic (surfaceAreaSumM2). Which alternative is the built surface remains unresolved and no minimum/maximum physical envelope is selected. No surface was deleted.','warning',{roomIdentifier:z.roomIdentifier,surfaceCount:z.stackedCount??null,envelopePlanAreaM2:z.envelopePlanAreaM2??null,surfaceAreaSumM2:z.surfaceAreaSumM2??null});
+ for (const z of ceilingZones.filter(z=>z.source==='explicit'&&z.ceilingEnvelope&&z.ceilingEnvelope.orderSensitive)) warn('roomplan.ceiling-envelope-order-sensitive','Stacked supplied ceiling surfaces have DIFFERENT tilt factors, so which square metre keeps which developed area depends on the assignment order. The envelope assigns exclusive plan area largest surface first; the plan footprint is order independent, the developed area is not. Bounds are reported.','warning',{roomIdentifier:z.roomIdentifier,boundsM2:z.ceilingEnvelope.bounds});
  let livingAreaInput=null;
  /** SPEC section 3 assumptions[]: plain strings, one assumption each. The old
   * conventions.caveat string lives here now (defect C-1). */
  const assumptions=[
-  'Explicit ceiling area is the supplied 3D surface sum with multiplicity, not a verified physical envelope or paint quantity. Projection and mesh metrics are separate.',
+  'Explicit ceiling area is the plan-union envelope of the supplied 3D surfaces: each plan square metre is counted once, so stacked or overlapping alternatives are not added twice, and each surface keeps its own developed-area tilt factor. The arithmetic surface sum is a diagnostic only. It is still not a verified physical envelope or paint quantity; projection and mesh metrics are separate.',
   'Room-side quantities are references and not additive: a shared wall appears once in the totals and on both room sides.',
   'No surveyed accuracy is claimed; source geometry is trusted only as far as the producer wrote it.',
   'Ceiling areas are reconstructed from wall-top profiles unless the producer supplies a ceiling polygon; a supplied ceiling always wins.',
@@ -254,6 +255,10 @@ function buildReport(capture,root={}) {
   if(!zone)return {...missing('no room/zone wall geometry to derive a ceiling from'),method:toMethod(null),basis:null,heightM:null};
   const m=measure(finite(zone.ceilingArea)?zone.ceilingArea:null,zone.status||'reconstructed',zone.reason||'ceiling area unavailable');
   return {value:m.value,status:m.status,coverage:m.coverage,included:m.included,expected:m.expected,reason:m.reason,
+   envelope:zone.source==='explicit'&&zone.ceilingEnvelope?{policy:zone.ceilingEnvelope.method||'plan-union envelope',
+    surfaceCount:zone.ceilingEnvelope.surfaceCount,envelopePlanAreaM2:zone.ceilingEnvelope.envelopePlanAreaM2,
+    surfaceAreaSumM2:zone.ceilingEnvelope.surfaceAreaSumM2,overlapAreaM2:zone.ceilingEnvelope.overlapAreaM2,
+    orderSensitive:zone.ceilingEnvelope.orderSensitive,boundsM2:zone.ceilingEnvelope.bounds}:null,
    method:m.value==null?'unavailable':toMethod(zone),
    basis:zone.source==='explicit'?'explicit source ceiling polygon; wall-top reconstruction not run':'wall-profile ceiling reconstruction',
    heightM:finite(zone.heightMin)&&finite(zone.heightMax)?{min:zone.heightMin,max:zone.heightMax}:null};
@@ -386,9 +391,17 @@ function buildReport(capture,root={}) {
   const anyEstimated=known.some(z=>z.status==='estimated');
   const st=suppliedOnly?'supplied':anyEstimated?'estimated':'reconstructed';
   const complete=known.length===zones.length;
-  return {value:known.reduce((s,z)=>s+z.ceilingArea,0),status:st,coverage:complete?'complete':'partial',
-   included:known.length,expected:zones.length,byStatus,
-   reason:complete?`sum of ${known.length} ${st} ceiling area(s)${suppliedOnly ? '; supplied surfaceArea3D with multiplicity, not a verified physical total; complete refers only to source coverage' : ''}`:known.length+' of '+zones.length+' ceilings measured; '+[...new Set(zones.filter(z=>!finite(z.ceilingArea)).map(z=>z.reason||'ceiling area unavailable'))].join('; ')};
+  const value=known.reduce((s,z)=>s+z.ceilingArea,0);
+  // Envelope diagnostics: how much the old surface sum would have over-counted.
+  const stacked=known.filter(z=>finite(z.surfaceAreaSumM2)&&finite(z.stackedCount));
+  const surfaceSum=stacked.length?stacked.reduce((s,z)=>s+z.surfaceAreaSumM2,0):null;
+  const envelope={policy:'each room/zone contributes ONE plan-union envelope; stacked or overlapping source surfaces count their shared square metre once and each surface keeps its own developed-area tilt factor',
+   zonesWithSuppliedSurfaces:stacked.length,suppliedSurfaceCount:stacked.reduce((s,z)=>s+(z.stackedCount||0),0),
+   surfaceAreaSumM2:surfaceSum,doubleCountAvoidedM2:surfaceSum!=null&&finite(value)?Math.max(0,surfaceSum-value):null,
+   orderSensitiveZones:stacked.filter(z=>z.ceilingEnvelope&&z.ceilingEnvelope.orderSensitive).length};
+  return {value,status:st,coverage:complete?'complete':'partial',
+   included:known.length,expected:zones.length,byStatus,envelope,
+   reason:complete?`sum of ${known.length} ${st} ceiling ENVELOPE area(s) (plan-union per room, stacked duplicates counted once${stacked.length?`; arithmetic surface sum would have been ${surfaceSum.toFixed(3)} m2`:''})${suppliedOnly ? '; still not a verified physical total (which alternative is built is unresolved); complete refers only to source coverage' : ''}`:known.length+' of '+zones.length+' ceilings measured; '+[...new Set(zones.filter(z=>!finite(z.ceilingArea)).map(z=>z.reason||'ceiling area unavailable'))].join('; ')};
  }
  function totals(list,story) {
   const zones=story===undefined?ceilingZones:ceilingZones.filter(z=>z.story===story);

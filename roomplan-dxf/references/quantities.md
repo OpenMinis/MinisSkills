@@ -106,3 +106,34 @@ Dodatni moduli istog ugovora: `authored-ceiling.js` (strop zadan poligonom i
 visinom po vrhu, Newell 3D, rupe skalirane faktorom `ceilingArea/floorArea`) i
 `interior-area.js` (`interiorRoomArea` scanline bez otisaka zidova te
 `centerlineArea`).
+
+## Ceiling envelope (2026-11-08)
+
+`totals.ceilingArea` and `rooms[].ceilingArea` are an **envelope**, never the
+arithmetic sum of the supplied ceiling surfaces. Several supplied surfaces can
+describe the same plan footprint at different heights (stacked alternatives) or
+overlap as competing hypotheses; summing them counted the same square metre
+twice or three times.
+
+- `scripts/lib/polygon-union.js` computes the exact plan area of the union of
+  the footprints (x-sweep: split every edge at every crossing, evaluate the
+  spanning edges at each slab midpoint, merge the intervals of all rings, then
+  integrate). No rasterisation, no bounding box, no approximation.
+- Each surface contributes `exclusivePlanArea × surfaceArea/planArea`, so a real
+  slope keeps its developed area (`tilt > 1`) and a stacked duplicate adds
+  `0 m2`. Exclusive parts are assigned largest surface first.
+- Reported diagnostics: `surfaceAreaSumM2` (the old sum), `overlapAreaM2`
+  (footprint double counted), `doubleCountAvoidedM2`, `orderSensitive` +
+  `boundsM2` when overlapping surfaces have different tilts
+  (`roomplan.ceiling-envelope-order-sensitive`), and `usedFallback` when a
+  supplied surface has no plan extent at all — a vertical plane cannot be
+  unioned in plan, so that room keeps the sum and warns
+  `roomplan.ceiling-envelope-unavailable`.
+- Per-surface Surface Region records, labels, heights and the manifest
+  `ceilingDiagnostics.records[]` are unchanged; the per-room envelope is
+  additionally listed in `ceilingDiagnostics.envelope[]`.
+- Measured on the Koraljka scan: ceiling total `100.321 m2` as a surface sum,
+  `69.647 m2` as an envelope; one room went from `41.737` to `19.636 m2`
+  (its declared room area), another from `12.880` to `4.306 m2`.
+- Coverage: `node tests/test_ceiling_envelope.js` (10 checks) plus the
+  envelope assertions in `tests/test_source_preservation.js`.

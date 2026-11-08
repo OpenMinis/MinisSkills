@@ -142,7 +142,8 @@ function addCeilings(model,entities){
  }
 
  // ---- 2. wall-top reconstruction, only where no explicit ceiling exists --
- for(const zone of recon.zoneCeilings(model)){
+ const reconZones=recon.zoneCeilings(model);
+ for(const zone of reconZones){
   if(zone.source==='explicit')continue; // never reconstruct over supplied geometry
   const story=finite(zone.story)?zone.story:0, layer=`S${story}_CEILING`;
   const r={roomIdentifier:zone.roomIdentifier,zoneKey:zone.key,story,source:'wall-top reconstruction',
@@ -243,6 +244,18 @@ function addCeilings(model,entities){
  for(const r of records)if(r.layout?.status==='unresolved-visible-no-leader')warn('roomplan.ceiling-label-unresolved',r.roomIdentifier,'Annotation preserved visibly in external rail without unsafe leader');
  if(!(model.rooms||[]).length&&!records.length)warn('roomplan.ceiling-missing',null,'no explicit room ceilings and no decodable wall-top geometry; ceiling left unavailable');
  warnings.push({code:'roomplan.ceiling-annotation-layout',reason:'3cm offset/trim dashed annotations only; text collision search is conservative and not a CAD layout guarantee; wall geometry and quantities unchanged'});
- return {annotations,diagnostics:{enabled:true,engine:'explicit source ceilings first, wall-top reconstruction (ported ArchiDrawing G1 knee/section/extrusion core) as fallback; drawing only',records,warnings}};
+ // Ceiling ENVELOPE per room: the quantity counts each plan square metre once,
+ // even when the producer supplied several stacked/overlapping surfaces for the
+ // same footprint. The per-surface SR records above stay untouched (each source
+ // surface keeps its own area, label and height).
+ const envelope=reconZones.filter(z=>z.source==='explicit'&&z.ceilingEnvelope).map(z=>({
+  roomIdentifier:z.roomIdentifier??null,zoneKey:z.key??null,story:z.story??null,
+  ceilingAreaM2:finite(z.ceilingArea)?z.ceilingArea:null,
+  envelopePlanAreaM2:z.envelopePlanAreaM2??null,surfaceAreaSumM2:z.surfaceAreaSumM2??null,
+  overlapAreaM2:z.ceilingEnvelope.overlapAreaM2??null,surfaceCount:z.stackedCount??0,
+  orderSensitive:z.ceilingEnvelope.orderSensitive===true,boundsM2:z.ceilingEnvelope.bounds||null,
+  usedFallback:z.ceilingEnvelope.usedFallback===true,method:z.ceilingEnvelope.method}));
+ for(const e of envelope)if(e.usedFallback)warn('roomplan.ceiling-envelope-unavailable',e.roomIdentifier,'a supplied ceiling surface has no plan footprint; the area reported for this room is the surface SUM, not an envelope');
+ return {annotations,envelope,diagnostics:{enabled:true,engine:'explicit source ceilings first, wall-top reconstruction (ported ArchiDrawing G1 knee/section/extrusion core) as fallback; drawing only',records,warnings}};
 }
 module.exports={addCeilings,sourcePolygon};
