@@ -234,7 +234,8 @@ Synthetic fixtures, all in metres, checked to 1e-4.
 | G-9 | ArchiPlan fixture (`tests/fixtures/archiplan-plan-statistics.json`, ArchiPlan commit `299ed31`) | living **10.9725 m²**, net walls **35 − 1.89 m²** |
 | G-10 | handoff fixture (`tests/fixtures/archiplan-handoff.json`, ArchiPlan commit `299ed31`) | the 10 contracted quantity keys present, `gaps[]` for missing areas |
 | G-11 | openings 1 m² and 4 m², threshold 3 m² | paint **10 / 1 m²** |
-| G-12 | heading 193.7412°, alignment 7.9724° | sheet bearing **174.2312°** — user confirmed on site that this arrow points north (default `--north-flip`) |
+| G-12 | heading 193.7412°, alignment 7.9724°, **optimized** dialect | sheet bearing **174.2312°** — user confirmed on site that this arrow points north (default `--north-flip`, which is the optimized default) |
+| G-12b | same heading/alignment, **raw Apple** dialect | sheet bearing **174.2312°** — the same flipped default applies to every dialect; the 180° other reading (354.2312°) is wrong on site. `--no-north-flip` still forces it |
 
 North convention (decided 2026-11-07): the default is `--north-flip`,
 `bearing = (alignmentOffset - heading) mod 360`. The owner verified on site

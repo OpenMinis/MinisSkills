@@ -707,7 +707,7 @@ class ConverterTests(unittest.TestCase):
                              legacy["northArrow"]["degreesClockwiseFromDrawingUp"]), 180.0, places=6)
         self.assertNotIn("roomplan.north-flip-applied",
                          {w["code"] for w in legacy["warnings"]})
-        self.assertIn("legacy", legacy["northArrow"]["formula"])
+        self.assertIn("unflipped", legacy["northArrow"]["formula"])
         self.assertLess(angle_difference(north_arrow_bearing(doc), 165.0), 0.5)
 
     # ---- title block: text must stay inside its cell ----------------------
@@ -832,12 +832,15 @@ class ConverterTests(unittest.TestCase):
     def test_two_story_two_north_arrows(self):
         manifest, doc = self._two_story("two-story-north")
         circles = [e for e in doc.modelspace().query("CIRCLE") if e.dxf.layer == "NORTH"]
-        self.assertEqual(len(circles), 4)  # inner ring + pivot per compass
-        bearings = north_arrow_bearings(doc)
-        self.assertEqual(len(bearings), 2)
-        self.assertLess(angle_difference(bearings[0], bearings[1]), 1e-6)
+        self.assertEqual(len(circles), 6)  # outer ring + inner ring + pivot per empty rose
+        # No orientation anywhere: NO needle on either sheet, so no shaft lines.
+        self.assertEqual(north_arrow_bearings(doc), [])
+        self.assertEqual([e for e in doc.modelspace().query("LINE") if e.dxf.layer == "NORTH"], [])
+        texts = [t.dxf.text for t in doc.modelspace().query("TEXT") if t.dxf.layer == "NORTH"]
+        self.assertEqual(texts.count("SMJER NEPOZNAT"), 2)
         for sheet in manifest["sheetFurniture"]["sheets"]:
-            self.assertEqual(sheet["northArrow"]["label"], "N?")
+            self.assertEqual(sheet["northArrow"]["label"], "SMJER NEPOZNAT")
+            self.assertFalse(sheet["northArrow"]["needle"])
             self.assertIsNotNone(sheet["northArrow"]["centre"])
 
     def test_two_story_entities_stay_in_their_own_frame(self):
@@ -979,6 +982,64 @@ class ConverterTests(unittest.TestCase):
         self.assertIn("roomplan.place-lookup-no-coordinates",
                       {w["code"] for w in manifest["warnings"]})
         self.assertEqual(manifest["titleBlock"]["locationText"], "location withheld")
+
+    # ---- no false north: file input, sibling meta, unknown direction --------
+    def test_file_input_reads_sibling_meta(self):
+        """A lone scan file must still find its own meta.json next to it."""
+        folder = self.tmp / "sibling-meta"
+        folder.mkdir()
+        write_json(folder / "optimized_roomplan.json",
+                   synthetic_optimized(orientation_degrees=None, with_geo=False))
+        write_json(folder / "meta.json",
+                   {"name": "Sibling", "headingDegrees": 193.7411616666391})
+        out = self.tmp / "sibling-meta-out"
+        result = run_converter(folder / "optimized_roomplan.json", out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((out / "optimized_roomplan.roomplan.json").read_text(encoding="utf-8"))
+        north = manifest["northArrow"]
+        self.assertEqual(north["basis"], "meta.headingDegrees")
+        self.assertTrue(north["needle"])
+        self.assertEqual(north["label"], "N")
+        self.assertIsNotNone(north["degreesClockwiseFromDrawingUp"])
+        codes = {w["code"] for w in manifest["warnings"]}
+        self.assertNotIn("roomplan.meta-not-attributed", codes)
+
+    def test_sibling_meta_is_not_borrowed_from_an_ambiguous_folder(self):
+        folder = self.tmp / "ambiguous-meta"
+        folder.mkdir()
+        payload = synthetic_optimized(orientation_degrees=None, with_geo=False)
+        write_json(folder / "roomplan.json", payload)
+        write_json(folder / "optimized_roomplan.json", payload)
+        write_json(folder / "meta.json", {"name": "Other", "headingDegrees": 12.0})
+        out = self.tmp / "ambiguous-meta-out"
+        result = run_converter(folder / "roomplan.json", out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((out / "roomplan.roomplan.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["northArrow"]["basis"], "none")
+        codes = {w["code"] for w in manifest["warnings"]}
+        self.assertIn("roomplan.meta-not-attributed", codes)
+
+    def test_unknown_direction_draws_no_needle(self):
+        """No orientation anywhere: empty rose + words, never a needle."""
+        source = self.tmp / "no-north.json"
+        write_json(source, synthetic_optimized(orientation_degrees=None, with_geo=False))
+        out = self.tmp / "no-north-out"
+        result = run_converter(source, out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest, doc, _ = self._check_drawing(out, "no-north")
+        north = manifest["northArrow"]
+        self.assertFalse(north["needle"])
+        self.assertEqual(north["label"], "SMJER NEPOZNAT")
+        self.assertEqual(north["described"], "unknown")
+        self.assertIsNone(north["degreesClockwiseFromDrawingUp"])
+        north_lines = [e for e in doc.modelspace().query("LINE") if e.dxf.layer == "NORTH"]
+        self.assertEqual(north_lines, [], "no north needle may be drawn without a bearing")
+        north_texts = [t.dxf.text for t in doc.modelspace().query("TEXT") if t.dxf.layer == "NORTH"]
+        self.assertIn("SMJER NEPOZNAT", north_texts)
+        self.assertNotIn("N?", north_texts)
+        codes = {w["code"] for w in manifest["warnings"]}
+        self.assertIn("roomplan.north-direction-unknown", codes)
+
 
 if __name__ == "__main__":
     unittest.main()

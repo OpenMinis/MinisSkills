@@ -250,6 +250,17 @@ function buildDXF(model, opts) {
     const result=require('./ceilings').addCeilings(model,entities);
     ceilingDiagnostics=result.diagnostics;
     for(const entity of result.annotations){currentStory=entity.story;layerSet.add(entity.layer);const pts=entity.type==='line'?[entity.a,entity.b]:[entity.pos];trackAll(pts);trackAllStory(pts);push(entity);}
+    // A confirmed Surface Region group is drawn ONCE for the whole slope: the
+    // per-face SR labels and the extra per-face fall arrows are withdrawn, and
+    // one group label plus one arrow replace them. The internal seam is NOT
+    // drawn — a confirmed group is one piece on the sheet. Registry, areas and
+    // faces are unchanged; the seam stays in the manifest as data.
+    if(options.surfaceRegionGroups){
+      const groupDraw=require('./surface-region-draw').renderGroups(entities,ceilingDiagnostics.records||[],options.surfaceRegionGroups,options.sourceSHA256);
+      ceilingDiagnostics.surfaceRegionDraw=groupDraw.drawn;
+      ceilingDiagnostics.warnings=(ceilingDiagnostics.warnings||[]).concat(groupDraw.warnings);
+      for(const entity of groupDraw.added){currentStory=entity.story;layerSet.add(entity.layer);const pts=entity.type==='line'?[entity.a,entity.b]:[entity.pos];trackAll(pts);trackAllStory(pts);push(entity);}
+    }
   }
 
   // Text insert is NOT its full extent; reserve review strip, then pack sheets.

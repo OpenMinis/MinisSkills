@@ -271,6 +271,9 @@ fixedNumbers('G-11', 'openings 1 m2 and 4 m2, threshold 3 m2: paint on wall A / 
   const a = (-7.9724 * Math.PI) / 180;
   const m = [Math.cos(a), 0, -Math.sin(a), 0, 0, 1, 0, 0, Math.sin(a), 0, Math.cos(a), 0, 0, 0, 0, 1];
   const model = {
+    // The decided default (174.2312) belongs to an OPTIMIZED/Polycam-style
+    // capture: its alignment carries the 180 deg turn the flip compensates.
+    dialect: 'optimized-v1',
     meta: { orientationDegrees: 193.7412, orientationSource: 'scan', orientationConfidence: 0.9 },
     architecturalAlignment: { matrix: m },
     originalFilename: 'golden.json',
@@ -284,6 +287,29 @@ fixedNumbers('G-11', 'openings 1 m2 and 4 m2, threshold 3 m2: paint on wall A / 
   fixed('G-12', 'heading 193.7412 deg, alignment 7.9724 deg: default sheet bearing', 174.2312,
     defaultBearing, Math.abs(defaultBearing - 174.2312) <= TOL ? 'PASS' : 'FAIL',
     `alignmentBearingOffset ${offset}; legacy formula gives ${legacyBearing.toFixed(4)} (180 deg away, kept only as --no-north-flip)`);
+}
+
+// G-12b (added/re-stated 2026-11-08): the SAME heading in a RAW Apple capture
+// takes the SAME flipped default. Project hh (heading 193.7412, offset
+// 7.9724) reads 174.2312 deg; the user confirmed on site that the 180 deg
+// other reading (354.2312) is wrong.
+{
+  const a = (-7.9724 * Math.PI) / 180;
+  const m = [Math.cos(a), 0, -Math.sin(a), 0, 0, 1, 0, 0, Math.sin(a), 0, Math.cos(a), 0, 0, 0, 0, 1];
+  const model = {
+    dialect: 'apple-structure',
+    meta: { orientationDegrees: 193.7412, orientationSource: 'meta.json' },
+    architecturalAlignment: { matrix: m },
+    originalFilename: 'golden-raw.json',
+  };
+  const raw = buildPlanMeta(model, { project: 'G-12b' }).north;
+  const forced = buildPlanMeta(model, { project: 'G-12b', northFlip: false }).north;
+  const ok = Math.abs(raw.degreesClockwiseFromDrawingUp - 174.2312) <= TOL
+    && Math.abs(forced.degreesClockwiseFromDrawingUp - 354.2312) <= TOL
+    && raw.flip180 === true && raw.needle === true;
+  fixed('G-12b', 'raw capture, same heading: flipped default, --no-north-flip still available', 174.2312,
+    raw.degreesClockwiseFromDrawingUp, ok ? 'PASS' : 'FAIL',
+    `dialectKind ${raw.dialectKind}; --no-north-flip gives ${forced.degreesClockwiseFromDrawingUp.toFixed(4)}`);
 }
 
 // ------------------------------------------------- behaviour behind the numbers

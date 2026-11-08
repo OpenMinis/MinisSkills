@@ -146,6 +146,14 @@ function buildPlanMeta(model, opts) {
   // which is algebraically 360 - heading + bearingOffset. The assumption is
   // recorded in the manifest (`northArrow.flip180`) and can be disabled with
   // --no-north-flip, which restores the legacy formula verbatim.
+  // The flip is the DEFAULT FOR EVERY DIALECT (re-checked on 2026-11-08):
+  //     sheetBearing = (bearingOffset - heading) mod 360
+  // Optimized (Polycam) exports: reproduced the vendor plan on koraljka.
+  // Raw Apple capture: Project hh's own generated plan looked 180 deg away
+  // from our unflipped arrow; flipped, the needle lands at 174.2 deg and the
+  // user confirmed that is the orientation their plan needs. Dialect is only
+  // recorded, never used to switch the formula silently.
+  const dialectKind = /^optimized/.test(String(model.dialect || '')) ? 'optimized' : 'raw';
   const northFlip = options.northFlip !== false;
   const degrees = heading == null
     ? null
@@ -185,7 +193,10 @@ function buildPlanMeta(model, opts) {
     sourceHeadingDegrees: heading,
     alignmentBearingOffsetDegrees: Number(bearingOffset.toFixed(4)),
     degreesClockwiseFromDrawingUp: degrees,
-    label: known ? 'N' : 'N?',
+    label: known ? 'N' : 'SMJER NEPOZNAT',
+    // A rose without a needle when the direction is unknown: no false north.
+    needle: known,
+    dialectKind,
     source: orientationSource,
     confidence,
     uncertaintyDegrees: uncertainty,
@@ -196,14 +207,17 @@ function buildPlanMeta(model, opts) {
     flip180: northFlip,
     formula: northFlip
       ? 'sheetBearing = (alignmentBearingOffset - heading) mod 360'
-      : 'sheetBearing = (180 - heading + alignmentBearingOffset) mod 360 (legacy, 180 deg off on a verified drawing)',
+      : 'sheetBearing = (180 - heading + alignmentBearingOffset) mod 360 (unflipped, --no-north-flip)',
+    formulaRationale: northFlip
+      ? 'flipped form: the default for every dialect; confirmed on site as the only orientation that reads correctly on Project hh and on koraljka'
+      : 'unflipped form: kept only as --no-north-flip; it drew Project hh 180 deg wrong',
     rotationConvention: 'degrees clockwise from drawing up (+Y); the drawing up direction is the DXF +Y axis, i.e. plan north is +Y when the value is 0',
   };
 
   if (!known) {
     warnings.push({
       code: 'roomplan.north-direction-unknown',
-      message: 'No compass/orientation metadata in the source, so the north arrow is drawn as "N?" pointing up by convention only. Do not read a bearing from this sheet.',
+      message: 'No compass/orientation metadata in the source. The sheet draws an EMPTY rose with the words "SMJER NEPOZNAT" and no needle: a needle at any angle would be a bearing the data does not support. North must be established independently.',
     });
   } else if (approximate) {
     warnings.push({

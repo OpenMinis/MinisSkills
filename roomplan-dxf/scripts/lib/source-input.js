@@ -51,13 +51,43 @@ function rel(root, p) {
 function resolveInput(inputPath) {
   if (!isDirectory(inputPath)) {
     if (!isFile(inputPath)) throw new Error(`Input not found: ${inputPath}`);
+    // A file input still needs its project metadata: `<dir>/meta.json` and
+    // `<dir>/data/meta.json` are read when they can be attributed to THIS scan.
+    // Refusing a lone file's orientation silently was the bug that left
+    // Project hh with an unknown north while its heading sat next to the scan.
+    const dir = path.dirname(path.resolve(inputPath));
+    const self = path.resolve(inputPath);
+    const siblings = SCAN_CANDIDATES
+      .map((candidate) => path.join(dir, candidate))
+      .filter((candidate) => isFile(candidate) && path.resolve(candidate) !== self);
+    const metaFound = META_CANDIDATES
+      .map((candidate) => path.join(dir, candidate))
+      .filter((candidate) => isFile(candidate));
+    // Ambiguity guard: if the folder holds another scan candidate, a meta.json
+    // there may belong to that other capture, so it is NOT borrowed wholesale
+    // (that would be a false north instead of a missing one).
+    if (metaFound.length > 0 && siblings.length > 0) {
+      return {
+        scanPath: inputPath,
+        scanRelative: path.basename(inputPath),
+        metaPath: null,
+        metaRelative: null,
+        metaSkipped: {
+          path: rel(dir, metaFound[0]),
+          reason: `a meta.json exists next to the scan but the folder also holds ${siblings.map((candidate) => rel(dir, candidate)).join(', ')}; metadata is not borrowed because it may belong to another capture`,
+        },
+        inputWasDirectory: false,
+        otherScanCandidates: siblings.map((candidate) => rel(dir, candidate)),
+      };
+    }
     return {
       scanPath: inputPath,
       scanRelative: path.basename(inputPath),
-      metaPath: null,
-      metaRelative: null,
+      metaPath: metaFound.length > 0 ? metaFound[0] : null,
+      metaRelative: metaFound.length > 0 ? rel(dir, metaFound[0]) : null,
+      metaSkipped: null,
       inputWasDirectory: false,
-      otherScanCandidates: [],
+      otherScanCandidates: siblings.map((candidate) => rel(dir, candidate)),
     };
   }
 
@@ -81,6 +111,7 @@ function resolveInput(inputPath) {
     scanRelative: rel(inputPath, found[0]),
     metaPath: metaFound.length > 0 ? metaFound[0] : null,
     metaRelative: metaFound.length > 0 ? rel(inputPath, metaFound[0]) : null,
+    metaSkipped: null,
     inputWasDirectory: true,
     otherScanCandidates: found.slice(1).map((candidate) => rel(inputPath, candidate)),
   };

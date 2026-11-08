@@ -8,7 +8,13 @@ CLI `--surface-region-groups <sidecar.json>` reads an explicit, source-SHA256-sc
 {"sourceSHA256":"<exact input SHA256>","groups":[{"id":"K1","confirmation":"user-confirmed","members":["SR example.1","SR example.2"]}]}
 ```
 
-A mismatched hash, unknown face, duplicate member, or cross-room/story group fails. Without confirmation there is no confirmed grouping. A group retains all component faces; its area is a reference sum, never an additional quantity. Grouping does not flatten planes, erase seams, or delete horizontal caps. This implementation records grouping metadata and computes the source-normal bend angle for two-face groups. Group outline/label rendering is not implemented: the original per-face SR labels remain. Manifest ceiling diagnostics, CLI report, Markdown references, CSV reference-only rows and USDZ root customData share one registry. CSV references leave quantity columns empty to avoid double counting. Standalone buildReport without the CLI does not construct this annotation registry.
+A mismatched hash, unknown face, duplicate member, or cross-room/story group fails. Without confirmation there is no confirmed grouping. A group retains all component faces; its area is a reference sum, never an additional quantity. Grouping does not flatten planes or delete horizontal caps, and it does not change any face's area. It records grouping metadata and computes the source-normal bend angle for two-face groups.
+
+On the SHEET a confirmed group is drawn as ONE piece:
+
+- the per-face SR labels are withdrawn and replaced by ONE group label — `SR 2.1-2.2  h 0.84-2.70` when the member ids form a series, otherwise the explicit `+` join — placed inside the stitched union of the member faces;
+- ONE fall arrow is kept for the whole slope (the arrow of the largest member face); the other per-face fall arrows are withdrawn;
+- the internal seam line is **not** drawn, and neither is the coincident perimeter line that both faces share — the group is outlined as one continuous union, not two adjacent polygons. The shared edge survives as data in `ceilingDiagnostics.surfaceRegionDraw[].seamWithdrawn` (`drawnOnSheet: false`), and the member faces stay in the registry with their areas unchanged. The `S<n>_CEILING_SEAM` layer remains defined in the layer table for compatibility but receives no entity. Manifest ceiling diagnostics, CLI report, Markdown references, CSV reference-only rows and USDZ root customData share one registry. CSV references leave quantity columns empty to avoid double counting. Standalone buildReport without the CLI does not construct this annotation registry.
 
 The explicit source surface sum preserves multiplicity and is **not a verified physical total**. Overlapping hypotheses remain unresolved; no minimum/maximum envelope is selected. User confirmation of one slope does not verify every other supplied face. Heights using supplied floor-level are not measured clear heights.
 

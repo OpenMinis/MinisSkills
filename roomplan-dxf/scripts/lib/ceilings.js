@@ -57,6 +57,15 @@ function wallBounds(walls){
  return [Math.min(...xs),Math.min(...zs),Math.max(...xs),Math.max(...zs)];
 }
 
+/** Place a region label and tag every text it emits with the region id, so a
+ * Surface Region GROUP can withdraw both lines of a wrapped label later. */
+function labelRegion(poly,story,layer,entities,annotations,value,regionId){
+ const before=annotations.length;
+ const out=placeLabel(poly,story,layer,entities,annotations,value);
+ for(let i=before;i<annotations.length;i++)if(annotations[i].type==='text'&&regionId)annotations[i].sourceRegionId=regionId;
+ return out;
+}
+
 function addCeilings(model,entities){
  const annotations=[],records=[],warnings=[],alignment=model.architecturalAlignment?.matrix||I,seen=new Set();
  const slopeIndicator=(p,d,down,st,l,out,r)=>drawArrow(p,d,down,st,l,out,r,entities);
@@ -114,7 +123,7 @@ function addCeilings(model,entities){
     // height ("Room 40.49 m2  h 3.07").
     r.flatCeiling=true;r.ceilingDrawn=false;
     r.note='supplied flat source region: height only, no perimeter';
-    {const value=`${r.sourceRegionId}  ${r.heightM?heightLabel(r.heightM):'h unknown'}`;r.layout=placeLabel(poly,story,`S${story}_CEILING_FLAT`,entities,annotations,value);r.label=value;}
+    {const value=`${r.sourceRegionId}  ${r.heightM?heightLabel(r.heightM):'h unknown'}`;r.layout=labelRegion(poly,story,`S${story}_CEILING_FLAT`,entities,annotations,value,r.sourceRegionId);r.label=value;}
     if(!r.heightM)warn('roomplan.ceiling-height-unavailable',room.identifier,r.heightReason);
     continue;
    }
@@ -125,10 +134,10 @@ function addCeilings(model,entities){
     if(!slopeIndicator(poly,dir,'plus',story,layer,annotations,r))r.slopeIndicatorReason='no interior straight run along the plane gradient';
    }
    if(r.heightM){
-    const value=`${r.sourceRegionId}  ${heightLabel(r.heightM)}`,placed=placeLabel(poly,story,layer,entities,annotations,value);
+    const value=`${r.sourceRegionId}  ${heightLabel(r.heightM)}`,placed=labelRegion(poly,story,layer,entities,annotations,value,r.sourceRegionId);
     if(placed){r.label=value;r.labelPosition=placed.pos;r.layout=placed;}
     else {r.layoutReason='no collision-free conservative label bbox candidate';warn('roomplan.ceiling-label-layout',room.identifier,r.layoutReason);}
-   }else {warn('roomplan.ceiling-height-unavailable',room.identifier,r.heightReason);r.layout=placeLabel(poly,story,layer,entities,annotations,`${r.sourceRegionId}  h unknown`);}
+   }else {warn('roomplan.ceiling-height-unavailable',room.identifier,r.heightReason);r.layout=labelRegion(poly,story,layer,entities,annotations,`${r.sourceRegionId}  h unknown`,r.sourceRegionId);}
   }
  }
 

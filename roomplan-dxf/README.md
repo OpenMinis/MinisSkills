@@ -228,8 +228,11 @@ touched. Full details: [references/title-block.md](references/title-block.md).
   drawing this was checked against (165.3° drawn vs. 345.3° expected); the flip
   is the default, is recorded as `northArrow.flip180` plus
   `roomplan.north-flip-applied`, and `--no-north-flip` restores the legacy
-  formula. It is labelled `N` whenever a bearing exists, `N?` only when there
-  is none, and is marked `approx` in the manifest when it comes from metadata
+  formula only. The flip is the default for every dialect: the user confirmed on
+  site that on Project hh (raw) the flipped 174.2 deg is right and the
+  unflipped 354.2 deg is 180 deg off. It is labelled `N` whenever a bearing
+  exists; without one the sheet draws an empty rose and the words
+  `SMJER NEPOZNAT`, never a needle. It is marked `approx` in the manifest when it comes from metadata
   or from low-confidence compass data. Details, including why the vendor
   artefacts are ambiguous about the arrow head, are in
   [references/title-block.md](references/title-block.md#north-arrow).

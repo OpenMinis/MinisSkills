@@ -221,6 +221,41 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
             "cells": cells}
 
 
+NORTH_UNKNOWN_LABEL = "SMJER NEPOZNAT"
+
+
+def draw_unknown_north(msp, frame, cx, cy, r):
+    """Empty compass rose: two plain rings, cardinal ticks and NO needle.
+
+    The only honest symbol when the source carries no orientation. Drawing a
+    needle up "by convention" is a false north: a reader cannot tell it from a
+    real bearing. The words say the direction is unknown.
+    """
+    fx0, fy0, fx1, fy1 = frame
+    lw = {"layer": NORTH_LAYER}
+    msp.add_circle((cx, cy), r, dxfattribs=lw)
+    msp.add_circle((cx, cy), 0.78 * r, dxfattribs=lw)
+    for i in range(8):
+        ang = math.radians(i * 45.0)
+        ax, ay = math.sin(ang), math.cos(ang)
+        inner = 0.83 * r if i % 2 == 0 else 0.87 * r
+        msp.add_lwpolyline([(cx + inner * ax, cy + inner * ay),
+                            (cx + 0.96 * r * ax, cy + 0.96 * r * ay)], dxfattribs=lw)
+    msp.add_circle((cx, cy), 0.045 * r, dxfattribs=lw)
+    label = NORTH_UNKNOWN_LABEL
+    height = 0.26 * r
+    width = len(label) * height * 1.2
+    tx = min(max(cx, fx0 + width / 2.0 + 0.10), fx1 - width / 2.0 - 0.10)
+    ty = cy - 1.45 * r
+    txt = msp.add_text(label, dxfattribs={"layer": NORTH_LAYER, "height": height})
+    from ezdxf.enums import TextEntityAlignment
+    txt.set_placement((tx, ty), align=TextEntityAlignment.MIDDLE_CENTER)
+    return {"centre": [round(cx, 4), round(cy, 4)], "radius": round(r, 4),
+            "label": label, "needle": False, "degreesClockwiseFromDrawingUp": None,
+            "tip": None, "height": round(height, 4),
+            "textPosition": [round(tx, 4), round(ty, 4)]}
+
+
 def draw_north_arrow(msp, frame, north, text_height, north_radius):
     """Professional compass rose.
 
@@ -235,7 +270,11 @@ def draw_north_arrow(msp, frame, north, text_height, north_radius):
 
     degrees = north.get("degreesClockwiseFromDrawingUp")
     known = degrees is not None
-    theta = math.radians(degrees if known else 0.0)
+    if not known:
+        # No bearing in the source: an empty rose plus text. A needle at any
+        # angle would be a north claim the data does not support.
+        return draw_unknown_north(msp, frame, cx, cy, r)
+    theta = math.radians(degrees)
     ux, uy = math.sin(theta), math.cos(theta)
     px, py = -uy, ux
 
@@ -270,13 +309,13 @@ def draw_north_arrow(msp, frame, north, text_height, north_radius):
     msp.add_line((cx, cy), tip, dxfattribs=lw)
 
     # N stays upright for readability, but its centre follows the north bearing.
-    label = "N" if known else "N?"
+    label = "N"
     txt = msp.add_text(label, dxfattribs={"layer": NORTH_LAYER, "height": 0.20 * r})
     from ezdxf.enums import TextEntityAlignment
     txt.set_placement(pt(0.89 * r, 0.0), align=TextEntityAlignment.MIDDLE_CENTER)
 
     return {"centre": [round(cx, 4), round(cy, 4)], "radius": round(r, 4),
-            "label": label, "degreesClockwiseFromDrawingUp": degrees,
+            "label": label, "needle": True, "degreesClockwiseFromDrawingUp": degrees,
             "tip": [round(tip[0], 4), round(tip[1], 4)]}
 
 def story_of(entity):
@@ -362,6 +401,7 @@ def main():
     LAYER_COLORS = {
         "CEILING": 30, # orange ceiling annotations only (the sloped band)
         "CEILING_FLAT": 8, # thin gray boundary of the FLAT ceiling remainder, never orange
+        "CEILING_SEAM": 8, # reserved: group seams are no longer drawn (one-piece group)
         "WALL": 7,     # black/white — primary structure, full contrast
         "FLOOR": 8,    # dark gray — visible but recessive vs. walls
         "DOOR": 3,     # green — standard architectural convention
@@ -375,6 +415,7 @@ def main():
     LAYER_LINEWEIGHT = {
         "CEILING": 9,  # 0.09mm dashed annotation, never wall thickness
         "CEILING_FLAT": 9,  # same thin weight, continuous line: no strip, just a boundary
+        "CEILING_SEAM": 9,  # reserved for a source joint; not emitted for confirmed groups
         "WALL": 35,    # ~0.35mm — walls read as the thickest lines
         "FLOOR": 13,
         "DOOR": 18,

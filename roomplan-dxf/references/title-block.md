@@ -6,7 +6,7 @@ payload is present (i.e. whenever `--no-frame` is not given):
 | group | layer | colour | contents |
 |---|---|---|---|
 | sheet frames + title-block borders | `FRAME` | 8 | one frame rectangle per story, title-block outline, row separators, column divider |
-| all sheet text | `TITLE` | 7 | 6 rows x 2 cells per sheet and the `N`/`N?` label |
+| all sheet text | `TITLE` | 7 | 6 rows x 2 cells per sheet and the `N` label of the compass rose |
 | north symbol | `NORTH` | 7 | broken outer ring, inner ring, ticks, two-tone needle, upright `N` in the ring gap per sheet |
 
 Plan geometry is copied verbatim (only translated when sheets are laid out side
@@ -119,8 +119,11 @@ reverted with one flag.
 
 Behavioural contract:
 
-- the arrow head always carries `N` when a bearing exists; `N?` only when no
-  orientation value exists at all (drawn pointing up by convention);
+- the arrow head always carries `N` when a bearing exists; when NO orientation
+  value exists at all the sheet draws an **empty rose** (two rings + ticks)
+  with the words `SMJER NEPOZNAT` and **no needle** — a needle at any angle
+  would be a bearing claim the data does not support (`northArrow.needle:
+  false`); `N?` is never printed on top of a needle;
 - the arrow uses the heading **with or without `--geo`**: orientation is not a
   location, and `--geo` only governs coordinates;
 - with 2+ stories every sheet gets its own arrow, all with the same bearing.

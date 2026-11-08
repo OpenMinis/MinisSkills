@@ -99,9 +99,10 @@ function parseArgs(argv) {
   let geo = false;
   let exportModel = false;
   let noFrame = false;
-  // North-flip is ON by default: the unflipped formula drew the arrow 180 deg
-  // wrong on a real drawing checked against the vendor plan.
-  let northFlip = true;
+  // North-flip is ON by default for every dialect: the unflipped formula drew
+  // the arrow 180 deg wrong on real drawings (koraljka and Project hh).
+  // null = not passed explicitly, so the default applies and nothing is echoed.
+  let northFlip = null;
   let placeLookup = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -348,11 +349,16 @@ function main() {
 
   fs.mkdirSync(outDir, { recursive: true });
 
+  if (resolved.metaSkipped) planMeta.warnings.push({
+    code: 'roomplan.meta-not-attributed',
+    message: `meta.json at ${resolved.metaSkipped.path} was not used: ${resolved.metaSkipped.reason}. No orientation was invented from it.`,
+  });
+
   planMeta.placeLookup = placeLookup;
   for (const w of placeLookupWarnings(placeLookup)) planMeta.warnings.push(w);
 
-  const dxfResult = buildDXF(model, { noFrame: args.noFrame, planMeta, ceilings:args.flags.ceilings!==false });
   const srOverride = args.flags.surfaceRegionGroups ? JSON.parse(fs.readFileSync(args.flags.surfaceRegionGroups, 'utf8')) : null;
+  const dxfResult = buildDXF(model, { noFrame: args.noFrame, planMeta, ceilings:args.flags.ceilings!==false, surfaceRegionGroups:srOverride, sourceSHA256:model.sourceSHA256 });
   const surfaceRegions = require('./lib/surface-regions').buildRegistry(dxfResult.ceilingDiagnostics.records || [], model.sourceSHA256, srOverride);
   dxfResult.ceilingDiagnostics.surfaceRegions = surfaceRegions;
   model.surfaceRegions = surfaceRegions; // same non-additive registry for optional USDZ metadata
@@ -437,9 +443,9 @@ function main() {
   console.log(`Stories: ${manifest.storyCount} (${model.storyAssignmentMethod})`);
   const angleDeg = alignment.angleRad != null ? (alignment.angleRad * 180 / Math.PI).toFixed(2) + '°' : 'n/a';
   console.log(`Architectural alignment: ${angleDeg} (${alignment.method})`);
-  console.log(`North arrow: ${planMeta.north.label} ${planMeta.north.degreesClockwiseFromDrawingUp != null ? `(${planMeta.north.degreesClockwiseFromDrawingUp.toFixed(1)}° clockwise from up, ${planMeta.north.described}, ${planMeta.north.basis})` : '(no bearing available)'}`);
+  console.log(`North arrow: ${planMeta.north.label} ${planMeta.north.degreesClockwiseFromDrawingUp != null ? `(${planMeta.north.degreesClockwiseFromDrawingUp.toFixed(1)}° clockwise from up, ${planMeta.north.described}, ${planMeta.north.basis})` : '(no bearing in source: empty rose, no needle)'}`);
   if (planMeta.north.sourceHeadingDegrees != null) {
-    console.log(`North formula: ${planMeta.north.formula} (heading ${planMeta.north.sourceHeadingDegrees.toFixed(2)}°, alignment offset ${planMeta.north.alignmentBearingOffsetDegrees}°)${args.northFlip ? '' : ' [--no-north-flip]'}`);
+    console.log(`North formula: ${planMeta.north.formula} (heading ${planMeta.north.sourceHeadingDegrees.toFixed(2)}°, alignment offset ${planMeta.north.alignmentBearingOffsetDegrees}°)${args.northFlip === false ? ' [--no-north-flip]' : args.northFlip === true ? ' [--north-flip]' : ''}`);
   }
   if (args.noFrame) console.log('Sheet frame/title block: disabled (--no-frame)');
   else console.log(`Title block: project "${planMeta.titleBlock.project}", scale "${planMeta.titleBlock.scaleText}", ${planMeta.titleBlock.date}, sheet ${planMeta.titleBlock.sheet}, ${planMeta.titleBlock.drawnBy}`);

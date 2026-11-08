@@ -28,6 +28,12 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
    `metadataFallbackFields` and warning codes. Outputs default to `<dir>/out`,
    so give an explicit output directory for read-only inputs.
 
+   A **single file** also looks for its project metadata next to it
+   (`<dir>/meta.json`, then `<dir>/data/meta.json`). It is used only when it can
+   be attributed to that scan: if the folder holds another scan candidate, the
+   metadata is NOT borrowed and the run warns `roomplan.meta-not-attributed` —
+   a wrong heading is worse than a missing one.
+
    The DXF is a **sheet**, not just geometry: `--project`, `--author`
    (default `ARCHIFEST`), `--scale` (default `NTS`), `--sheet` (default
    `A-01`) fill the title block; `--no-frame` removes the frame, title block
