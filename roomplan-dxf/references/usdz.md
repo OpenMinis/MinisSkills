@@ -100,7 +100,7 @@ Notes on the choices that matter:
   RoomPlan category in `Category` (`sofa`, `table`, …).
 - **Two geometry paths, and walls always have volume.** A surface with 3D
   `polygonCorners` becomes that polygon. For a *floor* that is one flat n-gon
-  (fan-triangulated). For a *wall* it is a plan outline with no thickness, which
+  (planar-validated ear-clipped). For a *wall* it is a plan outline with no thickness, which
   reads as paper and — because back faces are culled — is invisible from the far
   side; so a wall polygon is extruded along the surface's local +Z through the
   thickness into a **prism**: two ear-clipped caps (plan outlines are routinely
@@ -172,8 +172,8 @@ is reproducible.
 
 What it **cannot** prove: that Apple's own validator or AR Quick Look accepts the
 file. `usdchecker` ships with Pixar's USD, and QuickLook only exists on Apple
-platforms; neither is available in this Linux/iSH environment. A real device must
-open the `.usdz` once before it is handed to a client — see the checklist in
+platforms. User-confirmed Apple opening and separately recorded OpenUSD tests
+are available, but not Apple certification. Review each delivered model — see the checklist in
 README's "USDZ export" section.
 
 ## Reading list
@@ -181,3 +181,17 @@ README's "USDZ export" section.
 - USD ASCII syntax: <https://openusd.org/release/spec_usda.html>
 - USDZ package spec (alignment + STORE): <https://openusd.org/release/spec_usdz.html>
 - AR Quick Look authoring guidelines (Apple): "Adding a 3D model to your app".
+
+
+### Release defaults and validation (2026-11-09)
+
+DXF ceiling annotations are ON by default; `--no-ceilings` affects DXF only.
+USDZ ceiling meshes are OFF by default. Use `--usdz --usdz-ceilings` to opt in,
+or `--no-usdz-ceilings` to turn them off; the last USDZ toggle wins. These
+controls are independent. Source-region metadata may remain even without meshes.
+Public conversion is offline by default. Optional Apple reverse geocoding may
+use network services. The local installation keeps lookup ON by user preference;
+use `--no-place-lookup` for offline operation.
+The user has confirmed opening a generated USDZ on Apple, and OpenUSD tests
+have been run separately. This is not Apple certification or validation of
+every output; structural tests do not establish physical accuracy.

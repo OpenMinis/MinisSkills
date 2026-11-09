@@ -179,7 +179,7 @@ sampled from 105 `.usda` layers inside four Apple `.usdz` captures (see
 on that corpus).
 
 Contract, in order of precedence: a surface with 3D `polygonCorners` is emitted
-as that polygon (fan-triangulated) — except a WALL, whose plan polygon is
+as that polygon (planar-validated ear-clipped) — except a WALL, whose plan polygon is
 extruded along its local thickness axis into a closed prism (ear-clipped caps +
 one side quad per edge, `scripts/lib/polygon-prism.js`; a zero-thickness wall is
 paper and disappears from the far side under backface culling). Wall thickness
@@ -218,9 +218,8 @@ front-face area from the emitted triangles (4 × 2.5 wall with a 0.9 × 2.1 door
 gives 8.11 m²), the signed volume, and the directed-edge closure.
 
 Out of scope for `usdz-v1` (stated, not hidden): textures, UVs, cameras,
-lights, semantics/panels, RealityKit mesh data. **No Apple validation is
-performed** — `usdchecker`/AR Quick Look are unavailable in this environment, so
-the evidence is: Python `zipfile.testzip()`, 64-byte alignment and the 0x1986
+lights, semantics/panels, RealityKit mesh data. User-confirmed Apple opening and separately recorded OpenUSD tests are not
+Apple certification. Local structural regression evidence includes: Python `zipfile.testzip()`, 64-byte alignment and the 0x1986
 padding field, byte determinism, and `tests/lib/usda-lint.js` — a strict
 tokenizer/parser/semantic checker that passes on all 105 Apple reference layers
 as well as on our own output.
@@ -243,7 +242,7 @@ Synthetic fixtures, all in metres, checked to 1e-4.
 | G-9 | ArchiPlan fixture (`tests/fixtures/archiplan-plan-statistics.json`, ArchiPlan commit `299ed31`) | living **10.9725 m²**, net walls **35 − 1.89 m²** |
 | G-10 | handoff fixture (`tests/fixtures/archiplan-handoff.json`, ArchiPlan commit `299ed31`) | the 10 contracted quantity keys present, `gaps[]` for missing areas |
 | G-11 | openings 1 m² and 4 m², threshold 3 m² | paint **10 / 1 m²** |
-| G-12 | heading 193.7412°, alignment 7.9724°, **optimized** dialect | sheet bearing **174.2312°** — user confirmed on site that this arrow points north (default `--north-flip`, which is the optimized default) |
+| G-12 | heading 193.7412°, alignment 7.9724°, **optimized** dialect | sheet bearing **174.2312°** — numeric regression for the default formula (default `--north-flip`, which is the optimized default) |
 | G-12b | same heading/alignment, **raw Apple** dialect | sheet bearing **174.2312°** — the same flipped default applies to every dialect; the 180° other reading (354.2312°) is wrong on site. `--no-north-flip` still forces it |
 
 North convention (decided 2026-11-07): the default is `--north-flip`,

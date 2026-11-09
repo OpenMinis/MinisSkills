@@ -21,7 +21,7 @@
  *     or not --geo is passed. --geo governs coordinates only.
  */
 
-const DEFAULT_AUTHOR = 'ARCHIFEST';
+const DEFAULT_AUTHOR = 'roomplan-dxf';
 const DEFAULT_SCALE_TEXT = 'NTS';
 const DEFAULT_SHEET = 'A-01';
 const NORTH_CONFIDENCE_THRESHOLD = 0.8;
@@ -148,8 +148,8 @@ function buildPlanMeta(model, opts) {
   // --no-north-flip, which restores the legacy formula verbatim.
   // The flip is the DEFAULT FOR EVERY DIALECT (re-checked on 2026-11-08):
   //     sheetBearing = (bearingOffset - heading) mod 360
-  // Optimized (Polycam) exports: reproduced the vendor plan on koraljka.
-  // Raw Apple capture: Project hh's own generated plan looked 180 deg away
+  // Optimized (Polycam) exports: reproduced the vendor plan on an anonymized regression example.
+  // Raw Apple capture: an anonymized reference example's own generated plan looked 180 deg away
   // from our unflipped arrow; flipped, the needle lands at 174.2 deg and the
   // user confirmed that is the orientation their plan needs. Dialect is only
   // recorded, never used to switch the formula silently.
@@ -209,8 +209,8 @@ function buildPlanMeta(model, opts) {
       ? 'sheetBearing = (alignmentBearingOffset - heading) mod 360'
       : 'sheetBearing = (180 - heading + alignmentBearingOffset) mod 360 (unflipped, --no-north-flip)',
     formulaRationale: northFlip
-      ? 'flipped form: the default for every dialect; confirmed on site as the only orientation that reads correctly on Project hh and on koraljka'
-      : 'unflipped form: kept only as --no-north-flip; it drew Project hh 180 deg wrong',
+      ? 'flipped form: the default for every dialect; numeric regression convention; not an independently verified site orientation'
+      : 'unflipped form: kept only as --no-north-flip; it drew an anonymized reference example 180 deg wrong',
     rotationConvention: 'degrees clockwise from drawing up (+Y); the drawing up direction is the DXF +Y axis, i.e. plan north is +Y when the value is 0',
   };
 

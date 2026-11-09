@@ -565,7 +565,7 @@ function zoneCeilings(model) {
       // ENVELOPE, not the sum of the supplied surfaces. Producers emit several
       // ceiling surfaces for one room that share the same plan footprint at
       // different heights ("stacked"), or overlapping roof pieces; summing them
-      // double counted the same square metre (Koraljka: three co-located
+      // double counted the same square metre (an anonymized regression example: three co-located
       // surfaces in one room = 3x the footprint). The ceiling quantity is the
       // plan union of the footprints, with each surface's own tilt kept.
       const env = geoms.length ? envelopeArea(geoms.map((g, i) => ({

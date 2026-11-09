@@ -54,7 +54,7 @@ function resolveInput(inputPath) {
     // A file input still needs its project metadata: `<dir>/meta.json` and
     // `<dir>/data/meta.json` are read when they can be attributed to THIS scan.
     // Refusing a lone file's orientation silently was the bug that left
-    // Project hh with an unknown north while its heading sat next to the scan.
+    // an anonymized reference example with an unknown north while its heading sat next to the scan.
     const dir = path.dirname(path.resolve(inputPath));
     const self = path.resolve(inputPath);
     const siblings = SCAN_CANDIDATES

@@ -118,7 +118,7 @@ function displayPath(filePath, inputPath, resolved) {
     ? inputPath
     : path.dirname(path.resolve(resolved.scanPath)));
   const rel = path.relative(root, path.resolve(filePath));
-  return rel && !rel.startsWith('..') ? rel : path.resolve(filePath);
+  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : path.basename(filePath);
 }
 
 module.exports = { candidates, discover, load, displayPath, SIDECAR_NAME, SIDECAR_SUFFIX };

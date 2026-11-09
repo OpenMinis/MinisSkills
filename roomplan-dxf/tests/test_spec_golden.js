@@ -290,7 +290,7 @@ fixedNumbers('G-11', 'openings 1 m2 and 4 m2, threshold 3 m2: paint on wall A / 
 }
 
 // G-12b (added/re-stated 2026-11-08): the SAME heading in a RAW Apple capture
-// takes the SAME flipped default. Project hh (heading 193.7412, offset
+// takes the SAME flipped default. an anonymized reference example (heading 193.7412, offset
 // 7.9724) reads 174.2312 deg; the user confirmed on site that the 180 deg
 // other reading (354.2312) is wrong.
 {

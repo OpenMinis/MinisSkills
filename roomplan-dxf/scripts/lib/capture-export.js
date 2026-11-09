@@ -5,6 +5,7 @@
  */
 const crypto = require('crypto');
 const { storyLabel } = require('./plan-meta');
+const { resolveRawRoomStories } = require('./raw-room-stories');
 const KEYS = new Set(`identifier parentIdentifier id kind category categoryDetail category_detail confidence story dimensions transform polygonCorners polygon curve centerX centerZ center_x center_z radius startAngleRadians endAngleRadians start_angle end_angle isOpen wallThickness wall_thickness label labelProvenance area floorHeight floor_height center_xz centerX centerZ vertices vertices_x vertices_z x y z edges curvedEdges curved_edges outerHull outer_hull ceiling ceilingCurrent ceiling_curr ceilingLidarAverageDifference ceilingLidarValidFraction ceiling_lidar_avg_diff ceiling_lidar_valid_pct doorIdentifiers openingIdentifiers windowIdentifiers doors openings windows walls floors objects rooms joints sections attributes completedEdges color position wall_endpoints room_vertices StorageType ChairType SofaType TableType BedType BathtubType ToiletType SinkType RefrigeratorType StoveType WasherDryerType FireplaceType TelevisionType Shape Style Material type name value width height length angle start end center normal points indices wallId roomId referenceOriginTransform label_automated sourceRoomIndex dimensionsProvenance identifierProvenance sourceRoomIdentifier sourceRecordIndex sourceStory sourceStoryProvenance`.split(/\s+/));
 const PRIVATE = /latitude|longitude|latlon|altitude|location|address|geocode|geolocation|gps|placemark|postal|street|locality|country|heading|orientation|filename|filepath|url|path|mesh|coremodel/i;
 function sha(v) { return crypto.createHash('sha256').update(v).digest('hex'); }
@@ -105,8 +106,9 @@ function buildCapture(model,root,options={}) {
  // Recognized source fields preserve attributes/sections and per-record room identity
  // without copying arbitrary opaque metadata. They retain source-space semantics.
  const sourceRooms=model.kind==='raw'?rawRooms(root):root.rooms;
+ const roomStories=resolveRawRoomStories(model,root);
  if(model.kind==='raw') normalized.rooms=sourceRooms.map((r,i)=>captureRoom({
-   identifier:r.identifier??r.id??null,sourceRoomIndex:i,label:null,labelProvenance:'no measured room name decoded',story:r.story??null,
+   identifier:r.identifier??r.id??null,...roomStories[i],label:null,labelProvenance:'no measured room name decoded',
    confidence:select(r.confidence??null,stats),vertices:null,sections:select(r.sections??null,stats),attributes:select(r.attributes??null,stats),
  },i,{polygonXZ:null,declaredArea:null}));
  normalized.sourceRecords=select(model.kind==='raw'?{rooms:sourceRooms,sections:root.sections,attributes:root.attributes}:{walls:root.walls,floors:root.floors,doors:root.doors,windows:root.windows,openings:root.openings,objects:root.objects,rooms:root.rooms,joints:root.joints,sections:root.sections,attributes:root.attributes},stats);

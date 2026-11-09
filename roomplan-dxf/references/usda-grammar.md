@@ -6,7 +6,7 @@ therefore opaque here).
 
 | # | Corpus | Layers |
 |---|---|---|
-| 1 | `Project hh.usdz` | 33 |
+| 1 | `an anonymized reference example.usdz` | 33 |
 | 2 | `Project Aug 5, 2026 at 2326.usdz` | 29 |
 | 3 | `Novi.usdz` | 25 |
 | 4 | `BF4C1AE3-…/room.usdz` | 18 |

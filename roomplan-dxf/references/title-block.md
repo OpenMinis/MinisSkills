@@ -61,7 +61,7 @@ The per-story information (story, label, entityCount, placed bbox, frame) is in
 | Lokacija | `--place` → free text; else `--place-lookup` result; else `--geo` → `lat, lon` (4 decimals); else `location withheld` |
 | Mjerilo | `--scale`, default `NTS` |
 | Datum / list | scan date (`meta.json` `createdAt`) or today, plus `--sheet` (default `A-01`) |
-| Nacrtao | `by <author>`; `--author`, default `ARCHIFEST` |
+| Nacrtao | `by <author>`; `--author`, default `roomplan-dxf` |
 
 The scale is **text**. It defaults to `NTS` because a scan has no known plot
 scale: the drawing is a model-space plan, not a paper layout, and printing it
@@ -178,7 +178,7 @@ documented in each package. Either way:
 ```json
 {
   "titleBlock": {"project": "...", "story": 0, "storyLabel": "Prizemlje",
-                 "author": "ARCHIFEST", "drawnBy": "by ARCHIFEST",
+                 "author": "roomplan-dxf", "drawnBy": "by roomplan-dxf",
                  "scaleText": "NTS", "date": "2026-08-06", "sheet": "A-01",
                  "locationText": "location withheld", "locationSource": "withheld",
                  "sourceNote": "...", "frame": true},

@@ -202,7 +202,7 @@ def draw_title_block(msp, frame, meta, text_height, title_h, story_label=None):
         ("Lokacija", meta.get("locationText") or "location withheld"),
         ("Mjerilo", meta.get("scaleText") or "NTS"),
         ("Datum / list", "%s / %s" % (meta.get("date") or "-", meta.get("sheet") or "-")),
-        ("Nacrtao", meta.get("drawnBy") or "by ARCHIFEST"),
+        ("Nacrtao", meta.get("drawnBy") or "by roomplan-dxf"),
     ]
 
     row_h = title_h / len(rows)

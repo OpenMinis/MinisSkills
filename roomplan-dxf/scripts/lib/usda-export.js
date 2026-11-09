@@ -8,7 +8,7 @@
  * cannot. QuickLook/USD parses ASCII natively, so nothing is lost.
  *
  * GRAMMAR PROVENANCE — every shape below is copied from Apple's own exporter,
- * as found in 105 .usda layers inside four Apple .usdz captures (Project hh,
+ * as found in 105 .usda layers inside four Apple .usdz captures (an anonymized reference example,
  * Project Aug 5 2026, Novi, room.usdz):
  *
  *   1. prologue, in this exact order, nothing else:
@@ -643,7 +643,7 @@ function buildUsda(capture, options) {
   // Root assembly — Apple tags the stage root "assembly".
   lines.push('def Xform "room"');
   const rootMetadata = [{ key: 'kind', value: '"assembly"' }];
-  if(capture.surfaceRegions)rootMetadata.unshift({key:'customData',raw:true,fields:[['string SurfaceRegionRegistry',`"${escapeString(JSON.stringify(capture.surfaceRegions))}"`]]});
+  if(capture.surfaceRegions)rootMetadata.unshift({key:'customData',raw:true,fields:[['string SurfaceRegionRegistry',`"${escapeString(JSON.stringify(capture.surfaceRegions, (key, value) => (key === 'path' || key === 'relative') && typeof value === 'string' && /^(?:[A-Za-z]:[\\/]|[\\/])/.test(value) ? value.split(/[\\/]/).pop() : value))}"`]]});
   metadataBlock(lines, 0, rootMetadata);
   lines.push('{');
 

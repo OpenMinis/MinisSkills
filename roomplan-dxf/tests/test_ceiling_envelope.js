@@ -2,7 +2,7 @@
 /**
  * Ceiling ENVELOPE instead of the sum of supplied surfaces.
  *
- * Koraljka evidence: one room carried three supplied ceiling surfaces with the
+ * an anonymized regression example evidence: one room carried three supplied ceiling surfaces with the
  * SAME plan footprint (stacked alternatives at different heights). The old
  * quantity added all three, reporting 3x the room. A ceiling quantity must
  * count each plan square metre once.
@@ -63,6 +63,12 @@ check('vertical (zero-plan) surface: sum fallback, never a zero ceiling', () => 
   const z = zoneCeilings(model)[0];
   assert.strictEqual(z.ceilingEnvelope.usedFallback, true);
   assert(near(z.ceilingArea, 1));
+  const report=buildReport({...model,kind:'optimized',objects:[]},{});
+  assert(near(report.totals.ceilingArea.value,1));
+  assert(/surface-sum fallback/.test(report.totals.ceilingArea.reason), 'fallback must not be described as a pure envelope');
+  assert(/not a verified physical total/.test(report.totals.ceilingArea.reason));
+  assert.strictEqual(report.totals.ceilingArea.status,'supplied');
+  assert.strictEqual(report.totals.ceilingArea.coverage,'complete');
 });
 check('room with three stacked source surfaces reports 16 m2, not 48', () => {
   const ring = [[0, 0], [4, 0], [4, 4], [0, 4]];

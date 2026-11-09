@@ -78,7 +78,7 @@ Emit: `add_lwpolyline(pts, close=...)` / `add_line` / `add_text(value, dxfattrib
 
 ## Provjera izlaza
 
-Nakon pretvorbe pokreni round-trip i `ezdxf.audit`, provjeri verziju, jedinice, slojeve i entity count prema manifestu, `lossy:true`, upozorenja i SHA256 izvora. Oba fixturea i izvršivi assertions ostaju u [RoomPlan verifikaciji](../SKILL.md#verifikacija); povijesni dokaz protiv Swift reference je [VERIFICATION.md](VERIFICATION.md). Broj entiteta nije geometrijska jednakost: usporedi numeričke granice i `scripts/compare_entities.py`, uz pravilo `-z`. Ne uključuj `--jev` u lokalne regresije.
+Nakon pretvorbe pokreni round-trip i `ezdxf.audit`, provjeri verziju, jedinice, slojeve i entity count prema manifestu, `lossy:true`, upozorenja i SHA256 izvora. Samostalne sintetičke provjere opisuje [README](../README.md); opće audit upute su u [Verification guidance](VERIFICATION.md). Broj entiteta nije geometrijska jednakost: usporedi numeričke granice i koordinate uz izričitu projekciju plana `(x, -z)`. Ne uključuj `--jev` u lokalne regresije.
 
 ### Više katova (od 2026-11-07)
 

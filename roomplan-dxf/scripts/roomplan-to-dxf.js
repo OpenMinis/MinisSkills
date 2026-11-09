@@ -23,7 +23,7 @@
  *   --geo              copy source location/compass into the manifest and
  *                      print "lat, lon" in the title block
  *   --project <text>   project name in the title block
- *   --author <text>    author in the title block (default: ARCHIFEST)
+ *   --author <text>    author in the title block (default: roomplan-dxf)
  *   --scale <text>     scale TEXT in the title block (default: NTS)
  *   --sheet <text>     sheet number/name (default: A-01)
  *   --no-frame         do not draw the frame, title block or north arrow
@@ -60,13 +60,15 @@ const USAGE = [
   '  --model            also write source-space <name>.capture.json (geo redacted unless --geo)',
   '  --ceilings         dashed orange ceiling plane, ridge/fall line, method and',
   '                     floor-relative height for every room (DEFAULT ON)',
-  '  --no-ceilings      disable ceiling annotations entirely; later toggle wins',
+  '  --no-ceilings      disable DXF ceiling annotations only; later toggle wins',
+  '  --usdz-ceilings    opt in to USDZ ceiling meshes (default OFF)',
+  '  --no-usdz-ceilings disable USDZ ceiling meshes; independent of DXF',
   '  --report           also write <name>.report.json (totals, elements, statistics, handoff) and <name>.quantities.csv',
   '  --md               also write <name>.md, a Markdown summary of report-v1 (implies --report)',
   '  --usdz             also write <name>.usdz, an AR Quick Look model (RoomPlan geometry in metres)',
   '  --geo              include source location/compass (lat, lon in the title block)',
   '  --project <text>   title block project name',
-  '  --author <text>    title block author (default: ARCHIFEST)',
+  '  --author <text>    title block author (default: roomplan-dxf)',
   '  --scale <text>     title block scale text (default: NTS)',
   '  --sheet <text>     title block sheet number (default: A-01)',
   '  --place <text>     title block location text (free text, highest priority)',
@@ -106,7 +108,7 @@ function parseArgs(argv) {
   let exportModel = false;
   let noFrame = false;
   // North-flip is ON by default for every dialect: the unflipped formula drew
-  // the arrow 180 deg wrong on real drawings (koraljka and Project hh).
+  // the arrow 180 deg wrong on real drawings (an anonymized regression example and an anonymized reference example).
   // null = not passed explicitly, so the default applies and nothing is echoed.
   let northFlip = null;
   let placeLookup = false;
@@ -136,6 +138,8 @@ function parseArgs(argv) {
     else if (arg === '--report') flags.report = true;
     else if (arg === '--md') flags.md = true;
     else if (arg === '--usdz') flags.usdz = true;
+    else if (arg === '--usdz-ceilings') flags.usdzCeilings = true;
+    else if (arg === '--no-usdz-ceilings') flags.usdzCeilings = false;
     else if (arg === '--ceilings') flags.ceilings = true;
     else if (arg === '--no-ceilings') flags.ceilings = false;
     else if (arg === '--no-frame') noFrame = true;
@@ -371,7 +375,7 @@ function main() {
   if (args.flags.surfaceRegionGroups) {
     const srFile = path.resolve(args.flags.surfaceRegionGroups);
     srOverride = JSON.parse(fs.readFileSync(srFile, 'utf8'));
-    Object.assign(srSource, { mode: 'explicit', path: srFile, relative: groupSidecar.displayPath(srFile, args.inputPath, resolved) });
+    Object.assign(srSource, { mode: 'explicit', path: groupSidecar.displayPath(srFile, args.inputPath, resolved), relative: groupSidecar.displayPath(srFile, args.inputPath, resolved) });
   } else {
     const found = groupSidecar.discover(args.inputPath, resolved);
     if (found.present.length > 1) planMeta.warnings.push({
@@ -382,7 +386,7 @@ function main() {
       const loaded = groupSidecar.load(found.path, model.sourceSHA256);
       if (loaded.override) {
         srOverride = loaded.override;
-        Object.assign(srSource, { mode: 'auto-discovered', path: found.path, relative: groupSidecar.displayPath(found.path, args.inputPath, resolved) });
+        Object.assign(srSource, { mode: 'auto-discovered', path: groupSidecar.displayPath(found.path, args.inputPath, resolved), relative: groupSidecar.displayPath(found.path, args.inputPath, resolved) });
       } else {
         planMeta.warnings.push({
           code: 'roomplan.surface-region-groups-sidecar-ignored',
@@ -409,6 +413,7 @@ function main() {
   let usda = null;
   if (args.flags.usdz) {
     usda = buildUsda(model, {
+      ceilings: args.flags.usdzCeilings === true,
       thickness: 0.16, // metres, Apple's assumed wall thickness
       doc: `${planMeta.titleBlock.project || baseName} - RoomPlan capture, metres, Y up (textures and UVs not exported)`,
     });
@@ -450,14 +455,18 @@ function main() {
     // The manifest owns the warnings collected during decoding/conversion; the
     // report-v1 contract requires them too. Merge once, with severity, so a
     // consumer never reads "no warnings" while the manifest lists eight.
-    const seen = new Set((quantityReport.warnings || []).map((w) => `${w.code}|${w.message}`));
+    const seen = new Set((quantityReport.warnings || []).map((w) => `${w.code}|${w.message}|${w.roomIdentifier ?? ''}`));
     for (const w of manifest.warnings || []) {
-      const key = `${w.code}|${w.message}`;
+      // Ceiling diagnostics carry `reason`, unlike decoder warnings. Preserve
+      // their context and normalize the message before deduplicating.
+      const message = w.message || w.reason || w.code;
+      const key = `${w.code}|${message}|${w.roomIdentifier ?? ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
       (quantityReport.warnings = quantityReport.warnings || []).push({
+        ...w,
         code: w.code,
-        message: w.message,
+        message,
         severity: w.severity || 'warning',
       });
     }

@@ -100,7 +100,7 @@ plohi kata (0,855 m) za 0,95 m — sukob se prijavljuje, ne rješava nagađanjem
 ### Ravan strop i kosi pojas (8.11.2026)
 
 Profil s prelomom (knee) ima kosinu **samo uz niski zid**, u dužini mjerenog
-`run` (Project hh: 1,2248 m), a dalje je ravan na ridžu. Zato:
+`run` (an anonymized reference example: 1,2248 m), a dalje je ravan na ridžu. Zato:
 
 - **`S<n>_CEILING` nosi samo kosi pojas**: njegov isprekidani obris, liniju pada
   sa strelicom, liniju ridža i oznaku `h 1.65-2.48 (knee)`.

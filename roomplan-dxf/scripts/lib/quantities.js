@@ -6,6 +6,7 @@
 const ceilingReconstruct = require('./ceiling-reconstruct');
 const planStatistics = require('./plan-statistics');
 const handoffLib = require('./handoff');
+const { resolveRawRoomStories, annotateRawRoomStoryGaps } = require('./raw-room-stories');
 const EPS = 1e-7;
 const finite = v => typeof v === 'number' && Number.isFinite(v);
 const pos = v => finite(v) && v > 0;
@@ -263,7 +264,9 @@ function buildReport(capture,root={}) {
    basis:zone.source==='explicit'?'explicit source ceiling polygon; wall-top reconstruction not run':'wall-profile ceiling reconstruction',
    heightM:finite(zone.heightMin)&&finite(zone.heightMax)?{min:zone.heightMin,max:zone.heightMax}:null};
  }
- const rooms=(capture.rooms||rawRooms(root)).map((r,i)=>{
+ const rawRoomStories=resolveRawRoomStories(capture,root);
+ const rooms=(capture.rooms||rawRooms(root)).map((sourceRoom,i)=>{
+  const r=capture.kind==='raw'?{...sourceRoom,...rawRoomStories[i]}:sourceRoom;
   const polygonXZ=r.polygonXZ||r.vertices||null, curved=r.curvedEdges?.length||r.curved_edges?.length;
   const pg=polygonXZ&&!curved?polygon3D(polygonXZ.map(v=>[v.x,0,v.z])):{error:curved?'curved room boundary unsupported':'source room polygon absent'};
   const declaredValue=finite(r.declaredArea)?r.declaredArea:(finite(r.area)?r.area:null);
@@ -271,7 +274,7 @@ function buildReport(capture,root={}) {
   const derived=pg.error?missing(pg.error):measure(pg.area,'computed','source XZ polygon; Newell area');
   const discrepancy=declared.value!=null&&derived.value!=null?derived.value-declared.value:null;
   const identifier=r.identifier??r.id??`source-room:${i}`;
-  return {id:identifier,identifier,sourceRoomIndex:r.sourceRoomIndex??i,story:r.story??null,label:r.label??null,
+  return {id:identifier,identifier,sourceRoomIndex:r.sourceRoomIndex??i,story:r.story??null,...(capture.kind==='raw'?{sourceStory:r.sourceStory,storyProvenance:r.storyProvenance,storyReason:r.storyReason}:{}),label:r.label??null,
    declaredArea:declared,polygonArea:derived,polygonMinusDeclared:discrepancy,
    ceilingArea:ceilingMeasureFor(r.identifier??r.id??null,r.sourceRoomIndex??i),
    volume:missing('closed verified volume geometry unavailable'),
@@ -322,10 +325,9 @@ function buildReport(capture,root={}) {
   if(wall.slopeCut&&wall.slopeCut.status!=='computed'&&wall.slopeCut.status!=='unavailable')wall.notes.push(`slope cut ${wall.slopeCut.status}: ${wall.slopeCut.note}`);
   if(g.error||g.estimateOnly) {wall.netArea=missing(g.error||'wall plane unavailable');continue;}
   let failure=null; const projected=[];
-  // Restrict subtraction to convex wall boundaries; concave clipping is not implemented.
+  // Concave walls use validated disjoint planar triangles, never a convex hull.
   const turns=g.poly.map((p,i)=>orient(p,g.poly[(i+1)%g.poly.length],g.poly[(i+2)%g.poly.length])).filter(v=>Math.abs(v)>EPS);
   const convex=turns.every(v=>v>0)||turns.every(v=>v<0);
-  if(linked.length&&!convex)failure='opening subtraction for concave wall unsupported';
   for(const opening of linked) {
    const og=geometries.get(opening.id).g;
    if(opening.story!==wall.story){failure='parent-linked opening on different story';break;}
@@ -335,13 +337,29 @@ function buildReport(capture,root={}) {
    if(points.some(p=>Math.abs(dot(sub(p,g.origin),g.n))>0.01)) {failure='parent-linked opening not coplanar within 0.01m';break;}
    let poly=points.map(g.project),subtractionArea=og.area;
    const diagnostic=wall.openingDiagnostics.find(d=>d.openingKey===opening.id);
-   if(!poly.every(p=>inPolygon(p,g.poly,EPS))) {
-    // Do NOT increase EPS or silently subtract the full opening. For dimensional
-    // rectangles only, exact convex intersection may repair sub-micrometre
-    // source-rounding overflow. Larger or polygonal mismatches remain unknown.
-    if(g.rectangle&&og.rectangle&&convex&&diagnostic?.intersectionAreaM2>0&&diagnostic.maxOutsideDistanceM<=1e-6&&diagnostic.outsideAreaM2<=1e-5){
+   if(!convex){
+    // Only dimensional convex apertures enter this path; explicit aperture
+    // rings remain conservative. Keep the ORIGINAL rectangle for overlap SAT:
+    // clipping cannot make two overlapping originals safe to subtract twice.
+    if(!og.rectangle){failure='concave wall requires dimensional convex opening';break;}
+    let intersection;
+    try {intersection=require('./concave-wall-intersection').intersect(g.poly,poly,inPolygon);}
+    catch(e){failure='concave wall intersection refused: '+e.message;break;}
+    Object.assign(diagnostic,intersection);
+    if(intersection.maxEdgeOutsideDistanceBoundM>1e-6||intersection.outsideAreaM2>1e-5||intersection.intersectionAreaM2<=0){failure='parent-linked opening outside concave wall boundary (full-edge guard)';break;}
+    subtractionArea=intersection.intersectionAreaM2;
+    diagnostic.clippingApplied=intersection.outsideAreaM2>0;
+    diagnostic.netPolicy='exact sum of disjoint wall-triangle intersections; entire opening edge checked; only <=1e-6m edge overflow and <=1e-5m2 outside; estimated dimensional geometry; original opening retained';
+    wall.notes.push('concave wall: disjoint triangle intersections; full-edge overflow bound checked with existing tiny-outside tolerances');
+   }else if(!poly.every(p=>inPolygon(p,g.poly,EPS))) {
+    // Do NOT increase EPS or silently subtract the full opening. A dimensional
+    // opening rectangle may be intersected with a convex wall's full polygon
+    // for sub-micrometre overflow only; larger mismatches remain unknown.
+    // Explicit convex wall boundaries are safe too: clip the dimensional opening
+    // against the actual polygon, never its dimensions or bounding rectangle.
+    if(og.rectangle&&convex&&diagnostic?.intersectionAreaM2>0&&diagnostic.maxOutsideDistanceM<=1e-6&&diagnostic.outsideAreaM2<=1e-5){
      poly=diagnostic.intersectionPolygonM;subtractionArea=diagnostic.intersectionAreaM2;
-     diagnostic.netPolicy='exact convex intersection of dimensional rectangles; estimated geometry; only <=1e-6m overflow and <=1e-5m2 outside; original opening and outside area retained';
+     diagnostic.netPolicy='exact intersection of dimensional opening rectangle with full convex wall polygon; estimated geometry; only <=1e-6m overflow and <=1e-5m2 outside; original opening and outside area retained';
      diagnostic.clippingApplied=true;
      wall.notes.push('sub-micrometre dimensional rounding overflow: exact clipped intersection subtracted; outside area retained in openingDiagnostics');
     }else {failure='parent-linked opening outside wall boundary';break;}
@@ -349,8 +367,22 @@ function buildReport(capture,root={}) {
    const box=[Math.min(...poly.map(p=>p[0])),Math.max(...poly.map(p=>p[0])),Math.min(...poly.map(p=>p[1])),Math.max(...poly.map(p=>p[1]))];
    // Deliberately conservative: overlapping bounding boxes refuse a net rather
    // than risk subtracting two openings twice; no approximate polygon union.
-   if(projected.some(q=>Math.min(q.box[1],box[1])-Math.max(q.box[0],box[0])>EPS&&Math.min(q.box[3],box[3])-Math.max(q.box[2],box[2])>EPS)) {failure='overlapping opening projections/bounds; union unsupported';break;}
-   projected.push({box,area:subtractionArea,coverage:og.coverage});
+   if(projected.some(q=>{
+    const boxesOverlap=Math.min(q.box[1],box[1])-Math.max(q.box[0],box[0])>EPS&&Math.min(q.box[3],box[3])-Math.max(q.box[2],box[2])>EPS;
+    if(!boxesOverlap)return false;
+    // Both dimensional rectangles (possibly convex-clipped): a separating
+    // edge axis proves disjoint interiors even when their bounds overlap.
+    if(og.rectangle&&q.rectangle){
+     const separated=[poly,q.poly].some(r=>r.some((a,i)=>{
+      const b=r[(i+1)%r.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]);if(len<=EPS)return false;
+      const axis=[-(b[1]-a[1])/len,(b[0]-a[0])/len],pa=poly.map(p=>dot(p,axis)),pb=q.poly.map(p=>dot(p,axis));
+      return Math.min(Math.max(...pa),Math.max(...pb))-Math.max(Math.min(...pa),Math.min(...pb))<=EPS;
+     }));
+     if(separated)return false;
+    }
+    return true;
+   })) {failure='overlapping opening projections/bounds; union unsupported';break;}
+   projected.push({box,poly,rectangle:og.rectangle,area:subtractionArea,coverage:og.coverage});
   }
   // Openings are subtracted from the CORRECTED gross (slope cut applied), not
   // from the full W*H rectangle: otherwise a gable wall's net is overstated by
@@ -395,13 +427,14 @@ function buildReport(capture,root={}) {
   // Envelope diagnostics: how much the old surface sum would have over-counted.
   const stacked=known.filter(z=>finite(z.surfaceAreaSumM2)&&finite(z.stackedCount));
   const surfaceSum=stacked.length?stacked.reduce((s,z)=>s+z.surfaceAreaSumM2,0):null;
-  const envelope={policy:'each room/zone contributes ONE plan-union envelope; stacked or overlapping source surfaces count their shared square metre once and each surface keeps its own developed-area tilt factor',
+  const fallbackCount=stacked.filter(z=>z.ceilingEnvelope&&z.ceilingEnvelope.usedFallback).length;
+  const envelope={policy:'each supplied room/zone contributes its plan-union accounting envelope, except zero-plan-extent surfaces use an explicitly diagnosed surface-sum fallback; largest-surface-first allocation is not physical selection',
    zonesWithSuppliedSurfaces:stacked.length,suppliedSurfaceCount:stacked.reduce((s,z)=>s+(z.stackedCount||0),0),
    surfaceAreaSumM2:surfaceSum,doubleCountAvoidedM2:surfaceSum!=null&&finite(value)?Math.max(0,surfaceSum-value):null,
    orderSensitiveZones:stacked.filter(z=>z.ceilingEnvelope&&z.ceilingEnvelope.orderSensitive).length};
   return {value,status:st,coverage:complete?'complete':'partial',
    included:known.length,expected:zones.length,byStatus,envelope,
-   reason:complete?`sum of ${known.length} ${st} ceiling ENVELOPE area(s) (plan-union per room, stacked duplicates counted once${stacked.length?`; arithmetic surface sum would have been ${surfaceSum.toFixed(3)} m2`:''})${suppliedOnly ? '; still not a verified physical total (which alternative is built is unresolved); complete refers only to source coverage' : ''}`:known.length+' of '+zones.length+' ceilings measured; '+[...new Set(zones.filter(z=>!finite(z.ceilingArea)).map(z=>z.reason||'ceiling area unavailable'))].join('; ')};
+   reason:complete?`sum of ${known.length} ${st} ceiling accounting area(s) (${fallbackCount?`${fallbackCount} surface-sum fallback zone(s); remaining supplied zones use a plan-union envelope`:'plan-union envelope for supplied zones; reconstructed zones retain their own method'}${stacked.length?`; arithmetic supplied surface sum ${surfaceSum.toFixed(3)} m2`:''})${suppliedOnly ? '; still not a verified physical total (which alternative is built is unresolved); complete refers only to source coverage' : ''}`:known.length+' of '+zones.length+' ceilings measured; '+[...new Set(zones.filter(z=>!finite(z.ceilingArea)).map(z=>z.reason||'ceiling area unavailable'))].join('; ')};
  }
  function totals(list,story) {
   const zones=story===undefined?ceilingZones:ceilingZones.filter(z=>z.story===story);
@@ -472,6 +505,10 @@ function buildReport(capture,root={}) {
   else warn('handoff-unavailable',`handoff refused the capture${ho&&ho.reason?`: ${ho.reason}`:''}`,'warning');
  }catch(e){warn('handoff-unavailable',`handoff failed: ${e.message}`,'warning');}
 
+ if(capture.kind==='raw') {
+  annotateRawRoomStoryGaps(statisticsBlock,rawRoomStories);
+  annotateRawRoomStoryGaps(handoffBlock,rawRoomStories);
+ }
  const storyIds=[...new Set([...elements.map(e=>e.story),...rooms.map(r=>r.story)])];
  const stories=storyIds.map(story=>({story,totals:totals(elements.filter(e=>e.story===story),story),rooms:rooms.filter(r=>r.story===story).map(r=>r.identifier)}));
  for(const room of rooms) {

@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "repo": "ArchiPlan editor (git repo ~/projects/ArchiPlan/editor on macserver)",
+    "repo": "ArchiPlan editor; source commit identified below",
     "commit": "299ed31eab20275aa65e442083ca651efc80af07",
     "commitDate": "Tue Sep 29 12:44:49 2026 +0200",
     "purpose": "Fixture for scripts/lib/handoff.js (G-10). The inputs are the plan.json files INSIDE the real test packages; the reference numbers are the committed reference outputs of the same handoff on those packages (tests/fixtures/skills/*.handoff.json, produced by the Python skill and held equal to handoff.ts by tests/skills-parity.test.ts).",

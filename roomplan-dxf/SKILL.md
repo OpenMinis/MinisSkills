@@ -1,7 +1,7 @@
 ---
 name: roomplan-dxf
 description: 'Convert RoomPlan or Polycam scans to audited DXF and quantities: room areas, ceilings from slopes, wall net/paint, handoff table.'
-triggers: "RoomPlan, Polycam, DXF, tlocrt"
+triggers: "RoomPlan, Polycam, DXF, floor plan"
 ---
 
 # RoomPlan scan to DXF
@@ -36,7 +36,7 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
    a wrong heading is worse than a missing one.
 
    The DXF is a **sheet**, not just geometry: `--project`, `--author`
-   (default `ARCHIFEST`), `--scale` (default `NTS`), `--sheet` (default
+   (default `roomplan-dxf`), `--scale` (default `NTS`), `--sheet` (default
    `A-01`) fill the title block; `--no-frame` removes the frame, title block
    and north arrow. The scale is text only — nothing is rescaled and no paper
    scale is implied. Location prints `lat, lon` only with `--geo`, otherwise
@@ -79,10 +79,10 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
 
    **Location lookup is opt-in here (OFF by default) and needs the local Apple
    `apple-location` helper** (present in the iOS/Minis environment; reported as
-   `unavailable` elsewhere). It sends the coordinates to the Apple on-device
+   `unavailable` elsewhere). It sends the coordinates to the Apple reverse
    geocoder once, never to a third-party service, and a failure only warns and
-   falls back. The local skill build turns it on by default and offers
-   `--no-place-lookup`.
+   falls back. Both installed and contribution builds keep lookup OFF by
+   default and accept `--no-place-lookup` explicitly.
 
    Add `--usdz` to also write `out/scan.usdz`, an untextured AR Quick Look model
    (ASCII `room.usda` in a STORE-only ZIP, metres, Y up). It needs no Apple SDK
@@ -151,10 +151,11 @@ SR means **Surface Region**, supplied or reconstructed. See [SR legend and limit
   `roomplan.ceiling-source-alternatives`. No minimum/maximum physical envelope
   is selected or verified. An individual region height is not a certified
   room-wide clear height; source regions are not additive physical quantities.
-- **Ceiling QUANTITY is an ENVELOPE, never a sum of surfaces.** Producers often
+- **Ceiling accounting uses a plan-union ENVELOPE where available, not a
+  naive surface sum.** Producers often
   emit several ceiling surfaces for one room that share the same plan footprint
   at different heights ("stacked"), or overlapping roof pieces; adding them
-  double counted the same square metre (Koraljka, 2026-11-08: one room carried
+  double counted the same square metre (an anonymized regression example, 2026-11-08: one room carried
   three co-located surfaces and reported 3x its area; a second room reported
   41.74 m2 against a 19.64 m2 room). `ceilingArea` is the exact plan union of
   the supplied footprints (`scripts/lib/polygon-union.js`: x-sweep over split
@@ -169,9 +170,21 @@ SR means **Surface Region**, supplied or reconstructed. See [SR legend and limit
   per-surface SR records, labels and heights are untouched — no surface is
   deleted or merged. A supplied surface with no plan extent (a vertical plane)
   makes the union undefined for that room: the surface sum is then reported
-  with `usedFallback` and `roomplan.ceiling-envelope-unavailable`. On Koraljka
+  with `usedFallback` and `roomplan.ceiling-envelope-unavailable`. On an anonymized regression example
   the envelope changed the ceiling total from 100.32 m2 (sum) to 69.65 m2
-  (envelope), which matches the sum of the declared room areas.
+  (envelope), numerically matching the sum of the declared room areas. That
+  agreement is not independent evidence of the built ceiling or room area.
+- **Provenance is not physical verification.** `status: supplied` says where
+  the input came from; `coverage: complete` says all expected source zones
+  contributed, not that the building was measured completely. Largest-surface-
+  first is an accounting convention, not a verified choice of the built face.
+  Inspect conflicts, `orderSensitive`/`boundsM2`, and `usedFallback` in
+  `manifest.ceilingDiagnostics.envelope` (room/total measures do not carry
+  every diagnostic field). `orderSensitive` is a conservative tilt-difference
+  flag (threshold 0.01), including disjoint faces; its bounds are broad
+  source-derived bounds, not a measured physical interval. With a fallback the reported value is a surface
+  sum, not a union. With conflicts or order dependence, report a conditional
+  source-derived quantity and its limitations, never a verified physical total.
 - Explicit horizontal source regions retain their thin gray outline and SR
   height label on `S<n>_CEILING_FLAT`; they are not orange slope bands.
   Reconstructed flat ceilings do not acquire a whole-room dashed slope outline.
@@ -303,8 +316,8 @@ the manifest) — the layer never contains `NaN`. Source space is used as-is; th
 DXF sheet rotation is **not** applied.
 
 Not exported: textures, UVs, materials, cameras, lights, semantics, RealityKit
-meshes. Nothing here has been validated by Apple's `usdchecker` or by AR Quick
-Look — the file must be opened on a real device to confirm. Format notes:
+meshes. The user confirmed opening a generated USDZ on Apple, and separate OpenUSD
+tests exist. This is not Apple certification or a guarantee for every model. Format notes:
 [usdz](references/usdz.md). Test: `node tests/test_usdz.js` (40 checks, opens
 the ZIP with Python's `zipfile` and asserts `testzip() === None`) plus
 `node tests/test_wall_holes.js` (16 checks: measured front area after cutting,
@@ -321,9 +334,11 @@ Read [quantities](references/quantities.md) before relying on totals. Source roo
 areas, polygon-computed areas, dimension-estimated wall areas and unavailable
 values are distinct. Shared wall references are not additive. Net wall areas
 subtract only validated parent-linked openings; incomplete coverage yields a
-**partial subtotal**, not a complete building quantity. Ceiling and volume are
-unavailable. This independent engine was not ported from or compared with the
-historical web reporting implementation. No survey accuracy is implied.
+**partial subtotal**, not a complete building quantity. Ceiling areas use
+supplied-source accounting or explicitly labelled reconstruction; closed verified
+volume remains unavailable. Plan-statistics and handoff calculations are ported
+from ArchiPlan and checked against synthetic fixtures, not field measurements.
+No survey accuracy is implied.
 
 Run `node tests/test_quantities.js` (net/paint/CSV safety), `node tests/test_authored_ceiling.js`
 (authored 3D ceiling, G-5), `node tests/test_interior_area.js` (interior vs centreline
@@ -333,3 +348,17 @@ living/gross, roomsWithoutArea from an ArchiPlan fixture) and `node tests/test_h
 `node tests/test_spec_golden.js` runs all thirteen SPEC §7 golden rows. Reports obey
 existing output overwrite and source-alias protections. Report generation is
 local and does not require location lookup or an external review service.
+
+
+### Release defaults and validation (2026-11-09)
+
+DXF ceiling annotations are ON by default; `--no-ceilings` affects DXF only.
+USDZ ceiling meshes are OFF by default. Use `--usdz --usdz-ceilings` to opt in,
+or `--no-usdz-ceilings` to turn them off; the last USDZ toggle wins. These
+controls are independent. Source-region metadata may remain even without meshes.
+Public conversion is offline by default. Optional Apple reverse geocoding may
+use network services. The local installation keeps lookup ON by user preference;
+use `--no-place-lookup` for offline operation.
+The user has confirmed opening a generated USDZ on Apple, and OpenUSD tests
+have been run separately. This is not Apple certification or validation of
+every output; structural tests do not establish physical accuracy.

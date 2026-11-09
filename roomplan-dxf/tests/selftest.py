@@ -31,6 +31,7 @@ from ezdxf import bbox
 
 ROOT = Path(__file__).resolve().parents[1]
 CONVERTER = ROOT / "scripts" / "roomplan-to-dxf.js"
+DEFAULT_AUTHOR = subprocess.check_output(["node", "-e", "process.stdout.write(require(process.argv[1]).DEFAULT_AUTHOR)", str(ROOT / "scripts/lib/plan-meta.js")], text=True)
 sys.path.insert(0, str(ROOT / "scripts"))
 from inspect_dxf import inspect  # noqa: E402
 from make_fixture import generate  # noqa: E402
@@ -510,8 +511,8 @@ class ConverterTests(unittest.TestCase):
                          ["latitude", "longitude", "orientationDegrees"])
         title = manifest["titleBlock"]
         self.assertEqual(title["project"], "Synthetic project")
-        self.assertEqual(title["author"], "ARCHIFEST")
-        self.assertEqual(title["drawnBy"], "by ARCHIFEST")
+        self.assertEqual(title["author"], DEFAULT_AUTHOR)
+        self.assertEqual(title["drawnBy"], "by " + DEFAULT_AUTHOR)
         self.assertEqual(title["scaleText"], "NTS")
         self.assertEqual(title["sheet"], "A-01")
         self.assertEqual(title["date"], "2024-01-01")
@@ -525,7 +526,8 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(len(doc.modelspace().query("CIRCLE")), 2)  # inner ring + pivot per compass
         title_text = [e.dxf.text for e in doc.modelspace().query("TEXT") if e.dxf.layer == "TITLE"]
         self.assertIn("NTS", title_text)
-        self.assertIn("by ARCHIFEST", title_text)
+        self.assertIn("by " + DEFAULT_AUTHOR, title_text)
+
         self.assertIn("location withheld", title_text)
         self.assertFalse(any("12.34" in t for t in title_text), "coordinates must stay hidden")
         codes = {w["code"] for w in manifest["warnings"]}
@@ -1040,6 +1042,19 @@ class ConverterTests(unittest.TestCase):
         codes = {w["code"] for w in manifest["warnings"]}
         self.assertIn("roomplan.north-direction-unknown", codes)
 
+
+
+    def test_author_override_wins_over_tree_default(self):
+        """--author overrides the per-tree default (local or neutral public)."""
+        source = self.tmp / "author-override.json"
+        write_json(source, synthetic_optimized())
+        out = self.tmp / "author-override-out"
+        result = run_converter(source, out, "--author", "Test Author")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((out / "author-override.roomplan.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["titleBlock"]["author"], "Test Author")
+        self.assertEqual(manifest["titleBlock"]["drawnBy"], "by Test Author")
+        self.assertNotEqual(manifest["titleBlock"]["author"], DEFAULT_AUTHOR)
 
 if __name__ == "__main__":
     unittest.main()

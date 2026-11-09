@@ -79,7 +79,7 @@ check(()=>assert.strictEqual(buildReport(capture([pw,{...win('pf',4),parentIdent
 check(()=>assert(quantitiesCSV(big).includes('Povrsina_bojanje_m2')));
 
 // A room with no polygon and no declared area must not produce a complete
-// livingArea of 0 - unknown is never zero (found on the real Project hh scan).
+// livingArea of 0 - unknown is never zero (found on the real an anonymized reference example scan).
 check(()=>{
   const room={identifier:'r1',story:0,label:'Soba'};
   const capture={kind:'raw',sourceSHA256:'b'.repeat(64),surfaces:[],objects:[],rooms:[room]};

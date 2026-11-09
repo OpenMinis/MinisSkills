@@ -27,3 +27,9 @@ On the SHEET a confirmed group is drawn as ONE piece:
 The explicit source surface sum is retained only as a diagnostic (`surfaceAreaSumM2`): the reported ceiling quantity is the **plan-union envelope** (each square metre once, stacked duplicates add 0 m2), which is still **not a verified physical total**. Overlapping hypotheses remain unresolved; no minimum/maximum envelope is selected. User confirmation of one slope does not verify every other supplied face. Heights using supplied floor-level are not measured clear heights.
 
 Room/storey titles contain name and area only, separated by ASCII spaces. Each reconstructed flat zone gets a regional height annotation; each split slope part gets its height. Layout sheet bounds include conservative text envelopes and unresolved annotations are moved to a reserved strip on their own story. Unresolved associations remain unresolved, without fabricated leaders. Font substitution and physical survey accuracy remain outside these guarantees.
+
+Registry area sums are reference-only source-surface sums, never extra report
+ceiling quantities. The report uses a plan-union envelope where supported;
+when a footprint is unusable it explicitly falls back to a surface sum with
+`usedFallback` and a warning. Group confirmation is a user assertion scoped
+to the source hash, not independent physical verification.

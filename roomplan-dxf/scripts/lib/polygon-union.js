@@ -5,9 +5,11 @@
  * Why this exists: a producer can emit several supplied ceiling surfaces that
  * describe the SAME plan footprint at different heights ("stacked"
  * alternatives), or overlapping pieces of one roof. Summing their areas
- * inflates the ceiling quantity (Koraljka: one room carried three co-located
- * surfaces, 3x the footprint). The physical ceiling envelope of a room is the
- * plan union of its source surfaces, not the arithmetic sum.
+ * inflates the ceiling quantity (an anonymized regression example: one room carried three co-located
+ * surfaces, 3x the footprint). The accounting convention uses the plan union
+ * of source surfaces, not their arithmetic sum. This does not identify or
+ * verify the physical ceiling; largest-surface-first allocation is not survey
+ * evidence, and zero-plan-extent surfaces require a diagnosed sum fallback.
  *
  * Method: x-sweep over the split edges.
  *   1. split every edge at every intersection with every other edge, so no two

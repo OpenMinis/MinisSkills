@@ -486,7 +486,7 @@ check('usda-lint rejects the shapes Apple never writes', () => {
 /* ----------------------------------------------------------------- CLI -- */
 
 const outDir = path.join(TMP, 'cli');
-const cli = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), FIXTURE, outDir, '--usdz'], { encoding: 'utf8' });
+const cli = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), FIXTURE, outDir, '--usdz', '--usdz-ceilings', '--no-place-lookup'], { encoding: 'utf8' });
 check('CLI: --usdz writes <name>.usdz and exits 0', () => {
   assert.strictEqual(cli.status, 0, `exit ${cli.status}: ${cli.stderr}`);
   assert(fs.existsSync(path.join(outDir, 'scan.usdz')), 'file missing');
@@ -511,21 +511,21 @@ check('CLI: the written .usdz is a valid ZIP with room.usda', () => {
 });
 check('CLI: --usdz works on its own and is idempotent on a forced second run', () => {
   const before = fs.readFileSync(path.join(outDir, 'scan.usdz'));
-  const again = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), FIXTURE, outDir, '--usdz', '--force'], { encoding: 'utf8' });
+  const again = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), FIXTURE, outDir, '--usdz', '--usdz-ceilings', '--no-place-lookup', '--force'], { encoding: 'utf8' });
   assert.strictEqual(again.status, 0, again.stderr);
   const after = fs.readFileSync(path.join(outDir, 'scan.usdz'));
   assert.strictEqual(after.length, before.length);
   assert(after.equals(before), 'output changed between identical runs');
 });
 check('CLI: overwrite protection covers the .usdz', () => {
-  const res = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), FIXTURE, outDir, '--usdz'], { encoding: 'utf8' });
+  const res = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), FIXTURE, outDir, '--usdz', '--usdz-ceilings', '--no-place-lookup'], { encoding: 'utf8' });
   // The second run without --force must refuse for every target, .usdz included.
   assert.notStrictEqual(res.status, 0, 'a second run without --force overwrote outputs');
   assert(/Refusing to overwrite/.test(res.stderr + res.stdout), `unexpected error: ${res.stderr}`);
 });
 check('CLI: --usdz combined with --report/--md writes all four outputs', () => {
   const dir = path.join(TMP, 'cli-all');
-  const res = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), FIXTURE, dir, '--usdz', '--md'], { encoding: 'utf8' });
+  const res = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), FIXTURE, dir, '--usdz', '--usdz-ceilings', '--no-place-lookup', '--md'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, res.stderr);
   for (const f of ['scan.dxf', 'scan.roomplan.json', 'scan.report.json', 'scan.md', 'scan.usdz']) {
     assert(fs.existsSync(path.join(dir, f)), `${f} missing`);
@@ -539,23 +539,31 @@ check('CLI: skipped prims reach the manifest warnings', () => {
   const broken = path.join(TMP, 'zero.json');
   fs.writeFileSync(broken, JSON.stringify(opt));
   const dir = path.join(TMP, 'cli-zero');
-  const res = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), broken, dir, '--usdz'], { encoding: 'utf8' });
+  const res = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), broken, dir, '--usdz', '--usdz-ceilings', '--no-place-lookup'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, res.stderr);
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'zero.roomplan.json'), 'utf8'));
   assert((manifest.warnings || []).some((w) => w.code === 'usdz.skipped-no-geometry'), 'warning not recorded in the manifest');
 });
 check('CLI: optimized capture -> one Section Xform per room label', () => {
-  const dir = path.join(TMP, 'cli-opt');
-  const res = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), OPT_FIXTURE, dir, '--usdz'], { encoding: 'utf8' });
+  // USDZ ceilings are OFF by default: 2 walls + 1 floor = 3 meshes, no ceiling.
+  const dir = path.join(TMP, 'cli-opt-default');
+  const res = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), OPT_FIXTURE, dir, '--usdz', '--no-place-lookup'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, res.stderr);
-  const buf = fs.readFileSync(path.join(dir, 'opt.usdz'));
-  const text = entryRanges(buf)[0].data.toString('utf8');
+  const text = entryRanges(fs.readFileSync(path.join(dir, 'opt.usdz')))[0].data.toString('utf8');
   assert(text.includes('def Xform "Kuhinja"'), 'room label missing as a section');
   assert(text.includes('string Label = "Kuhinja"'), 'source label must survive sanitising');
-  // 2 walls + 1 floor + 1 ceiling, and the floor keeps its source polygon
-  assert.strictEqual((text.match(/def Mesh /g) || []).length, 4);
-  assert(text.includes('Category = "Ceiling"'), 'the room ceiling must be in the USDZ');
+  assert.strictEqual((text.match(/def Mesh /g) || []).length, 3, 'default USDZ must not emit a ceiling mesh');
+  assert(!text.includes('Category = "Ceiling"'), 'USDZ ceiling default must be OFF');
   assert(text.includes('string Geometry = "source polygonCorners"'), 'optimized floor polygon not exported');
+});
+check('CLI: --usdz-ceilings opts the optimized room ceiling back in', () => {
+  const dir = path.join(TMP, 'cli-opt-ceilings');
+  const res = spawnSync('node', [path.join(__dirname, '..', 'scripts', 'roomplan-to-dxf.js'), OPT_FIXTURE, dir, '--usdz', '--usdz-ceilings', '--no-place-lookup'], { encoding: 'utf8' });
+  assert.strictEqual(res.status, 0, res.stderr);
+  const text = entryRanges(fs.readFileSync(path.join(dir, 'opt.usdz')))[0].data.toString('utf8');
+  // 2 walls + 1 floor + 1 ceiling mesh
+  assert.strictEqual((text.match(/def Mesh /g) || []).length, 4, 'opt-in must add exactly the ceiling mesh');
+  assert(text.includes('Category = "Ceiling"'), 'the opt-in ceiling must be in the USDZ');
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

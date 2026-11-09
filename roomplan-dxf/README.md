@@ -6,7 +6,7 @@ with a manifest that states every loss and assumption. A whole project
 directory can be passed instead of a file: the scan and an optional
 `meta.json` are found by rule. The sheet can carry a frame, a title block and
 a north arrow. Includes an offline DXF audit helper and a self-test. No
-network access, no upload, no capture.
+network access for conversion by default; optional Apple reverse geocoding may use network services. No upload of scans, no capture.
 
 ```
 scan.json ─┐
@@ -25,6 +25,20 @@ meta.json ─┴─► roomplan-to-dxf.js ──► scan.dxf + scan.roomplan.jso
   `roomplan.ceiling-source-alternatives`. No minimum/maximum physical envelope
   is selected or verified. An individual region height is not a certified
   room-wide clear height; source regions are not additive physical quantities.
+- **Ceiling accounting is not physical verification.** Supplied footprints
+  are unioned in plan, assigning exclusive area largest-surface-first and
+  retaining each assigned face's tilt factor. This deterministic convention
+  does not select which overlapping face is actually built. Inspect
+  `manifest.ceilingDiagnostics.envelope` for `orderSensitive`, `boundsM2` and
+  `usedFallback`; room/total measures do not contain every diagnostic field.
+  `orderSensitive` conservatively flags tilt differences above 0.01, even
+  between disjoint faces; its broad bounds are not a physical measurement.
+  A zero-plan-extent face causes a surface-sum fallback, not a union. Keep
+  `surfaceAreaSumM2` separate from the envelope and never treat a numerical
+  match to declared room areas as independent physical evidence.
+  `status: supplied` is provenance; `coverage: complete` is source-zone
+  coverage only. Conflicts, order sensitivity and fallback require a
+  conditional source-derived quantity, not a verified physical total.
 - Explicit horizontal source regions retain their thin gray outline and SR
   height label on `S<n>_CEILING_FLAT`; they are not orange slope bands.
   Reconstructed flat ceilings do not acquire a whole-room dashed slope outline.
@@ -196,7 +210,7 @@ bottom-right and a north arrow in the top-right, on the separate layers
 touched. Full details: [references/title-block.md](references/title-block.md).
 
 - Title block rows: **Projekt / Kat / Lokacija / Mjerilo / Datum + list /
-  Nacrtao** (`by ARCHIFEST` by default).
+  Nacrtao** (`by roomplan-dxf` by default).
 - **Kat** names the floor of that sheet: `0` = Prizemlje, `1` = `1. kat`,
   `2` = `2. kat`, negative = Podrum.
 - **Every cell text is fitted to its cell**: reduced height first (down to
@@ -215,7 +229,7 @@ touched. Full details: [references/title-block.md](references/title-block.md).
 - **`--place-lookup` is opt-in in this public package (OFF by default)** and
   needs the **local Apple** helper `apple-location geocode` — it exists in the
   iOS/Minis environment and is simply reported as `unavailable` elsewhere, so
-  the same command is safe to script on Linux. Only the Apple on-device
+  the same command is safe to script on Linux. Only the Apple reverse
   geocoder is used, never a third-party service, and coordinates are sent to it
   only when you ask for the lookup. A failure is a warning
   (`roomplan.place-lookup-failed` / `-unavailable` / `-no-coordinates`), never
@@ -229,7 +243,7 @@ touched. Full details: [references/title-block.md](references/title-block.md).
   is the default, is recorded as `northArrow.flip180` plus
   `roomplan.north-flip-applied`, and `--no-north-flip` restores the legacy
   formula only. The flip is the default for every dialect: the user confirmed on
-  site that on Project hh (raw) the flipped 174.2 deg is right and the
+  site that on an anonymized reference example (raw) the flipped 174.2 deg is right and the
   unflipped 354.2 deg is 180 deg off. It is labelled `N` whenever a bearing
   exists; without one the sheet draws an empty rose and the words
   `SMJER NEPOZNAT`, never a needle. It is marked `approx` in the manifest when it comes from metadata
@@ -376,7 +390,7 @@ def Xform "room" ( kind = "assembly" )
 
 - Every mesh carries `customData = { string Category = "Wall" string Identifier = "W-A" }`,
   so the 3D prims map back to the same identifiers the DXF/manifest use.
-- A surface with 3D `polygonCorners` becomes that polygon (fan-triangulated);
+- A surface with 3D `polygonCorners` becomes that polygon (planar-validated ear-clipped);
   a WALL with `polygonCorners` is extruded into a solid **prism** (two caps plus
   one side per edge) because a flat sheet is invisible from behind under
   backface culling. Every other surface becomes an oriented box built from `dimensions`
@@ -417,9 +431,8 @@ triangles and audited for watertightness (`node tests/test_wall_holes.js`),
 every payload is checked to start on a 64-byte
 boundary, `testzip()` must return `None` (CRC-32 of every entry), and the output
 is byte-identical between two runs (the ZIP timestamp is fixed at 1980-01-01).
-**Apple's own `usdchecker`/AR Quick Look validation has not been run** — there
-is no QuickLook or USD toolchain on the Linux/iSH side, so a real device must
-open the file. See [references/usdz.md](references/usdz.md).
+The user confirmed opening a generated USDZ on Apple; separate OpenUSD tests
+exist. These are not Apple certification, nor proof that every output is valid. See [references/usdz.md](references/usdz.md).
 
 ## Trademarks and independence
 
@@ -475,7 +488,7 @@ truth and is sufficient for most CAD/BIM imports.
 python3 -B -m unittest discover -s tests -p 'selftest.py' -v
 ```
 
-The suite ships **no fixture files** and holds **35 tests**: every input (raw,
+The self-test generates its inputs in memory and holds **38 tests**: every input (raw,
 optimized, project directory with `meta.json`, multi-story structures) is
 generated in a fresh temporary directory on every run, so no real scan data and
 no real address is distributed. It covers directory input, scan priority,
@@ -525,11 +538,11 @@ ROOMPLAN_DXF_UPSTREAM=/path/to/reference/scripts sh scripts/check-drift.sh
 
 MIT — see [LICENSE](LICENSE) (`SPDX-License-Identifier: MIT`).
 
-The repository root `LICENSE` currently contains MIT text while the repository
-`README.md` still links Apache License 2.0. This package follows the root
-LICENSE text and is contributed under MIT; the maintainer may relicense or
-align the repository-level notice as they see fit. All bundled code is the
-contributor's own work and was relicensed for this contribution.
+This package also carries ports and regression fixtures derived from the
+author's own ArchiPlan project (ArchiDrawing is its predecessor). The source
+commit for each port is recorded in the module header and in the fixture
+`_meta`; those attributions are kept as provenance. The ports and the
+independent conversion code are released here under the same MIT terms.
 
 ## Quantities and area report
 
@@ -571,9 +584,11 @@ Read [quantities](references/quantities.md) before relying on totals. Source roo
 areas, polygon-computed areas, dimension-estimated wall areas and unavailable
 values are distinct. Shared wall references are not additive. Net wall areas
 subtract only validated parent-linked openings; incomplete coverage yields a
-**partial subtotal**, not a complete building quantity. Ceiling and volume are
-unavailable. This independent engine was not ported from or compared with the
-historical web reporting implementation. No survey accuracy is implied.
+**partial subtotal**, not a complete building quantity. Ceiling areas use
+supplied-source accounting or explicitly labelled reconstruction; closed verified
+volume remains unavailable. Plan-statistics and handoff calculations are ported
+from ArchiPlan and checked against synthetic fixtures, not field measurements.
+No survey accuracy is implied.
 
 Run `node tests/test_quantities.js` for numerical/CSV safety tests. Reports obey
 existing output overwrite and source-alias protections. Report generation is
@@ -643,3 +658,17 @@ or a golden number fit.
 Practical rule for consumers: read `report-v1` (or `capture-v1`) and never
 re-derive geometry from a vendor JSON. A `partial` subtotal is not a building
 total, and an `unavailable` value is `null` — never zero.
+
+
+### Release defaults and validation (2026-11-09)
+
+DXF ceiling annotations are ON by default; `--no-ceilings` affects DXF only.
+USDZ ceiling meshes are OFF by default. Use `--usdz --usdz-ceilings` to opt in,
+or `--no-usdz-ceilings` to turn them off; the last USDZ toggle wins. These
+controls are independent. Source-region metadata may remain even without meshes.
+Public conversion is offline by default. Optional Apple reverse geocoding may
+use network services. The local installation keeps lookup ON by user preference;
+use `--no-place-lookup` for offline operation.
+The user has confirmed opening a generated USDZ on Apple, and OpenUSD tests
+have been run separately. This is not Apple certification or validation of
+every output; structural tests do not establish physical accuracy.

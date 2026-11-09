@@ -40,8 +40,10 @@ ArchiDrawing `web/report-model.js` / `report-export.js`. Historical knowledge ab
 - Room source `.area` and derived polygon area are separate measures, with a signed
   polygon-minus-declared difference. Raw room polygons are never invented. Curved
   optimized room boundaries are unsupported for polygon area/membership inference.
-- Ceilings and volumes are null: no supported explicit closed geometry is decoded
-  by this module. Ceiling classification alone is not proof of ceiling geometry.
+- Ceiling areas use supplied 3D polygons with plan-union accounting (or a
+  diagnosed zero-plan-extent surface-sum fallback), then explicitly labelled
+  wall-profile reconstruction when no supplied geometry exists. These are not
+  physically verified building totals. Closed verified volumes remain null.
 
 ## Identity, memberships, totals
 
@@ -65,10 +67,11 @@ carry individual coverage while totals flag estimated if any term is estimated.
 
 ## Output and security
 
-Report schemaVersion is `report1`, with source SHA256/byte count, AI-sized summary,
-unique element records, rooms, stories, totals and warnings. No private coordinate
-metadata is copied; report contains no element coordinates (IDs and labels remain
-user data). The canonical `--model` output remains separate and fuller.
+Report schemaVersion is `roomplan.report/1`, with source SHA256/byte count,
+summary, unique element records, rooms, stories, totals and warnings. Location
+lookup is not required. Surface Region records and opening diagnostics can
+contain source geometry; IDs and labels also remain identifying user data.
+Keep reports local. The optional `--model` output remains separate and fuller.
 
 CSV: UTF-8 BOM, semicolon separator, CRLF, doubled quotes and quoted fields when
 containing semicolon, newline or quote. Non-numeric strings whose first nonwhitespace
@@ -109,8 +112,9 @@ visinom po vrhu, Newell 3D, rupe skalirane faktorom `ceilingArea/floorArea`) i
 
 ## Ceiling envelope (2026-11-08)
 
-`totals.ceilingArea` and `rooms[].ceilingArea` are an **envelope**, never the
-arithmetic sum of the supplied ceiling surfaces. Several supplied surfaces can
+`totals.ceilingArea` and `rooms[].ceilingArea` use a plan-union accounting
+**envelope where available**, with an explicit surface-sum fallback for a
+zero-plan-extent supplied face. Several supplied surfaces can
 describe the same plan footprint at different heights (stacked alternatives) or
 overlap as competing hypotheses; summing them counted the same square metre
 twice or three times.
@@ -132,8 +136,13 @@ twice or three times.
 - Per-surface Surface Region records, labels, heights and the manifest
   `ceilingDiagnostics.records[]` are unchanged; the per-room envelope is
   additionally listed in `ceilingDiagnostics.envelope[]`.
-- Measured on the Koraljka scan: ceiling total `100.321 m2` as a surface sum,
-  `69.647 m2` as an envelope; one room went from `41.737` to `19.636 m2`
-  (its declared room area), another from `12.880` to `4.306 m2`.
+- Source-derived arithmetic on the an anonymized regression example scan: ceiling total `100.321 m2`
+  as a surface sum, `69.647 m2` as the current accounting result, **including
+  one surface-sum fallback zone**; one room went from `41.737` to `19.636 m2`
+  (its declared room area), another from `12.880` to `4.306 m2`. None of these
+  numerical matches independently verifies the built ceiling. Largest-face-first
+  is not physical selection. `supplied/complete` denotes provenance/source-zone
+  coverage; `orderSensitive` is a conservative tilt-difference flag (threshold
+  0.01, including disjoint faces), and its bounds are not field measurements.
 - Coverage: `node tests/test_ceiling_envelope.js` (10 checks) plus the
   envelope assertions in `tests/test_source_preservation.js`.
