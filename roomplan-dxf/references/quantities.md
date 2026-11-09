@@ -146,3 +146,58 @@ twice or three times.
   0.01, including disjoint faces), and its bounds are not field measurements.
 - Coverage: `node tests/test_ceiling_envelope.js` (10 checks) plus the
   envelope assertions in `tests/test_source_preservation.js`.
+
+## CLI usage
+
+```sh
+node scripts/roomplan-to-dxf.js scan.json out/ --report --no-place-lookup
+node scripts/roomplan-to-dxf.js scan.json out/ --report --md --no-place-lookup
+```
+
+`--report` additionally writes `scan.report.json` and `scan.quantities.csv`;
+add `--md` for the Markdown summary `scan.md` (it implies `--report`). Combine
+with `--model` for the normalized capture. CSV uses a UTF-8 BOM and `;`.
+Reports obey the same output-overwrite and source-alias protections as the DXF,
+and report generation is local: it does not require location lookup or an
+external review service.
+
+`report-v1` (§3) carries `totals{floorArea, ceilingArea, wallAreaGross,
+wallAreaNet, openingArea, wallLength, paintArea, livingArea, roomsWithoutArea,
+counts{...}}`, `elements[].id/area/roomRefs`, `warnings[{code,message,severity}]`
+and `assumptions[]`, plus the `statistics` (G-9) and `handoff` (G-10) blocks in
+the same file.
+
+Read this file before relying on totals. Source room areas, polygon-computed
+areas, dimension-estimated wall areas and unavailable values are distinct.
+Shared wall references are not additive. Net wall areas subtract only validated
+parent-linked openings; incomplete coverage yields a **partial subtotal**, not a
+complete building quantity. Ceiling areas use supplied-source accounting or an
+explicitly labelled reconstruction; a closed verified volume remains
+unavailable. Plan-statistics and handoff calculations are ported from ArchiPlan
+and checked against synthetic fixtures, not field measurements. No survey
+accuracy is implied.
+
+## Tests
+
+- `node tests/test_quantities.js` — net/paint/CSV safety.
+- `node tests/test_authored_ceiling.js` — authored 3D ceiling (G-5).
+- `node tests/test_interior_area.js` — interior vs centreline area (G-6/G-7).
+- `node tests/test_plan_statistics.js` — G-9: gross/net per level, living/gross,
+  `roomsWithoutArea` from an ArchiPlan fixture.
+- `node tests/test_handoff.js` — G-10: per-room boundary figures, `quantities[]`
+  keys, `gaps[]`.
+- `node tests/test_ceiling_envelope.js` — the plan-union envelope (10 checks).
+- `node tests/test_spec_golden.js` — all thirteen SPEC §7 golden rows.
+
+## Release defaults and validation (2026-11-09)
+
+DXF ceiling annotations are ON by default; `--no-ceilings` affects DXF only.
+USDZ ceiling meshes are OFF by default: use `--usdz --usdz-ceilings` to opt in,
+or `--no-usdz-ceilings` to turn them off; the last USDZ toggle wins. These
+controls are independent, and source-region metadata may remain even without
+meshes. Conversion itself is offline; only the optional Apple reverse geocoder
+may use network services, and it runs only when `--place-lookup` is passed
+explicitly. **Location lookup is OFF by default in this build**;
+`--no-place-lookup` is still accepted explicitly. The user has confirmed opening a generated USDZ on Apple and the
+separate OpenUSD tests were run; that is not Apple certification of every
+output, and structural tests do not establish physical accuracy.

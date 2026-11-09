@@ -8,6 +8,13 @@ triggers: "RoomPlan, Polycam, DXF, floor plan"
 
 Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This package does not capture LiDAR, decrypt meshes, upload scans or write DWG.
 
+## Requirements
+
+- **Node 16+, no npm packages.** The converter is plain CommonJS: `node scripts/roomplan-to-dxf.js --help`.
+- **Python 3.9+ with `ezdxf` 1.4+.** `scripts/lib/dxf-emit.py` writes the DXF with it. Check with `python3 -c "import ezdxf; print(ezdxf.__version__)"`.
+- Install with `python3 -m pip install "ezdxf>=1.4"`; on Alpine Linux (iSH) the system Python is externally managed, so add `--break-system-packages`.
+- The converter probes the import before it touches any input and exits **3** with that exact command if `ezdxf` is missing. It never installs anything by itself.
+
 ## One flow
 
 1. **Identify the dialect.** Raw Apple export (`walls`/`floors`/`doors`, optionally `rooms[]` or `captureSessions[]`) or optimized explicit v1 / positively validated unversioned legacy (`rooms[]` with numeric polygons; labels optional). Raw is Apple's own `CapturedRoom`/`CapturedStructure` encoding; “optimized” is a third-party post-processed export (commonly Polycam-style) whose field names are an observed contract, not an Apple schema. Do not guess from the filename; read the structure. See [formats](references/formats.md).
@@ -20,78 +27,15 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
 
    Writes `out/scan.dxf` (R2018/AC1032, metres, `$INSUNITS = 6`) and `out/scan.roomplan.json`. The input is opened read-only. Existing outputs are refused; add `--force` only after confirming the destination.
 
-   A **directory** is accepted too: the scan is taken from
-   `optimized_roomplan.json`, `roomplan.json`, `data/scan.json` or `scan.json`
-   (first match wins, losers are named in a warning) and `meta.json` /
-   `data/meta.json` supplies the project name, date, and — only as a fallback
-   when the scan has none — latitude/longitude and heading. Scan values always
-   win; fallbacks are recorded as `sourceMetadata: "meta.json"` with
-   `metadataFallbackFields` and warning codes. Outputs default to `<dir>/out`,
-   so give an explicit output directory for read-only inputs.
+   A **directory** is accepted too: the scan is taken from `optimized_roomplan.json`, `roomplan.json`, `data/scan.json` or `scan.json` (first match wins, losers named in a warning), and `meta.json` / `data/meta.json` supplies the project name, date and — only as a fallback when the scan has none — latitude/longitude and heading, recorded as `sourceMetadata: "meta.json"` with `metadataFallbackFields`; scan values always win. A **single file** also looks for `<dir>/meta.json`, then `<dir>/data/meta.json`, but only when it can be attributed to that scan: if the folder holds another scan candidate the metadata is NOT borrowed and the run warns `roomplan.meta-not-attributed` — a wrong heading is worse than a missing one. Outputs default to `<dir>/out`, so give an explicit output directory for read-only inputs.
 
-   A **single file** also looks for its project metadata next to it
-   (`<dir>/meta.json`, then `<dir>/data/meta.json`). It is used only when it can
-   be attributed to that scan: if the folder holds another scan candidate, the
-   metadata is NOT borrowed and the run warns `roomplan.meta-not-attributed` —
-   a wrong heading is worse than a missing one.
+   The DXF is a **sheet**, not just geometry: `--project`, `--author` (default `roomplan-dxf`), `--scale` (default `NTS` — text only, nothing is rescaled and no paper scale is implied) and `--sheet` (default `A-01`) fill the title block; `--no-frame` removes the frame, title block and north arrow. Location prints `lat, lon` only with `--geo`, otherwise `location withheld` (`--place` → `--place-lookup` → `--geo` → withheld). The **north bearing defaults to the flipped `(alignmentOffset - heading) mod 360`**; the unflipped `180 - heading + offset` drew the arrow exactly 180° wrong on a real drawing (165.3° drawn vs. 345.3° expected) and is kept behind `--no-north-flip`; the choice is recorded as `northArrow.flip180` + `roomplan.north-flip-applied`, never silent. **One frame per story** (own title block and `Kat` row, gap 8 % of the widest frame); `--no-frame` warns `roomplan.stories-not-separated`. Title-block cells shrink to 55 % and then ellipsise, always one line. **Openings are painted above the walls** (door 3, window 5, opening 6, at the wall's 0.35 mm lineweight). Details: [title-block](references/title-block.md), [dxf-output](references/dxf-output.md).
 
-   The DXF is a **sheet**, not just geometry: `--project`, `--author`
-   (default `roomplan-dxf`), `--scale` (default `NTS`), `--sheet` (default
-   `A-01`) fill the title block; `--no-frame` removes the frame, title block
-   and north arrow. The scale is text only — nothing is rescaled and no paper
-   scale is implied. Location prints `lat, lon` only with `--geo`, otherwise
-   `location withheld` (order: `--place "<text>"` → `--place-lookup` → `--geo`
-   coordinates → `location withheld`); the north arrow uses the scan
-   orientation or the `meta.json` heading **without** `--geo` and is marked
-   `approx` when it comes from metadata. Details:
-   [references/title-block.md](references/title-block.md).
+   **Location lookup is opt-in here (OFF by default) and needs the local Apple `apple-location` helper** (present in the iOS/Minis environment; reported as `unavailable` elsewhere). It sends the coordinates to the Apple reverse geocoder once, never to a third-party service, and a failure only warns and falls back. Both installed and contribution builds keep lookup OFF by default and accept `--no-place-lookup` explicitly.
 
-   **North bearing (default, flipped):** `(alignmentOffset - heading) mod 360`.
-   The unflipped `180 - heading + offset` drew the arrow exactly 180° wrong on a
-   real drawing (165.3° drawn vs. 345.3° expected, heading 42.352° with a
-   27.629° alignment offset). The flip is the default and is recorded as
-   `northArrow.flip180` + `roomplan.north-flip-applied`; add `--no-north-flip`
-   to restore the legacy formula. Sanity check: heading 0° → 0°, heading 90° →
-   270° at zero offset.
+   Add `--usdz` to also write `out/scan.usdz`, an untextured AR Quick Look model (ASCII `room.usda` in a STORE-only ZIP, metres, Y up). It needs no Apple SDK and no npm package, is independent of `--model`/`--report`/`--md`, and obeys the same guards. See [usdz](references/usdz.md).
 
-   **One frame per story.** A plan with more than one story is emitted as
-   separate frames side by side — one bbox, frame, title block (`Kat` row:
-   `0` = Prizemlje, `1` = `1. kat`, `2` = `2. kat`, negative = Podrum) and
-   north arrow per floor, gap = 8 % of the widest frame width, each frame
-   holding only its own `S<n>_*` entities. `--no-frame` keeps one common
-   drawing and then warns `roomplan.stories-not-separated`.
-
-   **Title-block text always fits its cell:** reduced height first (down to
-   55 %), then truncated with `…`, always one line — check `truncated` and
-   `textHeight` in `sheetFurniture.sheets[].titleBlock.cells` if a value looks
-   cut.
-
-   **Openings are drawn on top of the walls and coloured.** DXF model space has
-   no z-order, so viewers paint the ENTITIES section top to bottom; a door is
-   one thin centre line lying on the wall footprint, so a wall written after it
-   would hide it. `buildDXF` writes paint order (`FLOOR` → `WALL` → `ROOM` →
-   `OBJECT` → `DOOR`/`WINDOW`/`OPENING` → `LABEL` → `CEILING*`) and
-   `dxf-emit.py` re-applies the same table to any plan before writing, reporting
-   `drawOrder.openingsAboveWalls` plus `openingColors` in its summary. Colours:
-   door 3 (green), window 5 (blue), opening 6 (magenta), all at the wall's
-   0.35 mm lineweight so the mark covers the whole wall band. Details:
-   [references/dxf-output.md](references/dxf-output.md).
-
-   **Location lookup is opt-in here (OFF by default) and needs the local Apple
-   `apple-location` helper** (present in the iOS/Minis environment; reported as
-   `unavailable` elsewhere). It sends the coordinates to the Apple reverse
-   geocoder once, never to a third-party service, and a failure only warns and
-   falls back. Both installed and contribution builds keep lookup OFF by
-   default and accept `--no-place-lookup` explicitly.
-
-   Add `--usdz` to also write `out/scan.usdz`, an untextured AR Quick Look model
-   (ASCII `room.usda` in a STORE-only ZIP, metres, Y up). It needs no Apple SDK
-   and no npm package, is independent of `--model`/`--report`/`--md`, and obeys
-   the same overwrite/alias guards. See the USDZ section below.
-
-   Add `--geo` only when the recipient needs the source location point: it
-   copies existing metadata into `sourceGeo`, prints coordinates in the title
-   block and adds a privacy warning; it does not georeference the drawing.
+   Add `--geo` only when the recipient needs the source location point: it copies existing metadata into `sourceGeo`, prints coordinates in the title block and adds a privacy warning; it does not georeference the drawing.
 3. **Audit before trusting the result:**
 
    ```sh
@@ -100,14 +44,6 @@ Convert an existing RoomPlan JSON file into a standard R2018 DXF plan. This pack
 
    Expect exit 0, audit errors/fixes 0, `insunits` 6, and entity/layer counts matching the manifest. Compare bounds and room labels against the scan, not just counts. A clean audit proves file structure, not survey accuracy.
 4. **DWG only if the recipient insists.** There is no reliable free DWG writer here. Use ODA File Converter outside this environment (see README) and keep the audited DXF as the source of truth. DWG is not required for the workflow.
-
-## Optional normalized capture model
-
-Add `--model --no-place-lookup` to write `<name>.capture.json`. It preserves source-space geometry separately from the unapplied alignment, dialect evidence, SHA256 provenance, known source attributes/sections and an explicit loss inventory. It is a subset, not a complete RoomPlan/mesh decode or a compatibility promise. Missing labels remain null; category/id provenance is retained. Unknown explicit versions still fail.
-
-The document is `capture-v1` (SPEC §3): `units:"metres"`, `axes:{world:"y-up",plan:"x,-z"}`, `stories[]`, `source{sha256,bytes,dialect,dialectEvidence}`, `raw{opaque,excluded}`, rooms as `polygonXZ`+`declaredArea`, and a `provenance{status,coverage,reason}` on every surface, object and room. `report-v1` (§3) uses `totals{floorArea, ceilingArea, wallAreaGross, wallAreaNet, openingArea, wallLength, paintArea, livingArea, roomsWithoutArea, counts{...}}`, `elements[].id/area/roomRefs`, `warnings[{code,message,severity}]`, `assumptions[]`, plus the `statistics` (G-9) and `handoff` (G-10) blocks in the same file. Every number is `{value,status,coverage,included,expected,reason}`: `status` is provenance, `coverage` is completeness — never mix them.
-
-Without `--geo`, recursive whitelisting omits location-like and unknown metadata. With `--model --geo`, a verbatim source tree is included and can expose private/opaque data. Keep it local. See [model-schema](references/model-schema.md). `--no-place-lookup` is supported explicitly in this public package too. Direction is retained with a reliability caveat.
 
 ## What the manifest tells you
 
@@ -119,246 +55,36 @@ Without `--geo`, recursive whitelisting omits location-like and unknown metadata
 - doors and windows are centrelines at their transform origin;
 - curved walls, non-uniform wall polygons and any mesh/ceiling data are not exported;
 - `polygonCorners` is used for floors only;
-- `stories[]` + `sheetLayout.storiesSeparated` tell you whether floors were
-  separated into their own frames (they are not when `--no-frame` is used);
+- `stories[]` + `sheetLayout.storiesSeparated` tell you whether floors were separated into their own frames (they are not when `--no-frame` is used);
 - `northArrow.flip180` records which bearing formula was used.
 
 Coordinates are metres in the source frame. DXF applies a computed raw rotation or the source-provided optimized affine alignment; the source file is untouched. Keep scans and manifests local: optimized sources can carry `latLonAlt` and compass metadata into the manifest.
 
-## Rules
+## Optional normalized capture model
 
-- Never fabricate missing geometry, thickness, stories or rooms, and never
-  re-enable the legacy `--no-north-flip` formula without saying so.
-- Do not enable `--place-lookup` silently: it sends the scan coordinates to the
-  Apple geocoder, and the result is a locality, not a verified address.
-- Never overwrite a scan or an output without explicit permission.
-- Report the exact dialect and the warnings you saw; do not present a DXF as measured, certified or fabrication-ready.
-- Run the self-test after editing converter files (README).
-- RoomPlan is an Apple framework and DXF is a CAD exchange format; this skill
-  is independent and not affiliated with, endorsed or certified by Apple or
-  Autodesk.
+Add `--model --no-place-lookup` to write `<name>.capture.json`: source-space geometry kept separate from the unapplied alignment, dialect evidence, SHA256 provenance, known source attributes/sections and an explicit loss inventory. It is a subset, not a complete RoomPlan/mesh decode or a compatibility promise; missing labels stay null, category/id provenance is retained, unknown explicit versions still fail. The document is `capture-v1` (SPEC §3) with `units:"metres"`, `axes:{world:"y-up",plan:"x,-z"}`, `stories[]`, `source{sha256,bytes,dialect,dialectEvidence}`, `raw{opaque,excluded}`, rooms as `polygonXZ`+`declaredArea`, and a `provenance{status,coverage,reason}` on every surface, object and room. Every number is `{value,status,coverage,included,expected,reason}`: `status` is provenance, `coverage` is completeness — never mix them. Without `--geo`, recursive whitelisting omits location-like and unknown metadata; with `--model --geo` a verbatim source tree is included and can expose private/opaque data, so keep it local. Schema: [model-schema](references/model-schema.md).
 
 ## Surface Region registry and grouping
 
-SR means **Surface Region**, supplied or reconstructed. See [SR legend and limits](references/surface-regions.md). CLI `--surface-region-groups <sidecar.json>` supports explicit source-SHA256-scoped user-confirmed groups without flattening or double-counting; without the flag a sidecar beside the scan is auto-discovered by fixed name (`<scan>.surface-region-groups.json`, `surface-region-groups.json`), and a stale one for another capture is ignored with a warning. Registry is shared by CLI manifest/report, CSV/MD references and USDZ root metadata; provenance is `surfaceRegions.groupsSource`.
-
-## Current source-region annotation contract (2026-11-08)
-
-- Explicit supplied ceiling polygons are retained as source regions, labelled
-  `SR <room identifier>.<index>`. Read `sourceRegionId`, `interpretation`,
-  `regionPlanM`, `worldCornersM` and `heightM` in ceiling diagnostics.
-- Multiple supplied surfaces are alternatives that may overlap or conflict:
-  `roomplan.ceiling-source-alternatives`. No minimum/maximum physical envelope
-  is selected or verified. An individual region height is not a certified
-  room-wide clear height; source regions are not additive physical quantities.
-- **Ceiling accounting uses a plan-union ENVELOPE where available, not a
-  naive surface sum.** Producers often
-  emit several ceiling surfaces for one room that share the same plan footprint
-  at different heights ("stacked"), or overlapping roof pieces; adding them
-  double counted the same square metre (an anonymized regression example, 2026-11-08: one room carried
-  three co-located surfaces and reported 3x its area; a second room reported
-  41.74 m2 against a 19.64 m2 room). `ceilingArea` is the exact plan union of
-  the supplied footprints (`scripts/lib/polygon-union.js`: x-sweep over split
-  edges, no rasterisation, no bounding box), and only the exclusive part of a
-  surface contributes, with its own developed-area tilt factor
-  (`surfaceArea/planArea`, so a real slope keeps its extra area while a stacked
-  duplicate adds 0 m2). Exclusive parts are assigned largest surface first;
-  when overlapping surfaces have different tilts the developed area depends on
-  that order and `roomplan.ceiling-envelope-order-sensitive` reports the
-  bounds. The arithmetic surface sum is retained as a diagnostic
-  (`surfaceAreaSumM2`, `overlapAreaM2`, `doubleCountAvoidedM2`) and the
-  per-surface SR records, labels and heights are untouched — no surface is
-  deleted or merged. A supplied surface with no plan extent (a vertical plane)
-  makes the union undefined for that room: the surface sum is then reported
-  with `usedFallback` and `roomplan.ceiling-envelope-unavailable`. On an anonymized regression example
-  the envelope changed the ceiling total from 100.32 m2 (sum) to 69.65 m2
-  (envelope), numerically matching the sum of the declared room areas. That
-  agreement is not independent evidence of the built ceiling or room area.
-- **Provenance is not physical verification.** `status: supplied` says where
-  the input came from; `coverage: complete` says all expected source zones
-  contributed, not that the building was measured completely. Largest-surface-
-  first is an accounting convention, not a verified choice of the built face.
-  Inspect conflicts, `orderSensitive`/`boundsM2`, and `usedFallback` in
-  `manifest.ceilingDiagnostics.envelope` (room/total measures do not carry
-  every diagnostic field). `orderSensitive` is a conservative tilt-difference
-  flag (threshold 0.01), including disjoint faces; its bounds are broad
-  source-derived bounds, not a measured physical interval. With a fallback the reported value is a surface
-  sum, not a union. With conflicts or order dependence, report a conditional
-  source-derived quantity and its limitations, never a verified physical total.
-- Explicit horizontal source regions retain their thin gray outline and SR
-  height label on `S<n>_CEILING_FLAT`; they are not orange slope bands.
-  Reconstructed flat ceilings do not acquire a whole-room dashed slope outline.
-- Layout tests a conservative TEXT envelope inside each polygon, then a local
-  external callout with a checked leader. If neither fits, annotation remains
-  visible with `UNRESOLVED` and `layoutStatus: unresolved-visible-no-leader`;
-  no unsafe leader is fabricated. This is an unresolved association requiring
-  review, not successful in-region placement. Arbitrary CAD font substitutions
-  and full paper plotting remain outside this guarantee.
-- Short downhill arrows are checked within the region; annotation offsets do
-  not change source geometry or measurement quantities. Per-story framing
-  translates geometry and text together once, after source-space alignment.
-- `supplied-floor-level` is an explicitly supplied scalar fallback, not a
-  measured floor plane. Positive separations up to 6 m can remain visible,
-  including low heights; do not silently clamp them to plausible room heights.
-- A structurally clean DXF requires audit `errors: 0` AND `fixes: 0`. It does
-  not resolve source conflicts, low heights, unknown heights, unresolved labels
-  or establish a verified physical envelope. Review diagnostics separately.
+SR means **Surface Region**, supplied or reconstructed. CLI `--surface-region-groups <sidecar.json>` supports explicit source-SHA256-scoped user-confirmed groups without flattening or double-counting; without the flag a sidecar beside the scan is auto-discovered by fixed name (`<scan>.surface-region-groups.json`, `surface-region-groups.json`), and a stale one for another capture is ignored with a warning. The registry is shared by CLI manifest/report, CSV/MD references and USDZ root metadata; provenance is `surfaceRegions.groupsSource`. Legend, discovery order and the full **source-region annotation contract (2026-11-08)** — envelope accounting, provenance vs. physical verification, layout limits: [surface-regions](references/surface-regions.md).
 
 ## Ceilings and heights (`--ceilings`, DEFAULT ON; `--no-ceilings` to disable)
 
-Room and storey titles contain name and area only, separated by ASCII spaces.
-Heights appear on their own Surface Region annotations: each slope part gets
-its regional height, and each flat reconstruction zone gets one height label
-without a perimeter. Supplied face labels retain their SR identifiers. A height
-is never invented or printed as `0`; unknown source-region heights remain
-explicitly unknown.
-
-**A slope is a strip, not the room.** A knee profile slopes only over the
-measured `run` next to the low wall and is flat at the ridge everywhere else, so
-the ceiling is split into TWO parts and only the strip is drawn:
-
-* `S<n>_CEILING` (orange, dashed, ACI 30 / truecolor `0xFF8000`, 3 cm offset):
-  the sloped band only — its outline, the fall line with the downhill arrow,
-  the ridge line where the band ends, and `h 1.65-2.48 (knee|section)`.
-* `S<n>_CEILING_FLAT` (thin, continuous, gray): the flat remainder's boundary
-  and `h 2.48 (flat)`. Never orange, never a strip.
-
-A reconstructed ceiling that is flat draws no whole-room slope outline: the dashed rectangle
-across a plane with no slope was pure noise, and the room label already states
-the height. Gables keep two bands (and a flat plateau only when the section has
-a flat segment).
-
-Explicit optimized-source ceilings (`rooms[].ceiling` / `ceiling_curr`,
-`transform` + 2D `polygon`) are still annotated on the orange dashed layer when
-they are genuinely tilted; a horizontal supplied source region retains its gray outline and SR label. Annotations never alter wall
-or floor geometry or quantities. `h 2.50` / `h 2.10-2.85` labels are
-ceiling-to-floor vertical differences in one source-world space; the floor datum
-must be a covering measured floor polygon, and `room.floor_height` is used only
-as an explicitly labelled `supplied-floor-level` fallback. Without evidence the
-height stays null with `heightReason` and a warning; never `dimensions.y`, never
-a fixed 2.5 m. Raw input has no room polygons, so its ceilings are
-reconstructed from wall tops and reported per storey. See
-[heights-ceilings.md](references/heights-ceilings.md).
-
-## USDZ export (`--usdz`)
-
-`node scripts/roomplan-to-dxf.js scan.json out/ --usdz` writes `out/scan.usdz`
-and prints `USDZ written: <path> (N prims)`. A USDZ is a ZIP of `*.usda` text,
-so both layers are written here by hand: `scripts/lib/usdz-writer.js`
-(STORE-only ZIP, own CRC-32, 64-byte aligned payloads, fixed 1980-01-01
-timestamp so the file is reproducible) and `scripts/lib/usda-export.js` (the
-USD ASCII layer).
-
-Layer shape (copied from Apple's own exporter, 105 reference layers):
-`#usda 1.0` with `defaultPrim = "room"`, `metersPerUnit = 1`, `upAxis = "Y"`;
-`room > Section_grp` holds one `kind = "assembly"` `Xform` per captured room
-(named from a sanitised label, e.g. `Kuhinja/dnevni` → `Kuhinja_dnevni`), and
-`room > Mesh_grp` holds one `kind = "component"` `Xform` per element
-(`Wall_1…`, `Floor_1…`, `CeilingSlope_1…`, `CeilingFlat_1…`, `Door_1…`,
-`Window_1…`, `Opening_1…`, `Object_1…`),
-each with `customData = { string Category string Identifier }`, each containing a
-`def Mesh` **and** its own `def Material "<Name>_color"` (UsdPreviewSurface)
-that the Mesh binds with `rel material:binding`. The one exception is an
-OPENING (`Door_`/`Window_`/`Opening_`): it is an empty `Xform` carrying `Label`,
-`Width`, `Height` and `Role = "opening"` and no mesh at all, because the hole
-the wall was cut for is the element. Prim metadata always sits in the
-parenthesis block after the prim name, never inside the braces.
-
-Ceilings (`scripts/lib/ceiling-3d.js`) are real solids, so they are visible in
-AR Quick Look instead of being an annotation a USDZ cannot carry. A knee
-profile is **two prims** — `CeilingSlope_<n>` (the band from the knee up to the
-ridge, `Geometry = "sloped strip"`, `Method = "knee"`) and `CeilingFlat_<n>`
-(the remainder, `Geometry = "flat plane"`, `Method = "flat"`) — never one
-tilted sheet across the whole room. A flat ceiling is ONE prim with 2 triangles
-and normal −Y (seen from below); a gable is two `CeilingSlope_` planes meeting
-at a ridge, plus a `CeilingFlat_` plateau only when the section has a flat
-segment. `double Area` on each prim is its own FOOTPRINT area, so the strip's
-area stays checkable against `run × room depth`. The
-method is never used to invent geometry: `extrusion`/`unavailable` become a flat
-plane at the knee height plus `usdz.ceiling-approximated`, and a room with no
-footprint polygon gets no ceiling at all plus `usdz.ceiling-no-polygon`.
-Because Quick Look renders no text, room and ceiling prims carry the label in
-`customData`: `string Label`, `double Area`, `string Height` (`"2.50"` or
-`"1.60-2.50"`), `string Method`.
-
-Geometry: `polygonCorners` → that polygon, validated planar ear-clipped (all
-mesh faces use `scripts/lib/planar-polygon.js`; never angle-sort vertices).
-Non-planar/self-intersecting rings and unsupported explicit hole rings fail
-clearly, rather than inventing a filled polygon. Grid-decomposed opening cells
-remain separate faces, preserving their holes. `SurfaceArea3D`, `ProjectedArea`
-and `RenderMeshArea` are separate USD metadata; legacy ceiling `Area` remains
-footprint for compatibility. Supplied ceiling sums retain every source plane,
-including vertical upstands and 0.84 m low ceilings; multiplicity/alternative
-source hypotheses warn and are not a verified physical total. Unknown relative
-height is null, never inferred from stage zero. Public tests:
-`node tests/test_planar_polygon.js`, `python3 tests/test_planar_polygon_shapely.py`
-(requires Shapely), `node tests/test_source_preservation.js`.
-For a WALL, a flat plan polygon is extruded through the thickness into a prism
-(2 ear-clipped caps + one side per edge, `scripts/lib/polygon-prism.js`), because
-a zero-thickness wall is paper and vanishes under backface culling; otherwise an
-oriented box from `dimensions` (x length, y height, z thickness) placed by the
-4×4 transform. Thickness precedence for walls: `dimensions.z`, then the source's
-`wallThickness`, then Apple's 0.16 m default (flagged `assumed`). Every mesh is triangulated and its vertices are split per
-face-vertex (a box = 12 triangles / 36 vertices), so `normal3f[] normals` has one
-normal per point and no `interpolation` metadata is written — Apple's shape. An unmeasured wall gets **0.16 m** (Apple's
-default) and is flagged `string Thickness = "assumed"`. **Door and window holes
-are real**: a wall named by an opening's `parentIdentifier` is cut by grid
-decomposition in the wall's own (u, v) plane (`scripts/lib/wall-holes.js`) — a
-full rectangle of cells is emitted, minus the cells inside an opening, so the
-front/back faces have holes and the opening edges become reveal faces. Openings
-that cannot be placed (no transform, outside the wall by more than 20 mm, or a
-wall exported from `polygonCorners`) leave the wall solid and record
-`usdz.opening-not-cut`; a sub-20 mm overshoot is clamped and recorded as
-`usdz.opening-clamped`. The `Door_*`/`Window_*` prims remain, marked
-`Role = "opening"`. A prim with a
-non-finite transform or no usable geometry is skipped with a warning (also in
-the manifest) — the layer never contains `NaN`. Source space is used as-is; the
-DXF sheet rotation is **not** applied.
-
-Not exported: textures, UVs, materials, cameras, lights, semantics, RealityKit
-meshes. The user confirmed opening a generated USDZ on Apple, and separate OpenUSD
-tests exist. This is not Apple certification or a guarantee for every model. Format notes:
-[usdz](references/usdz.md). Test: `node tests/test_usdz.js` (40 checks, opens
-the ZIP with Python's `zipfile` and asserts `testzip() === None`) plus
-`node tests/test_wall_holes.js` (16 checks: measured front area after cutting,
-watertight edges, outward normals, refusal warnings).
+Heights live on the Surface Region annotations, never on room titles (name and area only). A knee profile is a **strip**, not the room: the orange dashed `S<n>_CEILING` band carries the slope, fall line and ridge, the thin gray `S<n>_CEILING_FLAT` carries the flat remainder, and a flat ceiling draws no slope outline at all. Explicit optimized-source `rooms[].ceiling` / `ceiling_curr` surfaces are annotated when genuinely tilted; heights are ceiling-to-floor differences in one source-world space (floor datum must be a covering measured floor polygon, `room.floor_height` only as a labelled `supplied-floor-level` fallback), never `dimensions.y` and never a fixed 2.5 m — without evidence the height stays null with `heightReason`. Raw input has no room polygons, so its ceilings are reconstructed from wall tops per storey. Full rules: [heights-ceilings](references/heights-ceilings.md).
 
 ## Quantities and area report
 
-Use `node scripts/roomplan-to-dxf.js scan.json out/ --report --no-place-lookup`
-(add `--md` for the Markdown summary `scan.md`)
-to additionally write `scan.report.json` and `scan.quantities.csv`.
-Combine with `--model` for the normalized capture. CSV uses UTF-8 BOM and `;`.
+```sh
+node scripts/roomplan-to-dxf.js scan.json out/ --report --no-place-lookup   # + --md for scan.md
+```
 
-Read [quantities](references/quantities.md) before relying on totals. Source room
-areas, polygon-computed areas, dimension-estimated wall areas and unavailable
-values are distinct. Shared wall references are not additive. Net wall areas
-subtract only validated parent-linked openings; incomplete coverage yields a
-**partial subtotal**, not a complete building quantity. Ceiling areas use
-supplied-source accounting or explicitly labelled reconstruction; closed verified
-volume remains unavailable. Plan-statistics and handoff calculations are ported
-from ArchiPlan and checked against synthetic fixtures, not field measurements.
-No survey accuracy is implied.
+adds `scan.report.json` (`report-v1` schemaVersion `roomplan.report/1`) and `scan.quantities.csv` (UTF-8 BOM, `;`), combinable with `--model`; `--md` implies `--report`. Key caveats in one line: source, computed and estimated areas are distinct, shared walls are not additive, net wall areas are a **partial subtotal** when opening coverage is incomplete (`PAINT_FREE_OPENING_M2 = 3` governs paint only), and no number is a verified building total. Read [quantities](references/quantities.md) before quoting any total — it holds the formulas, the CSV/security rules, the test list and the **release defaults** (DXF ceilings ON, USDZ ceiling meshes OFF, location lookup OFF).
 
-Run `node tests/test_quantities.js` (net/paint/CSV safety), `node tests/test_authored_ceiling.js`
-(authored 3D ceiling, G-5), `node tests/test_interior_area.js` (interior vs centreline
-area, G-6/G-7), `node tests/test_plan_statistics.js` (G-9: gross/net per level,
-living/gross, roomsWithoutArea from an ArchiPlan fixture) and `node tests/test_handoff.js`
-(G-10: per-room boundary figures, quantities[] keys, gaps[]) for the numerical safety tests.
-`node tests/test_spec_golden.js` runs all thirteen SPEC §7 golden rows. Reports obey
-existing output overwrite and source-alias protections. Report generation is
-local and does not require location lookup or an external review service.
+## Rules
 
-
-### Release defaults and validation (2026-11-09)
-
-DXF ceiling annotations are ON by default; `--no-ceilings` affects DXF only.
-USDZ ceiling meshes are OFF by default. Use `--usdz --usdz-ceilings` to opt in,
-or `--no-usdz-ceilings` to turn them off; the last USDZ toggle wins. These
-controls are independent. Source-region metadata may remain even without meshes.
-Public conversion is offline by default. Optional Apple reverse geocoding may
-use network services. The local installation keeps lookup ON by user preference;
-use `--no-place-lookup` for offline operation.
-The user has confirmed opening a generated USDZ on Apple, and OpenUSD tests
-have been run separately. This is not Apple certification or validation of
-every output; structural tests do not establish physical accuracy.
+- Never fabricate missing geometry, thickness, stories or rooms, and never re-enable the legacy `--no-north-flip` formula without saying so.
+- Do not enable `--place-lookup` silently: it sends the scan coordinates to the Apple geocoder, and the result is a locality, not a verified address.
+- Never overwrite a scan or an output without explicit permission.
+- Report the exact dialect and the warnings you saw; do not present a DXF as measured, certified or fabrication-ready.
+- Run the self-test after editing converter files (README).
+- RoomPlan is an Apple framework and DXF is a CAD exchange format; this skill is independent and not affiliated with, endorsed or certified by Apple or Autodesk.

@@ -5,31 +5,14 @@ renderer stare web aplikacije. Historijska parity nije uspostavljena.
 
 ## Current source-region annotation contract (2026-11-08)
 
-- Explicit supplied ceiling polygons are retained as source regions, labelled
-  `SR <room identifier>.<index>`. Read `sourceRegionId`, `interpretation`,
-  `regionPlanM`, `worldCornersM` and `heightM` in ceiling diagnostics.
-- Multiple supplied surfaces are alternatives that may overlap or conflict:
-  `roomplan.ceiling-source-alternatives`. No minimum/maximum physical envelope
-  is selected or verified. An individual region height is not a certified
-  room-wide clear height; source regions are not additive physical quantities.
-- Explicit horizontal source regions retain their thin gray outline and SR
-  height label on `S<n>_CEILING_FLAT`; they are not orange slope bands.
-  Reconstructed flat ceilings do not acquire a whole-room dashed slope outline.
-- Layout tests a conservative TEXT envelope inside each polygon, then a local
-  external callout with a checked leader. If neither fits, annotation remains
-  visible with `UNRESOLVED` and `layoutStatus: unresolved-visible-no-leader`;
-  no unsafe leader is fabricated. This is an unresolved association requiring
-  review, not successful in-region placement. Arbitrary CAD font substitutions
-  and full paper plotting remain outside this guarantee.
-- Short downhill arrows are checked within the region; annotation offsets do
-  not change source geometry or measurement quantities. Per-story framing
-  translates geometry and text together once, after source-space alignment.
-- `supplied-floor-level` is an explicitly supplied scalar fallback, not a
-  measured floor plane. Positive separations up to 6 m can remain visible,
-  including low heights; do not silently clamp them to plausible room heights.
-- A structurally clean DXF requires audit `errors: 0` AND `fixes: 0`. It does
-  not resolve source conflicts, low heights, unknown heights, unresolved labels
-  or establish a verified physical envelope. Review diagnostics separately.
+Moved verbatim to [surface-regions.md](surface-regions.md#source-region-annotation-contract-2026-11-08)
+— that section is the single copy. It covers: supplied ceiling polygons as SR
+`SR <room>.<index>` with `sourceRegionId`/`interpretation`/`regionPlanM`/`worldCornersM`/
+`heightM`; alternatives that may overlap (`roomplan.ceiling-source-alternatives`);
+the plan-union ceiling envelope and its fallbacks; provenance vs. physical
+verification; gray horizontal source regions; conservative TEXT layout with
+`unresolved-visible-no-leader`; arrow/offset invariants; `supplied-floor-level`;
+and `errors: 0` AND `fixes: 0` as a structural audit, not a physical envelope.
 
 ## Povijesne bilješke — nisu aktualni ugovor
 
@@ -128,3 +111,19 @@ Isti rez se koristi u 3D-u (`lib/ceiling-3d.js`, `splitCeilingPlan`) i u DXF-u
   stvarni nagibi krovnih ploha izvan su dosega ovog prikaza.
 - Stari web engine nije uspoređen; vidi `REPORT-2026-11-07.md` u skillu za
   primjedbe iz dostupnih kopija.
+
+## Labels and unknown heights (2026-11-09)
+
+- Room and storey titles contain name and area only, separated by ASCII spaces.
+  Heights live on their own Surface Region annotations: each slope part gets its
+  regional height, each flat reconstruction zone gets one height label without a
+  perimeter, and supplied face labels keep their SR identifiers.
+- A height is never invented and never printed as `0`: an unknown source-region
+  height stays explicitly unknown (`null` with `heightReason` and a warning).
+- Explicit optimized-source ceilings (`rooms[].ceiling` / `ceiling_curr`,
+  `transform` + 2D `polygon`) are still annotated on the orange dashed layer when
+  they are genuinely tilted; a horizontal supplied source region keeps its gray
+  outline and SR label.
+- Raw input has no room polygons, so its ceilings are reconstructed from wall
+  tops and reported per storey (this supersedes the older note below that
+  wall-top inference was not implemented).

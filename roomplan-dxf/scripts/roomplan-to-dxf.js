@@ -28,7 +28,8 @@
  *   --sheet <text>     sheet number/name (default: A-01)
  *   --no-frame         do not draw the frame, title block or north arrow
  *
- * Requires Node.js (no npm dependencies) and python3 with ezdxf.
+ * Requires Node.js 16+ (no npm dependencies) and python3 3.9+ with ezdxf >= 1.4.
+ * A missing ezdxf is reported up front by requireEzdxf(), never at the emit step.
  * The input file is opened read-only and never modified. Existing outputs
  * are refused unless --force is given.
  */
@@ -257,6 +258,40 @@ function runEmit(emitScript, dxfPath, plan) {
   }
 }
 
+/**
+ * Preflight: the DXF tail of this pipeline is `scripts/lib/dxf-emit.py`, a real
+ * ezdxf program. Without ezdxf the conversion used to run to the very end and
+ * then die with a bare `dxf-emit.py failed (exit 1)`, which says nothing about
+ * the cause. Probe the import up front (no input is read before this) and print
+ * an install command. Nothing is installed automatically.
+ */
+const EZDXF_INSTALL_HINT = [
+  'Install it, then run the same command again:',
+  '  python3 -m pip install "ezdxf>=1.4"',
+  'On Alpine Linux (iSH) the system Python is externally managed, so pip refuses',
+  'to write there; use:',
+  '  python3 -m pip install --break-system-packages "ezdxf>=1.4"',
+  'Verify with:  python3 -c "import ezdxf; print(ezdxf.__version__)"',
+].join('\n');
+
+function requireEzdxf() {
+  const probe = spawnSync('python3', ['-c', 'import ezdxf'], { encoding: 'utf8' });
+  if (probe.status === 0) return;
+  let reason;
+  if (probe.error) reason = `python3 could not be started (${probe.error.code || probe.error.message})`;
+  else {
+    const err = String(probe.stderr || probe.stdout || '').trim().split('\n').filter(Boolean).pop();
+    reason = err || `import failed with exit ${probe.status}`;
+  }
+  console.error([
+    'ERROR: python3 cannot import ezdxf, which scripts/lib/dxf-emit.py needs to write the DXF.',
+    `       "python3 -c \\"import ezdxf\\"" failed: ${reason}`,
+    EZDXF_INSTALL_HINT,
+    'Nothing was converted and no automatic installation was attempted.',
+  ].join('\n'));
+  process.exit(3);
+}
+
 function main() {
   let args;
   try {
@@ -277,6 +312,9 @@ function main() {
     console.error(`Unexpected argument: ${args.extra[0]}\n${USAGE}`);
     process.exit(1);
   }
+
+  // Fail fast and explain, before any input is opened or converted.
+  requireEzdxf();
 
   const resolved = resolveInput(args.inputPath);
   const inputPath = resolved.scanPath;

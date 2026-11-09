@@ -108,6 +108,9 @@ sheetBearing = (alignmentOffset - heading) mod 360      // = 360 - heading + off
 architectural-alignment matrix applies when the model frame is projected onto
 the sheet (`atan2(m[0], -m[2]) - 90`).
 
+Sanity check of the default formula: heading 0° → 0°, heading 90° → 270° at
+zero offset.
+
 `--no-north-flip` restores the previous formula,
 `(180 - heading + alignmentOffset) mod 360`, which was **exactly 180° wrong**
 on the real drawing this package was checked against: that scan (heading
