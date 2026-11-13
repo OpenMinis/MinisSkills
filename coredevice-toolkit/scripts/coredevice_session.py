@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 
 import pymobiledevice3.remote.tunnel_service as tunnel_service
+import pymobiledevice3.remote.userspace_tunnel as userspace_tunnel
 from pymobiledevice3.remote.tunnel_service import RemotePairingTcpTunnel
 from pymobiledevice3.remote.userspace_tunnel import UserspaceTun, UserspaceDialPlane
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
@@ -232,6 +233,7 @@ class CoreDeviceSession:
         self.tmp_dir = None
         self.sock_path = None
         self.userspace_tun = None
+        self.tun = None
         self.dial_plane = None
         self.read_task = None
         self.tun_read_task = None
@@ -317,10 +319,21 @@ class CoreDeviceSession:
 
         self.rsd = RemoteServiceDiscoveryService((server_addr, server_port), open_connection=self.dial_plane.dial)
         await self.rsd.connect()
+
+        # 登记为当前进程的活动用户态隧道：触控 (touch_session)、投屏等由设备主动推流的服务
+        # 据此把 UDP 接收端开在 pytcp 栈上；不登记会退回内核 socket，报 local_address is unavailable
+        self.tun = self.userspace_tun
+        userspace_tunnel._active_tunnel = self
+        userspace_tunnel.USERSPACE_ACTIVE = True
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         # 严谨防御性资源回收：避免单个异常导致子进程与 Socket 泄漏
+        if getattr(userspace_tunnel, "_active_tunnel", None) is self:
+            userspace_tunnel._active_tunnel = None
+            userspace_tunnel.USERSPACE_ACTIVE = False
+        self.tun = None
+
         if self.dial_plane:
             try:
                 await self.dial_plane.__aexit__(None, None, None)
