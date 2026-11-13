@@ -1,0 +1,24 @@
+# Mini browser written in Swift: UIKit + WKWebView, address bar, back/forward/reload, progress bar.
+# Swift needs the ish-pkgs `swift` package (apk add swift) and a compiler-compatible iOS SDK.
+name: Browser
+display_name: Pika Browser
+bundle_id: com.example.browser        # With a free account, change to XTL-<your team ID>.<any suffix>
+version: "1.0"
+build: "1"
+min_ios: "17.0"
+# sdk: /path/to/compatible/iPhoneOS.sdk  # optional; IOSDEV_SDK or auto-discovery
+language: swift
+sources: [src/*.swift]
+frameworks: [UIKit, WebKit, Foundation]
+info:
+  UIApplicationSceneManifest:
+    UIApplicationSupportsMultipleScenes: false
+  UILaunchScreen: {}
+  NSAppTransportSecurity:
+    NSAllowsArbitraryLoads: true
+sign:
+  mode: adhoc                          # To install on a real device: switch to p12 (see references/signing.md)
+  # mode: p12
+  # p12: ~/.ios-signer/keys/dev.p12
+  # password_env: IOSDEV_P12_PASS
+  # profile: ~/.ios-signer/keys/dev.mobileprovision
