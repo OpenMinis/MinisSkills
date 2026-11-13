@@ -80,8 +80,8 @@ compatibility: "iOS 18.0+ (Verified), iOS 17.x (Experimental), Node.js, Python 3
   cdtk-ctrl launch <bundle_id>          # 原生拉起任意 App (如 com.apple.Preferences)
   cdtk-ctrl procs                       # 列出系统前后台正在运行的全部 App 进程
   cdtk-ctrl hid-list                    # 枚举底层硬件输入设备 (触摸屏/键盘/按键)
-  cdtk-ctrl tap <x> <y>                 # 向物理屏幕注入底层硬件级触控点击
-  cdtk-ctrl swipe <x1> <y1> <x2> <y2>   # 注入底层硬件级滑动轨迹
+  cdtk-ctrl tap <x> <y>                 # 向物理屏幕注入底层硬件级触控点击 (像素坐标，与竖屏截图一致)
+  cdtk-ctrl swipe <x1> <y1> <x2> <y2>   # 注入底层硬件级滑动轨迹 (像素坐标)
   ```
 
 ### 3. `cdtk-profile`（免确认静默描述文件管理器）
