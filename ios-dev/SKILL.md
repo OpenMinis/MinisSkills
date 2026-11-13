@@ -2,7 +2,7 @@
 name: ios-dev
 description: >
   Build, sign and install iOS apps entirely on a phone running Minis (iSH) -- no Mac, no Xcode.
-  Compile ObjC/C with clang+lld from a declarative project.yaml, package an IPA, obtain a
+  Compile Swift or Objective-C/C with swift-frontend/clang + lld from a declarative project.yaml, package an IPA, obtain a
   development certificate and provisioning profile with a free Apple ID (or bring your own p12
   for a paid account), sign, then install onto your own iPhone over a local loopback VPN
   (Surge or LocalDevVPN) using a RemotePairing file, and read the app list back to verify.
@@ -17,6 +17,12 @@ description: >
 
 Everything runs on the phone (iSH), with **no dependency on Xcode and no dependency on a computer** (the one exception is obtaining the pairing file for the first time — see below).
 
+## Choose the project language first
+
+Follow an explicit language request; preserve the language of an existing project. For new projects prefer Swift when its compiler and compatible SDK are available; use Objective-C/C for lightweight UIKit demos, runtime work or C/ObjC integrations. UIKit supports both languages. Never silently substitute Objective-C for Swift. See `references/languages.md` for the selection table, generic configuration and SDK diagnostics.
+
+`project.yaml` accepts `language: auto|objc|swift` (default auto). Objective-C and Swift projects share the signing/install pipeline. Same-target mixed-language interoperability is not yet configured.
+
 ## Prerequisites (read this before deciding to use the skill)
 | Prerequisite | Notes |
 |---|---|
@@ -24,7 +30,7 @@ Everything runs on the phone (iSH), with **no dependency on Xcode and no depende
 | **Target device** | **iOS 17+ (RemotePairing)**; tested on iPhone19,2 / iOS 27.0.1 and iPhone19,4 / iOS 27.1 (side-button-reserved screen edge). Anything below iOS 18 is **untested** |
 | **Account** | **Free Apple ID**: the login flow in this skill can obtain a certificate automatically (7-day profile, restricted App ID). **Paid developer account**: **logging in is not supported** — bring your own p12 + provisioning profile, set `IOSDEV_P12_PASS`, and sign directly with `mk.py` (see `references/signing.md`, "Bring your own p12"). Only the signing half of the paid path has been verified; it has not been tested with a real paid certificate |
 | **Network** | The phone **must be on Wi-Fi**; a loopback VPN is required (Surge ≥5.23.0 or LocalDevVPN). Only one VPN can be active at a time |
-| **Compilable languages** | ObjC / C only. No Swift, no Storyboard/Asset Catalog compiler |
+| **Compilable languages** | ObjC / C (clang), and **Swift** via the ish-pkgs `swift` package (`apk add swift`; Swift 6.4.2). No Storyboard/Asset Catalog compiler |
 | **Minis-specific command** | Route 2 in `references/pairing.md` uses `minis-bonjour` (requires a Minis build with the bridge); the other scripts do not depend on it |
 
 ## Risks and disclaimer
@@ -36,7 +42,7 @@ Everything runs on the phone (iSH), with **no dependency on Xcode and no depende
 - The author is not responsible for account restrictions, device issues, data loss, or similar consequences. Using this skill means you understand these risks. See `LICENSE` and `THIRD_PARTY.md` for licensing and third-party sources.
 
 ```
-compile (clang+lld) → package IPA → sign (dev cert + profile) → install via local loopback (pymobiledevice3) → read back and verify
+compile (clang or swift-frontend + lld) → package IPA → sign (dev cert + profile) → install via local loopback (pymobiledevice3) → read back and verify
                                    ▲                                       ▲
               Apple ID → Xcode token → developer services        pairing file (RemotePairing)
 ```
@@ -64,7 +70,7 @@ export IOSDEV_P12_PASS="$(cat ~/.ios-signer/keys/p12.pass)" IOSDEV_PAIRING_FILE=
 cp -r assets/hello /tmp/myapp && $EDITOR /tmp/myapp/project.yaml   # see the project.yaml template in signing.md
 python3 scripts/mk.py /tmp/myapp --install
 ```
-Sample projects: `assets/hello` (mixed ObjC+C) and `assets/swipe` (portrait paging, UIScrollView paging + double-tap to like, **the content is a simulated gradient — no real video**).
+Sample projects: `assets/browser` (Swift UIKit + WKWebView browser), `assets/hello` (Objective-C/C) and `assets/swipe` (portrait paging, UIScrollView paging + double-tap to like, **the content is a simulated gradient — no real video**).
 
 ## Key facts (so you don't step on the same rakes)
 - **iOS 27 SDK is a breaking change, not a drop-in**: (a) its `.tbd` stubs drop the `arm64` slice, so every link dies with `unknown architecture` — `install_sdk.py` rewrites `targets:` automatically; (b) the scene lifecycle becomes **mandatory** — an app that builds its own `UIWindow` in the AppDelegate is killed at launch with `___UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption_block_invoke` at the top of the stack (on the 26.x SDK it is only a warning); (c) the scene delegate must be referenced at compile time (`c.delegateClass = [SceneD class]`) — referenced only by the Info.plist string it gets `-dead_strip`ped, the scene connects with a nil delegate, and the app launches with **no window and no crash report**. Full walkthrough: `references/sdk27.md`.
@@ -80,7 +86,12 @@ Sample projects: `assets/hello` (mixed ObjC+C) and `assets/swipe` (portrait pagi
 - **You do not need to install coredevice-toolkit**: the handshake layer is implemented here (`rppairing.py` protocol + `session.py` session + `psk_bridge.js` TLS-PSK bridge). Install with `scripts/install_ipa.py` (do not use cdtk's `install` subcommand — the `.install()` it calls no longer exists in pymobiledevice3 11.x); **after installing you must read back with `get_apps`**.
 - **Two protocol constraints can only be verified on a real device**: Pair-Verify's M1 requires `startNewSession=true` and M3 requires `false`; get them backwards and the device just drops the connection. `rppairing.py`'s offline self-test asserts this.
 - On iSH: `shutil.copy2` fails (use `copyfile`); `cp` occasionally reports "file replaced" (use Python reads/writes); `pgrep -x` cannot see processes (use `ps | grep '[.]/x'`).
-- The phone can only compile **ObjC/C**, no Swift. `mk.py` swallows all warnings by default, so "it compiles" ≠ "it's fine".
+- **Swift works** (verified 2026-11-13): put `.swift` files in `sources`. `mk.py` compiles them as one module with `swift-frontend` from the ish-pkgs `swift` package (`apk add swift`, first `swiftc -version` downloads the toolchain into `/usr/local/swift`; override with `SWIFT_FRONTEND`) and links with `-L <sdk>/usr/lib/swift`. Rules:
+  - **Use a compiler-compatible SDK.** Inspect installed compiler versions and SDK interfaces; do not hardcode a single SDK release as a universal requirement. See `references/languages.md`.
+  - **First build per SDK is slow** (≈5–15 min): UIKit/WebKit/Foundation `.swiftinterface`s are compiled into `~/.cache/ios-dev/swift-module-cache/<sdk>`. After that a small app compiles in ≈15 s.
+  - Use the scene lifecycle (iOS 27 SDK requirement) and reference the scene delegate class in code (`delegateClass = SceneDelegate.self`); `assets/browser` is a working template (UIKit + WKWebView mini browser).
+  - Mixed ObjC + Swift in one target is not wired up (no bridging header / `-emit-objc-header`).
+- `mk.py` swallows all warnings by default, so "it compiles" ≠ "it's fine".
 
 ## Safety and irreversible operations (mandatory)
 - Passwords/verification codes go only through environment variables and local 600 files — **never print them, never put them on a command line, never log them**. The pairing file and private keys contain secrets: do not upload or sync them.
@@ -92,9 +103,9 @@ Sample projects: `assets/hello` (mixed ObjC+C) and `assets/swipe` (portrait pagi
 - Before concluding "the outside can/cannot see it", first confirm **whether the phone and the peer are on the same subnet and whether the phone is on Wi-Fi**.
 
 ## Verified / unverified (an honest list)
-**Tested on a real device**: compile → p12 signing → install → read back; Surge loopback; Apple ID login (SMS 2FA) → Xcode token; registering a device, creating certificates, App IDs, profiles; loopback handshake and `installation_proxy`; re-signing and installing StikPair; generating a pairing file with `pair_host` on a Mac.
-**Only tested locally/with fake data, never sent to a real account**: `devsvc.py renew-profile` (delete the old profile, then create).
-**Unverified/never succeeded**: LocalDevVPN/Clash Mi as the loopback (only source/README read); the phone's Settings page discovering this host's broadcast "Pair with …" entry (StikPair/bridge approach); scripted touch injection (unavailable under a userspace tunnel); Swift builds; equivalent flows on Android/Windows.
+**Tested on a real device**: compile → p12 signing → install → read back; **a Swift app** (`assets/browser`: UIKit + WKWebView) built on the phone, installed, launched with `ProcessControl.launch`, still running after 10 s and WebContent logged a finished page load; Surge loopback; Apple ID login (SMS 2FA) → Xcode token; registering a device, creating certificates, App IDs, profiles; loopback handshake and `installation_proxy`; re-signing and installing StikPair; generating a pairing file with `pair_host` on a Mac.
+**`devsvc.py renew-profile`** was run against the real account on 2026-11-13 (renewed an expired 7-day profile).
+**Unverified/never succeeded**: LocalDevVPN/Clash Mi as the loopback (only source/README read); the phone's Settings page discovering this host's broadcast "Pair with …" entry (StikPair/bridge approach); scripted touch injection (unavailable under a userspace tunnel); equivalent flows on Android/Windows.
 **Versions at verification time** (no guarantees across versions): iOS 27.0.1 / 27.1 · Surge 5.23.0 · pymobiledevice3 11.35.0 · pmd-pytcp 0.3.8 · rcodesign 0.29.0 · clang 19.1.4 · Node 22 · Python 3.12 · SDK `iPhoneOS27.1.sdk` (AppConnect, iOS 27 device) / `iPhoneOS26.5.sdk` (older projects) / 16.5 (early Hello, Swipe) · Alpine/iSH aarch64.
 **Out of our control**: Apple may change private endpoints at any time; public Anisette servers are occasionally unavailable; Apple automatically reclaims old App IDs on free accounts (in practice, 2 of SideStore's disappeared).
 

@@ -5,7 +5,8 @@ bundle_id: com.example.hello          # With a free account, change to XTL-<your
 version: "1.0"
 build: "1"
 min_ios: "14.0"
-sdk: ~/.ios-sdk/iPhoneOS26.5.sdk
+# sdk: /path/to/compatible/iPhoneOS.sdk  # optional; IOSDEV_SDK or auto-discovery
+language: objc
 sources: [src/*.m, src/*.c]
 frameworks: [UIKit, Foundation]
 sign:

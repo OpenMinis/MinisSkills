@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mk.py — Read project.yaml and build an iOS IPA with clang + lld + rcodesign (no Xcode required).
+"""mk.py — Read project.yaml and build an iOS IPA with clang/swift-frontend + lld + rcodesign (no Xcode required).
 Usage: python3 mk.py [project dir] [--clean] [--install] [--check]
   --clean    wipe build/ and rebuild from scratch
   --check    only run the pre-signing preflight (profile/certificate/Bundle ID/devices), no build
@@ -25,8 +25,9 @@ def need(cond, msg):
 def resolve_sdk(spec):
     """SDK resolution: use the sdk from project.yaml if set; otherwise default to the highest version in ~/.ios-sdk (iPhoneOS26.x recommended,
     so the linked binary has LC_BUILD_VERSION.sdk=26, which is required to use UIGlassEffect and other new APIs and the new system appearance)."""
+    spec = spec or os.environ.get("IOSDEV_SDK")
     if spec:
-        p = os.path.expanduser(spec)
+        p = os.path.expanduser(os.path.expandvars(spec))
         if not os.path.isdir(p): sys.exit(f"❌ iOS SDK not found: {p}\n   one-shot install: python3 {os.path.dirname(os.path.abspath(__file__))}/install_sdk.py")
         return p
     base = os.path.expanduser("~/.ios-sdk")
@@ -146,7 +147,9 @@ def sign_p12(cfg, sg, root, app, bundle_id):
 
 def install(cfg, ipa, bundle_id):
     """Install over the Surge loopback and read back via installation_proxy to verify."""
-    pairing = os.environ.get("CDTK_PAIRING_FILE", "/root/.cdtk/pairing/new_phone.plist")
+    from rppairing import find_pairing_file
+    pairing = str(find_pairing_file())   # IOSDEV_PAIRING_FILE / CDTK_PAIRING_FILE / newest ~/.cdtk/pairing/*.plist
+    print(f"🔑 pairing file: {pairing}")
     need(os.path.exists(pairing), f"pairing file not found: {pairing}")
     env = dict(os.environ, CDTK_PAIRING_FILE=pairing)
     here = os.path.dirname(os.path.abspath(__file__))
@@ -171,6 +174,70 @@ def install(cfg, ipa, bundle_id):
     need(out != "MISSING" and r.returncode == 0, f"install reported success, but {bundle_id} cannot be read on the phone: {(r.stderr or out)[-300:]}")
     n, v, b, sid = (out.split("|") + ["?"] * 4)[:4]
     print(f"✅ confirmed on the phone: {n} {v}({b}) | signed by {sid}")
+
+def find_swift_frontend():
+    """swift-frontend from the ish-pkgs `swift` package (apk add swift) or $SWIFT_FRONTEND."""
+    for c in (os.environ.get("SWIFT_FRONTEND"), shutil.which("swift-frontend"), "/usr/local/swift/bin/swift-frontend"):
+        if c and os.path.exists(c):
+            return c
+    sys.exit("❌ no swift-frontend found. Install it: apk add swift && swiftc -version  (first run downloads the toolchain)\n"
+             "   or set SWIFT_FRONTEND=/path/to/swift-frontend")
+
+def swift_resource_dir(frontend):
+    """A Darwin resource dir for swift-frontend. The SDK brings its own Swift modules (.swiftinterface) and shims;
+    from the toolchain we only need clang's builtin headers. Built once in ~/.cache/ios-dev."""
+    tc = os.path.dirname(os.path.dirname(os.path.realpath(frontend)))
+    clang = os.path.join(tc, "lib/swift/clang")
+    need(os.path.isdir(clang), f"clang resource headers not found next to swift-frontend: {clang}")
+    rd = os.path.expanduser("~/.cache/ios-dev/swift-resource")
+    os.makedirs(os.path.join(rd, "iphoneos"), exist_ok=True)
+    link = os.path.join(rd, "clang")
+    if os.path.realpath(link) != os.path.realpath(clang):
+        if os.path.lexists(link): os.remove(link)
+        os.symlink(clang, link)
+    return rd
+
+def compile_swift(cfg, root, sdk, min_ios, name, swift_srcs, obj):
+    """Compile all .swift files into one object (whole-module). Returns (object path, rebuilt?).
+    Needs an SDK whose Swift interfaces are compatible with the compiler (Swift 6.4 toolchain -> iPhoneOS27.x SDK;
+    the 26.x SDK is built with 6.3 and is rejected)."""
+    fe = find_swift_frontend()
+    o = os.path.join(obj, f"{name}.swift.o")
+    newest = max(os.path.getmtime(s) for s in swift_srcs)
+    fingerprint = hashlib.sha256(repr((cfg, sdk, fe, os.stat(fe).st_mtime_ns,
+        swift_srcs, sh([fe, "--version"]).stdout)).encode()).hexdigest()
+    stamp = o + ".fingerprint"
+    if os.path.exists(o) and os.path.exists(stamp) and open(stamp).read() == fingerprint and os.path.getmtime(o) >= newest:
+        print(f"🐦 Swift: {len(swift_srcs)} files unchanged")
+        return o, False
+    cache = os.path.expanduser("~/.cache/ios-dev/swift-module-cache/" + os.path.basename(sdk) + "-" + hashlib.sha256((fe + sdk + str(os.stat(fe).st_mtime_ns)).encode()).hexdigest()[:10])
+    cache = os.path.realpath(cache)  # PCM dependencies must use one canonical path, not symlink aliases
+    os.makedirs(cache, exist_ok=True)
+    cold = not os.listdir(cache)
+    if cold:
+        print("🐦 first Swift build for this SDK: compiling SDK modules (UIKit/WebKit…) into the cache, this takes several minutes once")
+    cmd = [fe, "-frontend", "-c", *swift_srcs,
+           "-target", f"arm64-apple-ios{min_ios}", "-sdk", sdk,
+           "-resource-dir", swift_resource_dir(fe), "-module-cache-path", cache,
+           "-module-name", cfg.get("swift_module", re.sub(r"\W", "_", name)),
+           "-swift-version", str(cfg.get("swift_version", 5)),
+           "-I", os.path.join(root, "src"), "-o", o]
+    cmd += ["-O"] if cfg.get("swift_optimize", True) else ["-Onone"]
+    if cfg.get("swift_parse_as_library", not any(os.path.basename(s) == "main.swift" for s in swift_srcs)):
+        cmd += ["-parse-as-library"]
+    if len(swift_srcs) > 1:
+        cmd += ["-whole-module-optimization"]
+    cmd += cfg.get("swiftflags", [])
+    t = time.time()
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        msg = r.stderr or r.stdout
+        if "SDK is not supported by the compiler" in msg:
+            msg += "\n👉 use an SDK built with the same Swift version (Swift 6.4 -> iPhoneOS27.x): set sdk: ~/.ios-sdk/iPhoneOS27.1.sdk"
+        sys.exit("❌ Swift compile failed:\n" + msg[-4000:])
+    open(stamp, "w").write(fingerprint)
+    print(f"🐦 compiled {len(swift_srcs)} Swift files in {time.time()-t:.1f}s")
+    return o, True
 
 def main():
     if any(a in ("-h", "--help") for a in sys.argv[1:]):
@@ -215,10 +282,19 @@ def main():
 
     # 1. source files
     srcs = []
-    for pat in cfg.get("sources", ["src/*.m", "src/*.c"]):
+    for pat in cfg.get("sources", ["src/*.m", "src/*.c", "src/*.swift"]):
         srcs += sorted(glob.glob(os.path.join(root, pat)))
-    if not srcs:
+    swift_srcs = [s for s in srcs if s.endswith(".swift")]
+    srcs = [s for s in srcs if not s.endswith(".swift")]
+    if not srcs and not swift_srcs:
         sys.exit("❌ no source files found")
+
+    language = cfg.get("language", "auto").lower()
+    need(language in ("auto", "objc", "swift"), "language must be auto, objc or swift")
+    need(not (swift_srcs and srcs), "same-target mixed Swift and ObjC/C is not configured; select one language or configure interoperability separately")
+    need(not (language == "objc" and swift_srcs), "language: objc conflicts with .swift sources")
+    need(not (language == "swift" and srcs), "language: swift conflicts with ObjC/C sources")
+    print("Language: " + ("Swift" if swift_srcs else "Objective-C/C"))
 
     # 2. PCH (cached by content + flags)
     pch_flags, tag = [], ""
@@ -249,7 +325,15 @@ def main():
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as ex:
         res = list(ex.map(compile_one, srcs))
     objs = [r[0] for r in res]
-    print(f"🔨 compiled {sum(r[1] for r in res)}/{len(srcs)} files in {time.time()-t:.1f}s {tag}")
+    if srcs:
+        print(f"🔨 compiled {sum(r[1] for r in res)}/{len(srcs)} files in {time.time()-t:.1f}s {tag}")
+
+    # 3b. Swift: all .swift files are one module, compiled whole-module by swift-frontend
+    swift_link = []
+    if swift_srcs:
+        o, built = compile_swift(cfg, root, sdk, min_ios, name, swift_srcs, obj)
+        objs.append(o)
+        swift_link = ["-L", os.path.join(sdk, "usr/lib/swift"), "-Wl,-rpath,/usr/lib/swift"]
 
     # 4. link
     app = os.path.join(build, "Payload", f"{name}.app")
@@ -259,7 +343,7 @@ def main():
     for f in cfg.get("frameworks", ["UIKit", "Foundation"]):
         fw += ["-framework", f]
     t = time.time()
-    sh(base + ["-fuse-ld=lld"] + fw + objs + ["-o", os.path.join(app, name)])
+    sh(base + ["-fuse-ld=lld"] + fw + objs + swift_link + ["-o", os.path.join(app, name)])
     print(f"🔗 linked in {time.time()-t:.1f}s")
 
     # 5. Info.plist

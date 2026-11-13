@@ -1,7 +1,7 @@
 # signing.md — Compiling, signing, installing, renewing, and re-signing third-party IPAs
 
 ## Project (declarative project.yaml, no Xcode / Tuist needed)
-Templates live in `assets/hello` (mixed ObjC+C) and `assets/swipe` (portrait paging demo). Copy `src/` and write a `project.yaml`:
+Templates: `assets/hello` (Objective-C/C), `assets/swipe` (Objective-C paging demo), and `assets/browser` (Swift UIKit + WKWebView). See [languages.md](languages.md) before choosing a language. Copy `src/` and write a `project.yaml`:
 ```yaml
 name: Hello
 display_name: Hello Pika
@@ -9,7 +9,8 @@ bundle_id: XTL-<team ID>.com.example.hello   # must match the profile's App ID
 version: "1.0"
 build: "1"
 min_ios: "14.0"
-sdk: ~/.ios-sdk/iPhoneOS26.5.sdk
+language: objc                        # auto | objc | swift
+# sdk: /path/to/compatible/iPhoneOS.sdk
 sources: [src/*.m, src/*.c]
 frameworks: [UIKit, Foundation]
 cflags: ["-O1"]
@@ -30,8 +31,8 @@ python3 mk.py <project dir> [--clean]          # build + sign + package IPA
 python3 mk.py <project dir> --install          # then install over loopback and read back to verify
 ```
 
-## SDK: iOS 26 by default
-- If `project.yaml` has no `sdk`, `mk.py` picks the **highest version** in `~/.ios-sdk`; if there isn't one it tells you to run `python3 scripts/install_sdk.py` (installs `iPhoneOS26.5.sdk`, ~330 MB, from the third-party mirror xybp888/iOS-SDKs — not an official Apple source).
+## SDK selection and compatibility
+- SDK priority is project `sdk`, then `IOSDEV_SDK`, then the **highest installed version** in `~/.ios-sdk`; if there isn't one it tells you to run `python3 scripts/install_sdk.py` (installs `iPhoneOS26.5.sdk`, ~330 MB, from the third-party mirror xybp888/iOS-SDKs — not an official Apple source).
 - What the 26 SDK buys you: the binary gets `LC_BUILD_VERSION.sdk=26.5` (`minos` stays at `min_ios`), so you can use iOS 26 APIs such as `UIGlassEffect` / `UIGlassContainerEffect` / `cornerConfiguration` directly (**no** `NSClassFromString` needed), and the system renders appearance according to the newer SDK.
 - The 26 SDK's UIKit headers reference `<UIUtilities/UIDefines.h>` under `System/Library/SubFrameworks`; `mk.py` already adds the `-F` for it.
 - When using APIs that only exist in iOS 26 with a `min_ios` below 26, guard them with `@available(iOS 26.0, *)`/`if (@available(iOS 26.0, *))`, or older systems will crash.
@@ -43,9 +44,12 @@ python3 mk.py <project dir> --install          # then install over loopback and 
 - With PCH: 0.26 s per file, 31 files in parallel in 12 s; **an incremental change to one file takes about 3 s**.
 - `mk.py` uses `-Wno-everything` by default and swallows every warning, so **"it compiles" does not mean it works** — also run `clang -Wall -Wextra -fsyntax-only` to check.
 
-## Language limits
-- iSH on the phone can only compile **ObjC and C** (Alpine has no Swift and no aarch64-musl host toolchain). Swift requires the swift.org toolchain on a Mac/Linux plus an SDK extracted from Xcode.xip (xtool's approach), with the output copied back for signing and installing.
-- The iOS 26.5 SDK is the default (installed by `install_sdk.py`, no `.swiftmodule`); there is no actool/ibtool, so icons/Storyboards/Asset Catalogs are unsupported.
+## Language support
+- **Objective-C/C and Swift are supported locally in iSH.** `language: auto` discovers `.m`, `.c` and `.swift`; explicit `objc` or `swift` validates the source selection.
+- For Swift, install the ish-pkgs toolchain (`apk add swift`, then `swiftc -version` to fetch the payload) and select a compatible iOS SDK. The Linux wrapper is not used to build iOS: `mk.py` calls `swift-frontend` with an Apple target and links the SDK's Darwin Swift stubs.
+- Swift's first SDK module-cache warm-up can take minutes. Subsequent builds reuse cached modules. See [languages.md](languages.md) for compiler discovery, configuration and entry-point rules.
+- Same-target Swift/Objective-C interoperability (bridging headers and generated Swift headers) is not wired up; the builder rejects a mixed source set explicitly.
+- No actool/ibtool: Storyboards and Asset Catalog compilation remain unsupported.
 
 ## Signing notes
 - `rcodesign` takes `--p12-file` + `--p12-password-file` (**it cannot read from `/dev/stdin`** — it reports "No such file"); mk.py uses a 0600 temp file and deletes it afterwards.

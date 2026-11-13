@@ -3,7 +3,7 @@
 Usage: python3 doctor.py [--device]     (--device additionally performs one loopback handshake, which needs Wi-Fi and a pairing file)
 Exit code: 0 all passed; 1 something failed. Each item reports ✅/⚠️/❌ with a fix hint.
 """
-import json, datetime, os, plistlib, re, shutil, socket, subprocess, sys, time
+import glob, json, datetime, os, plistlib, re, shutil, socket, subprocess, sys, time
 if __name__ != "__main__":
     raise ImportError("doctor.py is a command-line script, not a library: run it with python3 doctor.py")
 
@@ -184,8 +184,29 @@ except Exception:
 r = run(["ip", "-4", "-o", "addr", "show", "en0"], 5)
 ok("Wi-Fi (en0) is up:" + (r.stdout.split()[3] if r and r.stdout else "")) if (r and r.stdout.strip()) else bad("the phone is not connected to Wi-Fi", "the loopback depends on Wi-Fi; on cellular only, every port on 10.7.0.1 returns ConnectionRefused")
 
+print("\n== 7b. Swift toolchain (only needed for .swift sources)")
+_fe = os.environ.get("SWIFT_FRONTEND") or shutil.which("swift-frontend") or "/usr/local/swift/bin/swift-frontend"
+if os.path.exists(_fe):
+    ok(f"swift-frontend: {_fe}")
+elif os.path.exists("/usr/local/share/swift/bin/swift-launcher"):
+    warn("swift launcher installed but the toolchain is not downloaded yet: run `swiftc -version` once (~173 MB)")
+else:
+    warn("no Swift toolchain (fine for ObjC/C projects): apk add swift && swiftc -version")
+_sdks = sorted(glob.glob(os.path.join(HOME, ".ios-sdk", "iPhoneOS*.sdk")))
+if os.environ.get("IOSDEV_SDK"):
+    _sdks.append(os.path.expandvars(os.path.expanduser(os.environ["IOSDEV_SDK"])))
+_swift_sdks = [p for p in _sdks if os.path.isdir(os.path.join(p, "usr/lib/swift"))]
+(ok if _swift_sdks else warn)("SDKs with Swift resources: " + (", ".join(os.path.basename(p) for p in _swift_sdks) or "none; install a compiler-compatible SDK"))
+if _swift_sdks:
+    warn("SDK resources found; compiler/interface compatibility must still be verified by a Swift build (see references/languages.md)")
+
 print("\n== 8. pairing file")
-pairing = os.environ.get("CDTK_PAIRING_FILE", os.path.join(HOME, ".cdtk/pairing/new_phone.plist"))
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from rppairing import find_pairing_file
+    pairing = str(find_pairing_file())   # same rule as the handshake: env var, else newest ~/.cdtk/pairing/*.plist
+except Exception:
+    pairing = os.path.join(HOME, ".cdtk/pairing/<none>.plist")
 if os.path.exists(pairing):
     import plistlib
     d = plistlib.load(open(pairing, "rb"))
