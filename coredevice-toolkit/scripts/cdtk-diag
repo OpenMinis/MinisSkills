@@ -6,16 +6,49 @@ cdtk-diag: 基于 CoreDevice RSD 底层通道的 iOS 原生硬件与系统日志
 
 import argparse
 import asyncio
+import json
 import os
+import subprocess
 import sys
+import time
 
 from coredevice_session import CoreDeviceSession
 from pymobiledevice3.services.diagnostics import DiagnosticsService
 from pymobiledevice3.services.syslog import SyslogService
 
+async def get_device_metadata(rsd):
+    """从 RSD get_value() 获取完整硬件与系统识别字典，带健壮兜底"""
+    vals = {}
+    try:
+        raw = await rsd.get_value()
+        if isinstance(raw, dict):
+            vals = raw
+    except Exception:
+        pass
+    
+    device_name = vals.get("DeviceName") or getattr(rsd, "name", None) or "iPhone"
+    product_type = vals.get("ProductType") or getattr(rsd, "product_type", "iPhone")
+    product_ver = vals.get("ProductVersion") or getattr(rsd, "product_version", "未知")
+    build_ver = vals.get("BuildVersion") or getattr(rsd, "product_build_version", "未知")
+    region_info = vals.get("RegionInfo", "未知")
+    model_num = vals.get("ModelNumber", "未知")
+    serial_num = vals.get("SerialNumber", "未知")
+    release_type = vals.get("ReleaseType", "")
+    
+    return {
+        "name": device_name,
+        "product_type": product_type,
+        "version": f"{product_ver} ({build_ver}){(' ' + release_type) if release_type else ''}",
+        "region": region_info,
+        "model": model_num,
+        "serial": serial_num,
+        "raw": vals,
+    }
+
 async def cmd_battery(args):
     print("⚡ 正在通过 CoreDevice RSD 握手连接 iOS 硬件诊断中枢...")
     async with CoreDeviceSession() as s:
+        meta = await get_device_metadata(s.rsd)
         diag = DiagnosticsService(s.rsd)
         data = await diag.get_battery()
         
@@ -25,7 +58,9 @@ async def cmd_battery(args):
         cur_cap = data.get("CurrentCapacity", "未知")
         voltage = data.get("Voltage") or data.get("AppleRawBatteryVoltage", 0)
         is_charging = data.get("IsCharging", False)
-        serial = data.get("Serial", "未知")
+        serial = data.get("Serial") or data.get("BatteryData", {}).get("Serial") or "未知"
+        temp = data.get("Temperature") or data.get("BatteryData", {}).get("Temperature")
+        temp_str = f"{temp / 100.0:.1f} °C" if isinstance(temp, (int, float)) and temp > 0 else "未知"
         
         adapter = data.get("AdapterDetails", {})
         watts = adapter.get("Watts", "未知")
@@ -37,21 +72,90 @@ async def cmd_battery(args):
         if isinstance(raw_max, (int, float)) and isinstance(design_cap, (int, float)) and design_cap > 0:
             health_pct = f"{(raw_max / design_cap) * 100:.1f}%"
 
-        print("\n" + "=" * 54)
+        print("\n" + "=" * 58)
         print("           🔋 iPhone 真实电池与电源硬件报告")
-        print("=" * 54)
-        print(f"  • 设备名称:         {s.rsd.name}")
-        print(f"  • 系统版本:         iOS {s.rsd.product_version} ({s.rsd.product_build_version})")
+        print("=" * 58)
+        print(f"  • 设备名称:         {meta['name']} ({meta['product_type']} | {meta['model']})")
+        print(f"  • 销售区域:         {meta['region']}")
+        print(f"  • 系统版本:         iOS {meta['version']}")
         print(f"  • 电池序列号:       {serial}")
         print(f"  • 真实充放电循环:   {cycle} 次")
         print(f"  • 出厂设计容量:     {design_cap} mAh")
         print(f"  • 当前实际物理容量: {raw_max} mAh (相对出厂: {health_pct})")
         print(f"  • 当前剩余电量:     {cur_cap}%")
         print(f"  • 当前电芯电压:     {voltage / 1000.0:.3f} V")
+        if temp_str != "未知":
+            print(f"  • 电芯温度:         {temp_str}")
         print(f"  • 充电状态:         {'⚡ 正在充电' if is_charging else '🔋 放电中'}")
         if is_charging:
             print(f"  • 充电适配器:       {desc} ({watts}W | {volt:.1f}V / {amp:.1f}A)")
-        print("=" * 54)
+        print("=" * 58)
+
+def _num(v):
+    """把任意来源的数值洗成 float 或 None（None/缺字段/非数字一律 None），供格式化前判断。"""
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return float(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+def _storage_line(storage):
+    """把 storage 段渲染成一行展示文本；非 dict / 缺 total_gb 时返回 None（绝不丢格式异常出去）。"""
+    if not isinstance(storage, dict):
+        return None
+    total = _num(storage.get("total_gb"))
+    if total is None:
+        return None
+    tail = ""
+    free = _num(storage.get("free_gb"))
+    used = _num(storage.get("usage_percent"))
+    if free is not None and used is not None:
+        tail = f" (已用: {used:.1f}%, 剩余: {free:.1f} GB)"
+    return f"  • 本地总闪存存储:   {total:.1f} GB{tail}"
+
+async def cmd_perf(args):
+    print("⚡ 正在通过 CoreDevice RSD 与系统遥测获取真机实时性能大盘...")
+    async with CoreDeviceSession() as s:
+        meta = await get_device_metadata(s.rsd)
+        
+        # 结合本地系统遥测
+        dev_info = {}
+        try:
+            res = subprocess.run(["apple-device", "info"], capture_output=True, text=True, timeout=3)
+            if res.returncode == 0:
+                dev_info = json.loads(res.stdout).get("data", {})
+        except Exception:
+            pass
+
+        ram_total = dev_info.get("physical_memory_gb", 0)
+        thermal = dev_info.get("thermal_state", "未知")
+        storage_line = _storage_line(dev_info.get("storage", {}))
+        uptime_sec = dev_info.get("uptime_seconds", 0)
+        uptime_str = f"{uptime_sec // 3600:.0f} 小时 {(uptime_sec % 3600) // 60:.0f} 分钟" if uptime_sec else "未知"
+
+        thermal_map = {
+            "nominal": "🟢 正常 (Nominal - 性能满血)",
+            "fair": "🟡 轻微温热 (Fair - 微降频)",
+            "serious": "🟠 发热严峻 (Serious - 明显温控调度)",
+            "critical": "🔴 极度过热 (Critical - 紧急节流降频)",
+        }
+        thermal_desc = thermal_map.get(str(thermal).lower(), str(thermal))
+
+        print("\n" + "=" * 58)
+        print("           📊 iPhone 原生系统运行与性能大盘")
+        print("=" * 58)
+        print(f"  • 硬件设备:         {meta['name']} ({meta['product_type']} - {meta['region']})")
+        print(f"  • 系统版本:         iOS {meta['version']}")
+        print(f"  • 系统连续开机:     {uptime_str}")
+        print(f"  • 发热状态 (温控):  {thermal_desc}")
+        if ram_total:
+            print(f"  • 统一物理内存:     {ram_total:.2f} GB RAM")
+        if storage_line:
+            print(storage_line)
+        print("=" * 58)
 
 async def cmd_syslog(args):
     print("⚡ 正在通过 CoreDevice RSD 连接 iOS 内核控制台 (syslog)...")
@@ -61,7 +165,6 @@ async def cmd_syslog(args):
     
     async with CoreDeviceSession() as s:
         syslog = SyslogService(s.rsd)
-        import time
         start = time.time()
         count = 0
         try:
@@ -83,9 +186,12 @@ def main():
     parser = argparse.ArgumentParser(description="cdtk-diag: iOS 原生系统诊断与硬件遥测工具")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
-    # battery
+    # battery / hw
     subparsers.add_parser("battery", help="获取真实电池循环次数、真实物理容量与充电硬件状态")
     subparsers.add_parser("hw", help="获取真实电池与硬件状态 (battery 别名)")
+
+    # perf
+    subparsers.add_parser("perf", help="获取系统开机时间、发热温控状态 (Thermal State) 与硬件性能大盘")
 
     # log
     p_log = subparsers.add_parser("log", help="实时捕获全系统底层控制台日志 (syslog/kernel)")
@@ -95,9 +201,19 @@ def main():
 
     args = parser.parse_args()
     if args.subcommand in ("battery", "hw"):
-        asyncio.run(cmd_battery(args))
+        sys.exit(asyncio.run(cmd_battery(args)))
+    elif args.subcommand == "perf":
+        sys.exit(asyncio.run(cmd_perf(args)))
     elif args.subcommand == "log":
-        asyncio.run(cmd_syslog(args))
+        sys.exit(asyncio.run(cmd_syslog(args)))
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except Exception as e:
+        print(f"❌ {e}", file=sys.stderr)
+        sys.exit(1)

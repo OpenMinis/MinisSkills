@@ -1,49 +1,93 @@
-# 配对文件 (Pairing Record) 获取与安全防护指南
+# Pairing Record Guide
 
-连接 CoreDevice RSD 隧道需要合法的设备配对记录（Pairing File），用于通过苹果底层的 RemotePairing SRP/TLS 身份双向认证。
+**English | [中文](PAIRING_GUIDE_zh.md)**
 
----
-
-## ⚠️ 重要安全警示 (Security Warning)
-
-> **配对文件属于高危设备凭据**：  
-> 配对文件内部包含该设备的 **Ed25519 签名私钥** 与配对凭证，拥有该文件即拥有对设备的开发者级调试权限。
-> 
-> - **严禁公开发布**：切勿将 `.plist` 上传至 GitHub、公开网盘或不受信任的第三方云同步空间；
-> - **文件权限锁定**：强烈建议在 Linux 终端中为配对文件设置仅属主可读写权限：
->   ```bash
->   chmod 600 /path/to/pairing.plist
->   ```
-> - **会话保护**：运行日志绝不会打印配对文件私钥与 PSK 密钥内容。
+The RSD tunnel authenticates with a RemotePairing record (`.plist`) over SRP / TLS. Treat that file as a device
+credential.
 
 ---
 
-## 获取途径 (任选其一)
+## Format
 
-### 途径 1：从电脑端直接复制（最通用）
-如果这台 iPhone 曾经连接过 Mac 或 Windows 电脑并点击过“信任此电脑”：
-- **macOS**：配对文件保存在 `/var/db/lockdown/<UDID>.plist`；
-- **Windows**：保存在 `%ProgramData%\Apple\Lockdown\<UDID>.plist`；
-将该 `.plist` 文件复制到手机内部，建议保存在非云端同步路径（如本地私有目录或工作区），即可直接使用。
+`load_pairing()` accepts three top-level keys and skips any file missing one:
 
----
+- `identifier` — pairing ID, also used as the RSD handshake UUID
+- `private_key` — Ed25519 private key
+- `public_key` — Ed25519 public key
 
-### 途径 2：通过 SideStore / SideInstaller 免电脑生成（全单机闭环）
-如果手机上安装了 **SideStore** 或 **SideInstaller**：
-1. 打开应用，按照提示生成本地配对文件；
-2. 导出或共享出生成的 `pairing.plist`；
-3. 将该文件放置在默认搜索路径下。
+Check a candidate file:
+
+```bash
+python3 -c "import plistlib;print(sorted(plistlib.load(open('pairing.plist','rb'))))"
+```
 
 ---
 
-## 推荐存储路径与自动发现规则
+## Getting one
 
-为防止私钥被其他自动化 Agent 或外部云同步盘随意检索泄露，本工具链已彻底废除全盘盲目搜索，仅支持以下安全发现顺序：
+Enable Developer Mode on the phone, pair with either app below, then export the record:
 
-1. **显式传入的文件路径**（如 `cdtk-install --pairing /path/to/pairing.plist`）；
-2. **环境变量 `CDTK_PAIRING_FILE`** 指定的路径（推荐在个人环境变量中配置）；
-3. **专属工作区隔离子目录**：`/var/minis/workspace/cdtk/*.plist`。
+- **StikPair** — pair, then export the `.plist` from the app
+- **wloc** — reported to export one too; not reproduced here
 
-> ⚠️ **严防泄露注意**：
-> - **切勿** 将配对文件直接丢在 `/var/minis/shared`、`/var/minis/mounts/`（外部网盘/iCloud）等容易被多端自动同步或全盘遍历的目录；
-> - 配对文件**必须**执行 `chmod 600`，若权限包含同机其他用户可读（Group/Other readable），底座将主动拦截拒绝启动。
+The exported file should contain the three keys above. Other ways (for example `pymobiledevice3 remote pair` on a
+computer) are not verified by this repository — try them yourself if you need to.
+
+> A `lockdown` record (`/var/db/lockdown/<UDID>.plist`) is not a pairing record: it carries `HostCertificate` /
+> `HostPrivateKey` / `RootCertificate` and none of the three keys above.
+
+### When a record goes stale
+
+Changing the **lock screen passcode** is enough to invalidate it. The device drops every host that was registered
+while the passcode state was different, so the old record still signs correctly but no longer derives a session key.
+Observed on iOS 27.3: a record exported before a passcode was set failed afterwards with
+
+```
+cdtk-doctor step 6: Pair-Verify passed, but the device tears down every encrypted request (0 bytes)
+cdtk-install list:  0 bytes read on a total of 9 expected bytes
+```
+
+Pair-Verify only checks the host signature, so a stale record passes steps 1–5 and fails at `createListener`.
+Export a fresh record after any passcode change (and after restore / re-pair), then confirm the identity really
+changed before blaming the loopback:
+
+```bash
+python3 -c "import plistlib;print(plistlib.load(open('/root/.cdtk/pairing/rp_pairing_file.plist','rb'))['identifier'])"
+```
+
+The `identifier` is a stable UUID, not the device UDID. If the new export carries a different one, that is the
+proof the old record was dead — keep a copy of it aside and install the new file at `0600`.
+
+
+---
+
+## Where it is looked up
+
+`find_pairing_file()` searches in this order:
+
+1. the file named by `CDTK_PAIRING_FILE` (recommended)
+2. `/root/.cdtk/pairing/*.plist`
+3. `/var/minis/workspace/cdtk/*.plist`
+4. the current working directory, only when `CDTK_ALLOW_CWD_PAIRING=1`
+
+Entry 3 is a directory shared by every session inside Minis (`0755`); a key stored there is readable by other sessions.
+Prefer 1 or 2, and keep the file at `0600`.
+
+---
+
+## Permissions
+
+- `0600`: used as is;
+- too open (e.g. `0644`): tightened to `0600` when `chmod` works;
+- filesystem ignores `chmod`: copied to `/root/.cdtk/pairing/` and locked to `0600`.
+
+---
+
+## Security
+
+- The record holds the device's signing key; anyone with the file has developer-level debug access. Never commit it or
+  upload it anywhere.
+- CDTK never prints the private key or the PSK. `cdtk-install --password` does pass the **certificate** password (not the
+  pairing key) to `zsign` on the command line, so it can show up in `ps` for a moment.
+- `cdtk-doctor` masks the device identifier by default; `--show-udid` prints it in full. When pasting its output into an
+  issue, drop section 3 anyway.

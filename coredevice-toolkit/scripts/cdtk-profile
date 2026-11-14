@@ -128,6 +128,8 @@ async def cmd_install(args) -> int:
     if installed:
         print(f"  • Identifier: {installed.get('PayloadIdentifier')}")
         print(f"  • UUID:       {installed.get('PayloadUUID')}")
+    else:
+        print("  • 状态提示: 描述文件已送达系统安装队列。因属于个人非监管设备，请在「设置 ➔ 已下载描述文件」中输入一次密码以完成最终激活。")
     print("=" * 60)
     return 0
 

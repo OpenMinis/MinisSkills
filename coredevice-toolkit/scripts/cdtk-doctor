@@ -1,0 +1,491 @@
+#!/usr/bin/env python3
+"""
+cdtk-doctor: Bilingual Environment & Connectivity Health Doctor for CoreDevice RSD (cdtk)
+Supports English (default) and Chinese (--zh / --cn / auto-detect LANG=zh).
+Audits system dependencies, Python modules, pairing files (0600 permissions),
+loopback network status, and on-device wake/unlock handshake.
+Provides immediate, copy-paste repair instructions for any failure.
+"""
+
+import asyncio
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import time
+
+# ANSI colors
+GREEN = "\033[32m"
+RED = "\033[31m"
+YELLOW = "\033[33m"
+CYAN = "\033[36m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
+
+# Language detection: explicit flag or system environment
+lang_env = " ".join(
+    os.environ.get(k, "") for k in ("LANG", "LC_ALL", "LANGUAGE")
+).lower()
+is_zh = "--zh" in sys.argv or "--cn" in sys.argv or "zh" in lang_env
+
+PASS = f"{GREEN}✅ [PASS]{RESET}" if not is_zh else f"{GREEN}✅ [通过]{RESET}"
+FAIL = f"{RED}❌ [FAIL]{RESET}" if not is_zh else f"{RED}❌ [失败]{RESET}"
+WARN = f"{YELLOW}⚠️  [WARN]{RESET}" if not is_zh else f"{YELLOW}⚠️  [警告]{RESET}"
+
+def print_header():
+    title = "🩺 CoreDevice RSD Geek Toolkit Health Doctor (cdtk-doctor)" if not is_zh else "🩺 CoreDevice RSD 极客工具链环境体检医生 (cdtk-doctor)"
+    print(f"\n{BOLD}{CYAN}{title}{RESET}")
+    print("=" * 66)
+
+class Doctor:
+    def __init__(self):
+        self.errors = []
+        self.warnings = []
+        self.host = os.environ.get("CDTK_RSD_HOST", "10.7.0.1")
+        self.port = int(os.environ.get("CDTK_RSD_PORT", "49152"))
+
+    def check_system_deps(self):
+        sec = "1. Checking Base System Runtimes & Commands:" if not is_zh else "1. 检查基础系统运行时与命令依赖:"
+        print(f"\n{BOLD}{sec}{RESET}")
+        
+        # Node.js
+        node_path = shutil.which("node")
+        if node_path:
+            try:
+                ver = subprocess.check_output(["node", "-v"], text=True).strip()
+                lbl = "Node.js Runtime" if not is_zh else "Node.js 运行时"
+                print(f"  {PASS} {lbl}: {node_path} ({ver})")
+            except Exception:
+                lbl = "Node.js Runtime" if not is_zh else "Node.js 运行时"
+                print(f"  {PASS} {lbl}: {node_path}")
+        else:
+            err = "Node.js runtime not found (required for TLS-PSK relay)" if not is_zh else "未检测到 Node.js 运行时 (TLS-PSK 桥接必需)"
+            print(f"  {FAIL} {err}")
+            self.errors.append(("Missing Node.js runtime" if not is_zh else "缺少 Node.js 运行时", "apk add nodejs"))
+
+        # Python3
+        py_ver = sys.version.split()[0]
+        lbl_py = "Python Runtime" if not is_zh else "Python 运行时"
+        print(f"  {PASS} {lbl_py}: {sys.executable} ({py_ver})")
+
+        # 可选依赖：仅 cdtk-install 的本地重签名需要
+        zsign_path = shutil.which("zsign") or os.path.exists("/usr/local/bin/rcodesign") or shutil.which("rcodesign")
+        if not zsign_path:
+            msg = "zsign/rcodesign not found (optional; only needed for cdtk-install local signing)" if not is_zh else "未检测到 zsign 或 rcodesign（可选，仅 cdtk-install 本地重签名需要）"
+            print(f"  {WARN} {msg}")
+            self.warnings.append(("zsign not installed" if not is_zh else "未安装签名器", "apk add zsign，或安装 rcodesign 静态包（cdtk-install 会自动选择可用后端）"))
+
+    def check_python_deps(self):
+        sec = "2. Checking Python Protocol Stack Modules:" if not is_zh else "2. 检查 Python 核心协议栈模块:"
+        print(f"\n{BOLD}{sec}{RESET}")
+        
+        modules = [
+            ("cryptography", "apk add py3-cryptography || pip install cryptography"),
+            ("pmd_pytcp", "pip install --no-cache-dir pmd-pytcp"),
+            ("pymobiledevice3", "pip install --no-cache-dir --no-deps 'pymobiledevice3>=11.34.0'"),
+            ("coredevice_session", "重新运行工具链的 src/setup.sh（安装 coredevice_session.py 与 tls_psk_proxy.js）")
+        ]
+
+        for mod, fix in modules:
+            try:
+                __import__(mod)
+                msg = f"Python Module [{mod}] is ready" if not is_zh else f"Python 模块 [{mod}] 已就绪"
+                print(f"  {PASS} {msg}")
+            except ImportError as e:
+                msg = f"Python Module [{mod}] is missing: {e}" if not is_zh else f"Python 模块 [{mod}] 缺失: {e}"
+                print(f"  {FAIL} {msg}")
+                self.errors.append((f"Missing Python module {mod}" if not is_zh else f"缺少 Python 模块 {mod}", fix))
+
+        # Check tls_psk_proxy.js
+        try:
+            from coredevice_session import get_node_proxy_script
+            js_path = get_node_proxy_script()
+            msg_js = f"TLS-PSK Proxy Script is ready: {js_path}" if not is_zh else f"TLS-PSK 桥接脚本已就绪: {js_path}"
+            print(f"  {PASS} {msg_js}")
+        except Exception as e:
+            err_js = f"TLS-PSK Proxy Script missing: {e}" if not is_zh else f"TLS-PSK 桥接脚本缺失: {e}"
+            print(f"  {FAIL} {err_js}")
+            self.errors.append((
+                "Missing tls_psk_proxy.js" if not is_zh else "缺少 tls_psk_proxy.js 桥接脚本",
+                "sh src/setup.sh (reinstall to site-packages)" if not is_zh else "重新执行 src/setup.sh 安装到 site-packages"
+            ))
+
+    def check_pairing_file(self):
+        sec = "3. Checking Device Pairing Credentials (.plist):" if not is_zh else "3. 检查设备配对凭据 (.plist):"
+        print(f"\n{BOLD}{sec}{RESET}")
+        try:
+            from coredevice_session import find_pairing_file, load_pairing
+            p_file = find_pairing_file()
+            if not p_file:
+                err = "No device pairing (.plist) file found" if not is_zh else "未检测到任何设备配对记录文件 (*.plist)"
+                print(f"  {FAIL} {err}")
+                self.errors.append((
+                    "No device pairing file found" if not is_zh else "未找到配对凭据",
+                    "Place your pairing record in /root/.cdtk/pairing/ and run chmod 600" if not is_zh else "请将配对文件放入 /root/.cdtk/pairing/ 并执行 chmod 600"
+                ))
+                return None
+
+            lbl_f = "Found pairing file" if not is_zh else "发现配对文件"
+            print(f"  {PASS} {lbl_f}: {p_file}")
+            
+            # Load with load_pairing which auto-handles external volume permission isolation
+            rec = load_pairing(p_file, isolate=False)
+            actual_path = rec.get("path", p_file)
+            st = os.stat(actual_path)
+            perm_oct = oct(st.st_mode & 0o777)
+
+            if actual_path != p_file:
+                info = f"External volume ignores chmod; automatically sandboxed: {actual_path}" if not is_zh else f"外部共享卷忽略 chmod，已自动安全隔离至属主私有沙盒: {actual_path}"
+                print(f"  ℹ️  {info}")
+
+            if st.st_mode & 0o077:
+                warn_msg = f"Pairing file permissions too open ({perm_oct}); requires 0600" if not is_zh else f"配对文件权限过宽 ({perm_oct})，生产环境要求属主独占 0600"
+                print(f"  {WARN} {warn_msg}")
+                self.warnings.append((
+                    f"Tighten pairing file permissions: {actual_path}" if not is_zh else f"配对文件权限需收紧: {actual_path}",
+                    f"chmod 600 '{actual_path}'"
+                ))
+            else:
+                ok_perm = "Pairing file security compliant (0600 owner exclusive)" if not is_zh else "配对文件安全权限合规 (0600 属主独占)"
+                print(f"  {PASS} {ok_perm}")
+
+            lbl_udid = "Pairing identifier" if not is_zh else "配对标识"
+            ident = str(rec.get('identifier') or "")
+            if "--show-udid" in sys.argv:
+                shown = ident
+            else:
+                shown = (ident[:8] + "…") if len(ident) > 8 else "…"
+            hint = "" if "--show-udid" in sys.argv else (" (masked; --show-udid to reveal)" if not is_zh else "（已打码，--show-udid 可显示）")
+            print(f"  {PASS} {lbl_udid}: {shown}{hint}")
+            return rec
+        except Exception as e:
+            err_p = f"Failed to parse pairing file: {e}" if not is_zh else f"解析配对文件失败: {e}"
+            print(f"  {FAIL} {err_p}")
+            self.errors.append(("Corrupted or unreadable pairing file" if not is_zh else "配对文件损坏或无法读取", f"Verify pairing record: {e}" if not is_zh else f"请核对文件格式: {e}"))
+            return None
+
+    @staticmethod
+    def _load_cds():
+        """加载 coredevice_session（端口发现 / RPPairing 指纹都在里面）。"""
+        try:
+            import coredevice_session as cds
+            return cds
+        except ImportError:
+            for p in (os.environ.get("CDTK_SCRIPT_DIR"),
+                      os.path.dirname(os.path.abspath(__file__))):
+                if p and p not in sys.path:
+                    sys.path.insert(0, p)
+            import coredevice_session as cds
+            return cds
+
+    def _port_dead_error(self, err):
+        self.errors.append((
+            "No RSD listener on the loopback port (remoted listener closed)" if not is_zh
+            else "回环端口上没有 RSD listener（remoted 的 listener 已关闭）",
+            (f"Tried {self.tried_ports}. Reason: {err}\n"
+             "      Port drift: the listener moved — cdtk auto-discovers it, or set CDTK_RSD_PORT.\n"
+             "      No listener anywhere: remoted closed it (dual-identity re-attach / lock-screen suspend).\n"
+             "      Only reliable recovery is replugging USB; reboot/iOS unlock do NOT help.")
+            if not is_zh else
+            (f"已尝试端口 {self.tried_ports}，失败原因: {err}\n"
+             "      端口漂移：listener 换了端口，cdtk 会自动发现，也可用 CDTK_RSD_PORT 显式指定；\n"
+             "      全线无 listener：remoted 已关掉监听（双身份 re-attach / 锁屏挂起），\n"
+             "      唯一可靠恢复是用数据线重插 USB；重启手机与解锁都无效。")
+        ))
+
+    async def check_loopback_network(self):
+        sec = f"4. Checking Loopback Network Connectivity ({self.host}:{self.port}):" if not is_zh else f"4. 检查本地回环网络通道 ({self.host}:{self.port}):"
+        print(f"\n{BOLD}{sec}{RESET}")
+        cds = self._load_cds()
+        preferred = self.port
+        self.tried_ports = [preferred]
+
+        cached = cds._read_port_cache(self.host) if hasattr(cds, "_read_port_cache") else None
+        if cached and cached != preferred:
+            if await cds._tcp_probe(self.host, cached, 0.4):
+                self.port = preferred = cached
+                self.tried_ports = [preferred]
+            else:
+                self.tried_ports.append(cached)
+
+        tcp_ok = await cds._tcp_probe(self.host, preferred, 2.0)
+        if not tcp_ok:
+            msg = (f"Port {preferred} refused; scanning 49152-65535 for the RSD listener..."
+                   if not is_zh else f"端口 {preferred} 拒连，正在扫描 49152-65535 定位 RSD listener...")
+            print(f"  {WARN} {msg}")
+            found = await cds.scan_for_rsd_port(self.host, skip=[preferred])
+            if found is None:
+                self.port_dead = True
+                err = f"Cannot connect to loopback port ({self.host}:{preferred})"
+                print(f"  {FAIL} {err}" if not is_zh else f"  {FAIL} 无法连接到回环端口 ({self.host}:{preferred})")
+                self._port_dead_error("connection refused on every scanned port")
+                return False
+            self.port = found
+            self.warnings.append((
+                f"RSD listener drifted to port {found} (preferred {preferred})" if not is_zh
+                else f"RSD listener 已漂移到端口 {found}（首选 {preferred}）",
+                (f"cdtk uses {found} automatically; the next cdtk command caches it in /tmp/.cdtk_rsd_port.json.\n"
+                 f"      Pin it if you prefer: export CDTK_RSD_PORT={found}") if not is_zh else
+                (f"cdtk 已自动使用 {found}；下次任意 cdtk 命令会把它写进 /tmp/.cdtk_rsd_port.json；\n"
+                 f"      需要固定可执行: export CDTK_RSD_PORT={found}")
+            ))
+            ok_msg = f"Port reachable after drift: {self.host}:{found}" if not is_zh else f"端口漂移已自动修复，连通 {self.host}:{found}"
+            print(f"  {PASS} {ok_msg}")
+        else:
+            ok_msg = f"Loopback port reachable ({self.host}:{preferred})" if not is_zh else f"本地回环端口连通成功 ({self.host}:{preferred})"
+            print(f"  {PASS} {ok_msg}")
+
+        # TCP 通 ≠ remoted 活着：reflect 层会把连接接住再沉默。必须做 RPPairing 指纹。
+        fp_ok = await cds.rsd_fingerprint(self.host, self.port, timeout=1.5)
+        if fp_ok:
+            msg = (f"RSD listener answers RPPairing on {self.port}" if not is_zh
+                   else f"RSD listener 在端口 {self.port} 正常回 RPPairing 握手")
+            print(f"  {PASS} {msg}")
+            return True
+        msg = (f"TCP connected but no RPPairing reply (reflect alive, remoted silent)" if not is_zh
+               else "TCP 连上了但收不到 RPPairing 回包（reflect 活着，remoted 不应答）")
+        print(f"  {FAIL} {msg}")
+        self._port_dead_error("TCP accepted but 0 bytes on RPPairing handshake")
+        return False
+
+    async def check_device_handshake(self, pairing_record):
+        sec = "5. Checking Handshake with iOS Remote Services:" if not is_zh else "5. 检查与 iOS 内核 Remote Services 握手通信:"
+        print(f"\n{BOLD}{sec}{RESET}")
+        if not pairing_record:
+            warn = "Skipped remote handshake (missing pairing record)" if not is_zh else "跳过底层握手测试 (前置配对文件缺失)"
+            print(f"  {WARN} {warn}")
+            self.warnings.append(("Skipped handshake" if not is_zh else "已跳过握手检查", "Provide pairing file to test handshake" if not is_zh else "提供配对文件以测试握手"))
+            return
+
+        # 身份一致性（issue #1 缺陷 1）：pair-verify 与 RSD 握手必须出示同一个 UUID，
+        # 否则 remoted 每次都会 re-attach 并把该 peer 的全部 service listener 关掉。
+        cds = self._load_cds()
+        h_uuid = cds.host_handshake_uuid(pairing_record)
+        same = str(h_uuid) == str(pairing_record.get("identifier"))
+        lbl = "RSD handshake identity matches pairing record" if not is_zh else "RSD 握手身份与配对记录一致"
+        print(f"  {PASS if same else FAIL} {lbl} ({str(h_uuid)[:8]}…)")
+        if not same:
+            self.errors.append((
+                "RSD handshake UUID differs from the pairing identity (triggers remoted re-attach)" if not is_zh
+                else "RSD 握手 UUID 与配对身份不一致（会触发 remoted re-attach）",
+                "The pairing record has no usable identifier; set CDTK_HOST_UUID to the pairing identifier." if not is_zh
+                else "配对记录里没有可用的 identifier；可用 CDTK_HOST_UUID 显式指定配对标识符。"
+            ))
+
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port), timeout=3.0
+            )
+            from coredevice_session import do_pair_verify
+            psk, c_key, s_key = await asyncio.wait_for(
+                do_pair_verify(reader, writer, pairing_record), timeout=10.0
+            )
+            # 保留连接给第 6 步：createListener 必须和 pair-verify 在同一条会话里完成，
+            # 另开连接会被设备当成另一条 peer 会话。
+            self._tunnel_conn = (reader, writer, psk, c_key, s_key)
+            h_ok = "Apple Pair-Verify protocol handshake successful (PSK negotiated)" if not is_zh else "苹果底层 Pair-Verify 协议握手成功 (PSK 协商正常)"
+            w_ok = ("Pair-Verify succeeded; Developer Mode state is NOT verified here"
+                    if not is_zh else "Pair-Verify 已通过；开发者模式状态未在此校验")
+            print(f"  {PASS} {h_ok}")
+            print(f"  ℹ️  {w_ok}")
+        except Exception as e:
+            err_str = str(e)
+            if "writer" in locals():
+                try:
+                    writer.close()
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+            self._tunnel_conn = None
+            fail_h = f"Apple protocol handshake failed: {err_str}" if not is_zh else f"苹果底层握手失败: {err_str}"
+            print(f"  {FAIL} {fail_h}")
+            if "Connection reset" in err_str or "Broken pipe" in err_str:
+                self.errors.append((
+                    "Connection reset by iOS kernel" if not is_zh else "握手连接被系统内核重置",
+                    ("Please check:\n"
+                     "      1. Unlock your iPhone and keep the screen awake;\n"
+                     "      2. Confirm [Settings -> Privacy & Security -> Developer Mode] is ON!") if not is_zh else
+                    ("请确认：① iPhone 屏幕已点亮并解锁；②【设置 ➡️ 隐私与安全性 ➡️ 开发者模式】已开启！")
+                ))
+            else:
+                self.errors.append((
+                    f"Handshake error: {err_str}" if not is_zh else f"协议握手异常: {err_str}",
+                    "Ensure the pairing record matches this device and screen remains unlocked." if not is_zh else "请确认配对记录是否来自本台 iPhone，并确保屏幕保持常亮解锁。"
+                ))
+
+    async def check_tunnel(self, pairing_record):
+        """第 6 步：真实建隧道。这是唯一能判定「通道能不能用」的检查。
+
+        前 5 步全绿也可能一点用都没有：pair-verify 只验 host 签名，设备端不会检查
+        这条配对记录是否还注册在本机；真正建隧道时设备要拿它派生会话密钥，
+        找不到对应 host 记录就直接 FIN —— 表现就是「握手全过、加密请求 0 字节」。
+        """
+        sec = "6. Establishing Real Tunnel (createListener):" if not is_zh else "6. 真实隧道建立探测 (createListener):"
+        print(f"\n{BOLD}{sec}{RESET}")
+        conn = getattr(self, "_tunnel_conn", None)
+        if not conn:
+            print(f"  {WARN} " + ("Skipped: handshake did not complete"
+                                  if not is_zh else "已跳过：前置握手未完成"))
+            return
+        reader, writer, psk, c_key, s_key = conn
+        cds = self._load_cds()
+        try:
+            port = await asyncio.wait_for(
+                cds.create_listener(reader, writer, psk, c_key, s_key), timeout=15.0
+            )
+            msg = (f"Tunnel listener created on device (port {port}) — encrypted channel verified"
+                   if not is_zh else f"隧道监听器已在设备端创建（端口 {port}），加密通道实测可用")
+            print(f"  {PASS} {msg}")
+        except Exception as e:
+            err_str = str(e) or type(e).__name__
+            zero_bytes = isinstance(e, asyncio.IncompleteReadError) or "0 bytes read" in err_str
+            if zero_bytes:
+                print(f"  {FAIL} " + ("Pair-Verify passed, but the device tears down every encrypted request (0 bytes)"
+                                      if not is_zh else "Pair-Verify 已通过，但设备对一切加密请求直接断连（0 字节）"))
+                self.errors.append((
+                    "Pairing record is stale: the device no longer has this host registered, "
+                    "so it refuses to derive tunnel keys from it" if not is_zh else
+                    "配对记录已失配：设备端已经没有这条 host 注册，拒绝用它派生隧道密钥",
+                    ("This layer cannot be caught by Pair-Verify — it only checks the host signature.\n"
+                     "      1) Re-export the pairing file from StikPair;\n"
+                     "      2) cp '<new>.plist' /root/.cdtk/pairing/rp_pairing_file.plist && chmod 600 /root/.cdtk/pairing/rp_pairing_file.plist\n"
+                     "      3) Confirm the identity really changed:\n"
+                     "         python3 -c \"import plistlib;print(plistlib.load(open('/root/.cdtk/pairing/rp_pairing_file.plist','rb'))['identifier'])\"")
+                    if not is_zh else
+                    ("这一层 Pair-Verify 抓不到 —— 它只验 host 签名，不查设备端有没有这条 host 记录。\n"
+                     "      ① 用 StikPair 重新导出配对文件；\n"
+                     "      ② cp '<新导出>.plist' /root/.cdtk/pairing/rp_pairing_file.plist && chmod 600 /root/.cdtk/pairing/rp_pairing_file.plist\n"
+                     "      ③ 确认身份确实换成了新的一条：\n"
+                     "         python3 -c \"import plistlib;print(plistlib.load(open('/root/.cdtk/pairing/rp_pairing_file.plist','rb'))['identifier'])\"")
+                ))
+            elif isinstance(e, asyncio.TimeoutError):
+                print(f"  {FAIL} " + ("Device accepted the tunnel request but never replied (timeout)"
+                                      if not is_zh else "设备收下了建隧道请求但一直没有回包（超时）"))
+                self.errors.append((
+                    "Tunnel creation timed out" if not is_zh else "隧道创建超时",
+                    ("Keep the screen unlocked; if it persists, re-plug the USB cable to refresh the paired-host event."
+                     if not is_zh else "请保持屏幕解锁；若持续失败，用数据线重插一次刷新 paired-host 事件。")
+                ))
+            else:
+                print(f"  {FAIL} " + (f"Tunnel creation failed: {err_str}"
+                                      if not is_zh else f"隧道创建失败: {err_str}"))
+                self.errors.append((
+                    f"createListener error: {err_str}" if not is_zh else f"createListener 异常: {err_str}",
+                    ("Re-export the pairing file if the record may have changed; otherwise re-plug the USB cable."
+                     if not is_zh else "若配对记录可能变过，重新导出并装入；否则重插一次数据线。")
+                ))
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+            self._tunnel_conn = None
+
+    def print_summary(self):
+        print("\n" + "=" * 66)
+        if self.errors:
+            err_title = f"❌ Detected {len(self.errors)} fatal error(s)!" if not is_zh else f"❌ 体检发现 {len(self.errors)} 项致命硬故障！"
+            print(f"{BOLD}{RED}{err_title}{RESET}\n")
+            for idx, (desc, fix) in enumerate(self.errors, 1):
+                lbl_iss = "Fatal Error" if not is_zh else "阻断性问题"
+                lbl_act = "👉 Fix Action / Command:" if not is_zh else "👉 修复建议/命令:"
+                print(f"{BOLD}{idx}. {lbl_iss}:{RESET} {desc}")
+                print(f"   {CYAN}{lbl_act}{RESET}")
+                for line in fix.split("\n"):
+                    print(f"      {line}")
+                print("")
+        
+        if self.warnings:
+            warn_title = f"⚠️  Detected {len(self.warnings)} warning(s):" if not is_zh else f"⚠️  检测到 {len(self.warnings)} 项安全/可选优化项："
+            print(f"{BOLD}{YELLOW}{warn_title}{RESET}\n")
+            for idx, (desc, fix) in enumerate(self.warnings, 1):
+                lbl_iss = "Warning" if not is_zh else "告警信息"
+                lbl_act = "👉 Action:" if not is_zh else "👉 处理建议:"
+                print(f"{BOLD}{idx}. {lbl_iss}:{RESET} {desc}")
+                print(f"   {CYAN}{lbl_act}{RESET}")
+                for line in fix.split("\n"):
+                    print(f"      {line}")
+                print("")
+
+        if not self.errors:
+            cong = "🎉 All core checks passed. CDTK is ready!" if not is_zh else "🎉 全套核心环境体检通过，CDTK 已就绪！"
+            print(f"{BOLD}{GREEN}{cong}{RESET}\n")
+            intro = "You can run any of the following commands in terminal:" if not is_zh else "您现在可以直接在终端执行以下命令畅玩："
+            print(intro)
+            c1 = "  • cdtk-diag hw           # Read factory capacity & battery cycle counts" if not is_zh else "  • cdtk-diag hw           # 直读真实出厂容量与电池充放电循环"
+            c2 = "  • cdtk-crash list        # Inspect system-wide .ips crash reports" if not is_zh else "  • cdtk-crash list        # 抓取全系统底层内核崩溃堆栈"
+            c3 = "  • cdtk-profile list      # Silently inspect configuration profiles" if not is_zh else "  • cdtk-profile list      # 免密码免弹窗管理系统描述文件"
+            c4 = "  • cdtk-install list      # List installed apps & metadata" if not is_zh else "  • cdtk-install list      # 枚举已安装应用元数据与免电脑侧载"
+            c5 = "  • cdtk-ctrl procs        # Enumerate running processes & PIDs" if not is_zh else "  • cdtk-ctrl procs        # 列出系统正在运行的前后台进程"
+            for c in [c1, c2, c3, c4, c5]:
+                print(c)
+            print("")
+            return 0
+        else:
+            return 1
+
+
+def cleanup_stale_temp_dirs(max_age_s=86400):
+    """清掉被 timeout/外部终止后残留的 /tmp/cdtk_* 会话临时目录（默认只清 1 天以上的）。
+
+    判活用会话目录里由 CoreDeviceSession 写下的 pid 文件，**不连接 relay.sock**：
+    那个 socket 一被连上，Node 桥接就会把隧道 end 掉，反而杀掉正在跑的会话。
+    """
+    removed = 0
+    now = time.time()
+    try:
+        for name in os.listdir("/tmp"):
+            if not name.startswith("cdtk_"):
+                continue
+            path = os.path.join("/tmp", name)
+            try:
+                if not os.path.isdir(path) or now - os.path.getmtime(path) <= max_age_s:
+                    continue
+                pid_file = os.path.join(path, "pid")
+                if os.path.exists(pid_file):
+                    try:
+                        with open(pid_file) as f:
+                            pid = int(f.read().strip() or 0)
+                        if pid > 0:
+                            os.kill(pid, 0)      # 活着就跳过
+                            continue
+                    except (ProcessLookupError, ValueError):
+                        pass
+                    except PermissionError:
+                        continue
+                shutil.rmtree(path, ignore_errors=True)
+                removed += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return removed
+
+
+async def main():
+    print_header()
+    swept = 0 if "--no-sweep" in sys.argv else cleanup_stale_temp_dirs()
+    if swept:
+        print(f"  🧹 {'Cleaned stale session dirs' if not is_zh else '已清理残留会话临时目录'}: {swept} in /tmp\n")
+    doc = Doctor()
+    doc.check_system_deps()
+    doc.check_python_deps()
+    rec = doc.check_pairing_file()
+    # 第 4/5/6 步都要真连 remoted（第 4 步的端口扫描更是向成千个端口建连），
+    # 全程持同一把会话锁：否则体检会把正在跑的 cdtk 装包/拷沙盒静默顶掉。
+    async with doc._load_cds().session_lock():
+        net_ok = await doc.check_loopback_network()
+        if net_ok:
+            await doc.check_device_handshake(rec)
+            await doc.check_tunnel(rec)
+    return doc.print_summary()
+
+if __name__ == "__main__":
+    from coredevice_session import SessionBusyError
+    try:
+        sys.exit(asyncio.run(main()))
+    except SessionBusyError as e:
+        print(f"\n  {FAIL} {e}")
+        sys.exit(3)

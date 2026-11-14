@@ -1,0 +1,52 @@
+# CoreDevice toolchain dependencies
+# pymobiledevice3 and cryptography are installed separately:
+#   - pymobiledevice3: pip install --no-deps (avoids building sslpsk-pmd3)
+#   - cryptography:    apk add py3-cryptography (prebuilt, avoids Rust toolchain)
+# Keep this file limited to what the CLI imports on our core paths.
+
+# Userspace TCP stack
+pmd-pytcp>=0.3.8
+pmd-net-addr
+pytun-pmd3>=3.0.3
+
+# Apple protocol helpers
+bpylist2>=4.0.1
+bytestruct>=0.1.0
+construct
+defusedxml
+ifaddr
+opack2>=0.1.0
+pycrashreport>=2.0.0
+pyimg4>=0.8.8
+pyiosbackup>=0.2.4
+pykdebugparser>=1.6.1
+python-pcapng>=2.1.1
+qh3>=1.0.0,<2
+srptools
+wsproto
+hyperframe
+
+# pymobiledevice3 runtime imports
+ansilogs>=1.1.0
+asn1
+asgiwebdav>=2.0.1
+backports.zstd
+daemonize
+developer_disk_image>=0.3.0
+fastapi>=0.93.0
+ipsw-parser>=1.8.4
+Pillow
+prompt_toolkit
+pygments
+pygnuutils>=0.0.7
+pyusb>=1.2.1
+questionary>=2.0.0
+requests
+rich>=13.0.0
+typer>=0.25
+typer-injector>=0.3.0
+typing_extensions>=4.1.0
+uvicorn>=0.15.0
+
+# Note: PyAV (av) is required by some media tooling on Linux but is a C
+# extension. Install it from Alpine when needed: apk add py3-av
