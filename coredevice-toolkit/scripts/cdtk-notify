@@ -1,0 +1,44 @@
+#!/bin/sh
+# cdtk-notify: 发送前台操作进度或完成通知
+# 用法: cdtk-notify start "应用名" "正在干什么"
+#       cdtk-notify done "应用名" "具体完成了什么"
+
+ACTION="$1"
+APP_NAME="$2"
+MSG="$3"
+
+if [ -z "$ACTION" ] || [ -z "$APP_NAME" ]; then
+    echo "Usage: cdtk-notify <start|step|done> <App名> <具体操作说明>"
+    exit 1
+fi
+
+command -v apple-notification >/dev/null 2>&1 || {
+    echo "cdtk-notify: 需要 Minis 的 apple-notification（仅 Minis 宿主可用）" >&2
+    exit 3
+}
+
+
+case "$ACTION" in
+    start)
+        apple-notification schedule \
+            --title "🤖 正在操作 $APP_NAME" \
+            --body "📌 当前步骤: ${MSG:-正在调试环境}（请先勿触碰屏幕）" \
+            --after 0 >/dev/null 2>&1
+        ;;
+    step)
+        apple-notification schedule \
+            --title "⚙️ $APP_NAME 操作进度" \
+            --body "⏳ $MSG" \
+            --after 0 >/dev/null 2>&1
+        ;;
+    done)
+        apple-notification schedule \
+            --title "✅ $APP_NAME 操作已完成！" \
+            --body "🎉 $MSG（点击本横幅即可一键切回 Minis 对话！）" \
+            --after 0 >/dev/null 2>&1
+        ;;
+    *)
+        echo "Unknown action: $ACTION"
+        exit 1
+        ;;
+esac

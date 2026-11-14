@@ -6,16 +6,44 @@ cdtk-install: iOS 极客侧载与安装中枢 (基于 CoreDevice RSD & installat
 
 import argparse
 import asyncio
+import json
 import os
 import plistlib
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from coredevice_session import CoreDeviceSession
 from pymobiledevice3.services.installation_proxy import InstallationProxyService
+
+async def push_install(installer, ipa_path: str):
+    """
+    跨版本兼容的 installation_proxy 安装调用。
+
+    pymobiledevice3 在 11.x 移除了 InstallationProxyService.install(ipa_path)，
+    改为 install_from_local(package_path, cmd="Install")：内部会经 AFC 上传到
+    /PublicStaging/pymobiledevice3 再走 send_package，失败时抛 AppInstallError。
+    这里按能力探测，两种接口都支持，避免 SDK 一升级工具就直接 AttributeError。
+    """
+    fn = getattr(installer, "install_from_local", None)
+    if fn is not None:
+        await fn(Path(ipa_path), "Install")
+        return "Install(install_from_local)"
+
+    fn = getattr(installer, "install", None)
+    if fn is not None:
+        await fn(ipa_path)
+        return "Install(legacy install)"
+
+    raise RuntimeError(
+        "当前 pymobiledevice3 的 InstallationProxyService 既无 install_from_local 也无 install，"
+        "请升级 pymobiledevice3 或检查安装是否完整"
+    )
+
 
 def find_signing_assets(cert_arg=None, prov_arg=None, pass_arg=None):
     """
@@ -40,12 +68,13 @@ def find_signing_assets(cert_arg=None, prov_arg=None, pass_arg=None):
             if prov_files and not prov:
                 prov = str(prov_files[0])
             if not pwd:
-                pwd_files = list(cdtk_dir.glob("*pwd*.txt")) + list(cdtk_dir.glob("*pass*.txt"))
+                # 只提示，绝不自动读取：密码文件的内容等同于证书私钥口令，
+                # 任何"顺手读到就用"的行为都可能把无关凭据套到错误的证书上。
+                pwd_files = sorted(cdtk_dir.glob("*pwd*.txt")) + sorted(cdtk_dir.glob("*pass*.txt"))
                 if pwd_files:
-                    try:
-                        pwd = pwd_files[0].read_text(encoding="utf-8").strip()
-                    except Exception:
-                        pass
+                    print("ℹ️  发现疑似密码文件 %s（CDTK 不会自动读取）" % pwd_files[0], file=sys.stderr)
+                    print("   需要时请显式传入: --password \"$(cat %s)\" 或 export CDTK_SIGN_PASS=..."
+                          % pwd_files[0], file=sys.stderr)
 
     if p12 and not Path(p12).is_file():
         raise FileNotFoundError(f"指定的 P12 证书文件不存在: {p12}")
@@ -59,7 +88,7 @@ def find_signing_assets(cert_arg=None, prov_arg=None, pass_arg=None):
                 "为防止密钥错误，CDTK 拒绝使用不可靠的默认密码。\n"
                 "请通过 --password 参数或环境变量 export CDTK_SIGN_PASS=xxx 提供密码。"
             )
-        print(f"🔑 使用签名资产: 证书={p12}, 描述文件={prov}")
+        print(f"🔑 使用签名资产: 证书={Path(p12).name}, 描述文件={Path(prov).name}")
         return p12, prov, pwd
 
     return None, None, None
@@ -85,11 +114,212 @@ def inspect_ipa(ipa_path):
         pass
     return orig_bid, app_name, has_signature
 
+def _find_rcodesign():
+    """返回可用的 rcodesign 路径，没有就返回 None。"""
+    for cand in ("/usr/local/bin/rcodesign", shutil.which("rcodesign")):
+        if cand and os.path.isfile(cand):
+            return cand
+    return None
+
+
+def _load_profile_plist(prov_path):
+    """从 .mobileprovision（CMS 包裹的 plist）里取出明文 plist。"""
+    data = Path(prov_path).read_bytes()
+    start = data.find(b"<?xml")
+    end = data.rfind(b"</plist>")
+    if start < 0 or end < 0:
+        raise RuntimeError("无法解析描述文件：没找到 XML plist 载荷")
+    return plistlib.loads(data[start:end + 8])
+
+
+def _export_signing_pem(p12, pwd, out_path):
+    """把 p12 导成 rcodesign 能吃的 PEM（私钥+证书），失败时尝试剥掉『密码：』前缀。"""
+    from cryptography.hazmat.primitives.serialization import (
+        pkcs12, Encoding, PrivateFormat, NoEncryption,
+    )
+    raw = Path(p12).read_bytes()
+    cands = [pwd]
+    for sep in ("：", ":"):
+        if sep in pwd:
+            cands.append(pwd.split(sep, 1)[1])
+    last_err = None
+    for cand in cands:
+        try:
+            key, cert, extra = pkcs12.load_key_and_certificates(raw, cand.encode())
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            continue
+        if key is None or cert is None:
+            last_err = RuntimeError("P12 里没有私钥或证书")
+            continue
+        pem = key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+        pem += cert.public_bytes(Encoding.PEM)
+        for c in (extra or []):
+            pem += c.public_bytes(Encoding.PEM)
+        fd = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(pem)
+        return
+    raise RuntimeError(f"P12 解密失败（密码或格式不对）: {last_err}")
+
+
+def _safe_join(dest, name):
+    """把 zip 成员名安全地拼到 dest 下：拒绝绝对路径、盘符与 .. 穿越。"""
+    if not name or name.startswith(("/", "\\")):
+        raise RuntimeError(f"IPA 含非法绝对路径成员，已拒绝: {name!r}")
+    if re.match(r"^[A-Za-z]:", name):
+        raise RuntimeError(f"IPA 含盘符路径成员，已拒绝: {name!r}")
+    parts = PurePosixPath(name.replace("\\", "/")).parts
+    if any(p == ".." for p in parts):
+        raise RuntimeError(f"IPA 含 .. 路径成员，已拒绝: {name!r}")
+    target = (dest / Path(*parts)).resolve()
+    if target != dest and dest not in target.parents:
+        raise RuntimeError(f"IPA 成员越界，已拒绝: {name!r}")
+    return target
+
+
+def _unzip_preserve(src_ipa, dest_dir):
+    """解压 IPA：拒绝路径穿越；先落普通文件，最后建符号链接，且链接只能留在解压目录内。"""
+    import stat as _stat
+    dest = Path(dest_dir).resolve()
+    links = []
+    with zipfile.ZipFile(src_ipa) as z:
+        for info in z.infolist():
+            target = _safe_join(dest, info.filename)
+            mode = (info.external_attr >> 16) & 0xFFFF
+            if _stat.S_ISLNK(mode):
+                links.append((target, info.filename,
+                              z.read(info).decode("utf-8", "surrogateescape")))
+                continue
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with z.open(info) as rf, open(target, "wb") as wf:
+                shutil.copyfileobj(rf, wf)
+            if mode:
+                os.chmod(target, mode)
+    for target, name, link_target in links:
+        if os.path.isabs(link_target) or re.match(r"^[A-Za-z]:", link_target):
+            raise RuntimeError(f"IPA 内符号链接指向绝对路径，已拒绝: {name} -> {link_target}")
+        resolved = (target.parent / link_target).resolve()
+        if resolved != dest and dest not in resolved.parents:
+            raise RuntimeError(f"IPA 内符号链接越界，已拒绝: {name} -> {link_target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink():
+            target.unlink()
+        elif target.exists():
+            raise RuntimeError(f"IPA 内符号链接位置已被占用，已拒绝: {name}")
+        os.symlink(link_target, target)
+
+
+def _zip_preserve(src_dir, dest_ipa, skip=()):
+    """重新打包成 IPA：保留权限位、符号链接与空目录；_cdtk_ 开头的临时文件一律跳过。"""
+    skip = set(skip)
+    with zipfile.ZipFile(dest_ipa, "w", zipfile.ZIP_DEFLATED) as z:
+        for root, dirs, files in os.walk(src_dir):
+            dirs.sort()
+            rel_root = Path(root).relative_to(src_dir)
+            for d in list(dirs):
+                full = Path(root, d)
+                rel = (rel_root / d).as_posix()
+                if rel in skip or rel.startswith("_cdtk_"):
+                    dirs.remove(d)
+                    continue
+                if full.is_symlink():
+                    dirs.remove(d)
+                    continue
+                info = zipfile.ZipInfo(rel + "/")
+                info.external_attr = (0o40755 << 16) | 0x10
+                z.writestr(info, b"")
+            for name in sorted(files):
+                full = Path(root, name)
+                rel = (rel_root / name).as_posix()
+                if rel in skip or rel.startswith("_cdtk_"):
+                    continue
+                if full.is_symlink():
+                    info = zipfile.ZipInfo(rel)
+                    info.external_attr = 0o120777 << 16
+                    z.writestr(info, os.readlink(full))
+                else:
+                    z.write(full, rel)
+
+
+def sign_ipa_rcodesign(src_ipa, dest_ipa, p12, prov, pwd, bundle_id=None, app_name=None):
+    """用 rcodesign 签名：解包 -> 换描述文件 -> 签名 bundle -> 重打包。"""
+    rc = _find_rcodesign()
+    if not rc:
+        raise RuntimeError("未找到 rcodesign")
+    prof = _load_profile_plist(prov)
+    ents = prof.get("Entitlements") or {}
+    if not ents:
+        raise RuntimeError("描述文件里没有 Entitlements，无法签名")
+
+    with tempfile.TemporaryDirectory(prefix="cdtk_rcsign_") as td:
+        _unzip_preserve(src_ipa, td)
+        payload = Path(td, "Payload")
+        apps = sorted(payload.glob("*.app"))
+        if not apps:
+            raise RuntimeError("IPA 结构不对：缺少 Payload/*.app")
+        app = apps[0]
+
+        info_path = app / "Info.plist"
+        info = plistlib.loads(info_path.read_bytes())
+        old_bid = info.get("CFBundleIdentifier", "")
+        dirty = False
+        if bundle_id and bundle_id != old_bid:
+            info["CFBundleIdentifier"] = bundle_id
+            dirty = True
+        if app_name:
+            info["CFBundleDisplayName"] = app_name
+            info["CFBundleName"] = app_name
+            dirty = True
+        if dirty:
+            info_path.write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
+            print(f"🔧 已改写 Info.plist：{old_bid} -> {info.get('CFBundleIdentifier')}")
+
+        shutil.copyfile(prov, app / "embedded.mobileprovision")
+
+        main_ent = Path(td, "_cdtk_ent_main.plist")
+        main_ent.write_bytes(plistlib.dumps(ents, fmt=plistlib.FMT_XML))
+        pem_path = Path(td, "_cdtk_signing.pem")
+        _export_signing_pem(p12, pwd, pem_path)
+
+        nested = sorted(p for p in (app / "PlugIns").glob("*") if p.is_dir()) if (app / "PlugIns").is_dir() else []
+        cmd = [rc, "sign", "--pem-source", str(pem_path),
+               "--entitlements-xml-file", str(main_ent)]
+        for nb in nested:
+            ent_n = Path(td, "_cdtk_ent_%s.plist" % nb.name.replace("/", "_"))
+            ent_n.write_bytes(plistlib.dumps(ents, fmt=plistlib.FMT_XML))
+            cmd += ["--entitlements-xml-file", "PlugIns/%s:%s" % (nb.name, ent_n)]
+        if nested:
+            print(f"📦 检测到 {len(nested)} 个嵌套 bundle：逐个套用 profile entitlements（scoped）")
+        print("✍️  正在使用 rcodesign 进行代码签名...")
+        cmd.append(str(app))
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            tail = (res.stderr or res.stdout or "").strip().splitlines()[-6:]
+            raise RuntimeError("rcodesign 签名失败: " + " | ".join(tail))
+
+        _zip_preserve(td, dest_ipa)
+    print(f"✅ 签名成功（rcodesign）！生成合规安装包: {os.path.basename(dest_ipa)}")
+
+
 def sign_ipa(src_ipa, dest_ipa, p12, prov, pwd, bundle_id=None, app_name=None):
     zsign_bin = "/usr/local/bin/zsign"
     if not os.path.exists(zsign_bin):
         which_z = subprocess.run(["which", "zsign"], stdout=subprocess.PIPE, text=True).stdout.strip()
-        zsign_bin = which_z if which_z else "zsign"
+        zsign_bin = which_z or None
+    if not zsign_bin:
+        if _find_rcodesign():
+            print("ℹ️  未找到 zsign，自动回退到 rcodesign 签名后端")
+            sign_ipa_rcodesign(src_ipa, dest_ipa, p12, prov, pwd,
+                               bundle_id=bundle_id, app_name=app_name)
+            return
+        raise RuntimeError(
+            "未找到签名器：请安装 zsign（apk add zsign）或 rcodesign\n"
+            "  rcodesign: https://github.com/indygreg/apple-platform-rs/releases"
+        )
 
     cmd = [
         zsign_bin,
@@ -105,6 +335,11 @@ def sign_ipa(src_ipa, dest_ipa, p12, prov, pwd, bundle_id=None, app_name=None):
     cmd.append(src_ipa)
 
     print(f"✍️  正在使用证书进行代码签名...")
+    if pwd:
+        print(
+            "⚠️  注意：zsign 只接受命令行密码，本机进程列表可能短暂看到该参数。",
+            file=sys.stderr,
+        )
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if res.returncode != 0:
         err = res.stderr or res.stdout
@@ -134,6 +369,80 @@ async def cmd_list(args):
         for bid, (name, ver) in sorted(filtered.items(), key=lambda x: x[1][0]):
             print(f"{name:<25} {ver:<14} {bid}")
 
+async def cmd_info(args):
+    target = args.bundle_id.strip()
+    print(f"⚡ 正在通过 CoreDevice RSD 查询应用元数据: {target}...")
+    async with CoreDeviceSession() as sess:
+        installer = InstallationProxyService(sess.rsd)
+        apps = await installer.get_apps(application_type="Any", bundle_identifiers=[target])
+        if not apps:
+            all_apps = await installer.get_apps(application_type="Any")
+            candidates = {}
+            for bid, m in all_apps.items():
+                name = m.get("CFBundleDisplayName") or m.get("CFBundleName", "")
+                if target.lower() in bid.lower() or target.lower() in name.lower():
+                    candidates[bid] = m
+            if not candidates:
+                print(f"❌ 未找到匹配的应用: {target}")
+                return 1
+            if len(candidates) > 1:
+                print(f"🔍 找到 {len(candidates)} 个候选应用，请输入完整的 Bundle ID 进行详查:")
+                for cbid, cm in candidates.items():
+                    cname = cm.get("CFBundleDisplayName") or cm.get("CFBundleName", "")
+                    print(f"  • {cname:<20} {cbid}")
+                return 0
+            bid, app_meta = next(iter(candidates.items()))
+        else:
+            bid, app_meta = next(iter(apps.items()))
+
+        if getattr(args, "json", False):
+            print(json.dumps({bid: app_meta}, indent=2, ensure_ascii=False, default=str))
+            return 0
+
+        name = app_meta.get("CFBundleDisplayName") or app_meta.get("CFBundleName") or "未知"
+        ver = app_meta.get("CFBundleShortVersionString") or "未知"
+        build = app_meta.get("CFBundleVersion") or "未知"
+        app_type = app_meta.get("ApplicationType") or "未知"
+        signer = app_meta.get("SignerIdentity") or "App Store 官方或系统预装"
+        validated = app_meta.get("ProfileValidated", False)
+        bundle_path = app_meta.get("Path") or "未知"
+        data_container = app_meta.get("Container") or "无独立数据沙盒 (或系统只读)"
+        
+        ent = app_meta.get("Entitlements") or {}
+        groups = ent.get("com.apple.security.application-groups") or []
+        bg_modes = app_meta.get("UIBackgroundModes") or []
+        doc_types = app_meta.get("CFBundleDocumentTypes") or []
+        url_types = app_meta.get("CFBundleURLTypes") or []
+
+        print("\n" + "=" * 65)
+        print(f"           📱 应用深度透视报告: {name}")
+        print("=" * 65)
+        print(f"  • 应用名称:         {name}")
+        print(f"  • Bundle ID:        {bid}")
+        print(f"  • 版本 / Build:     v{ver} (Build {build})")
+        print(f"  • 应用类型:         {app_type}")
+        print(f"  • 代码签名主体:     {signer}")
+        print(f"  • 描述文件验证:     {'✅ 已通过 (ProfileValidated)' if validated else 'ℹ️ 未使用个人描述文件 / 原生受信任'}")
+        print(f"  • 程序包物理路径:   {bundle_path}")
+        print(f"  • 真实数据沙盒目录: {data_container}")
+        
+        if groups:
+            print(f"  • App Groups 共享组:")
+            for g in groups:
+                print(f"      - {g}")
+        if bg_modes:
+            print(f"  • 后台权限 (Background Modes): {', '.join(bg_modes)}")
+        if url_types:
+            schemes = []
+            for u in url_types:
+                schemes.extend(u.get("CFBundleURLSchemes", []))
+            if schemes:
+                print(f"  • 注册 URL Schemes:           {', '.join(schemes)}")
+        if doc_types:
+            doc_names = [d.get("CFBundleTypeName", "Document") for d in doc_types if isinstance(d, dict)]
+            print(f"  • 支持打开文档类型:           {', '.join(doc_names[:5])}{' 等' if len(doc_names)>5 else ''}")
+        print("=" * 65 + "\n")
+
 async def cmd_install(args):
     # 强制二次确认阻断检查 (Reviewer Blocking 1)
     if not args.yes:
@@ -143,6 +452,9 @@ async def cmd_install(args):
         sys.exit(1)
 
     ipa_path = os.path.abspath(args.ipa)
+    if args.sign and args.no_sign:
+        print("❌ --sign 与 --no-sign 不能同时使用。", file=sys.stderr)
+        sys.exit(1)
     if not os.path.exists(ipa_path):
         print(f"❌ 找不到安装包: {ipa_path}", file=sys.stderr)
         sys.exit(1)
@@ -156,6 +468,10 @@ async def cmd_install(args):
     need_sign = args.sign
     if not args.no_sign and not has_sig:
         need_sign = True
+
+    if not need_sign and (getattr(args, "bundle_id", None) or getattr(args, "name", None)):
+        print("⚠️  -b / -n 只在重新签名时生效；本次没有重签（IPA 已带签名且未给 -s，或指定了 --no-sign），这两个参数会被忽略。",
+              file=sys.stderr)
 
     if need_sign:
         p12, prov, pwd = find_signing_assets(args.cert, args.prov, args.password)
@@ -187,8 +503,8 @@ async def cmd_install(args):
         async with CoreDeviceSession() as sess:
             installer = InstallationProxyService(sess.rsd)
             print(f"⚡ 正在向系统发送安装指令 (Stream: {os.path.basename(final_ipa)})...")
-            res = await installer.install(final_ipa)
-            print(f"🎉 安装指令执行完成！返回状态: {res}")
+            method = await push_install(installer, final_ipa)
+            print(f"🎉 安装完成（{method}）")
             print(f"✨ 应用已成功部署至 iOS 系统桌面。")
     finally:
         if tmp_signed and os.path.exists(tmp_signed):
@@ -222,6 +538,11 @@ def main():
     p_list.add_argument("-f", "--filter", help="按应用名称或 BundleID 过滤")
     p_list.add_argument("-a", "--all", action="store_true", help="包含系统内置应用")
 
+    # info
+    p_info = subparsers.add_parser("info", help="深度透视指定 App 的沙盒路径、签名证书与权限元数据")
+    p_info.add_argument("bundle_id", help="应用 Bundle Identifier (如 com.example.app) 或应用名称关键词")
+    p_info.add_argument("--json", action="store_true", help="输出完整结构化原始 JSON 数据")
+
     # install
     p_install = subparsers.add_parser("install", help="向设备推送安装 IPA 文件")
     p_install.add_argument("ipa", help="IPA 文件本地路径")
@@ -241,11 +562,21 @@ def main():
 
     args = parser.parse_args()
     if args.cmd == "list":
-        asyncio.run(cmd_list(args))
+        sys.exit(asyncio.run(cmd_list(args)))
+    elif args.cmd == "info":
+        sys.exit(asyncio.run(cmd_info(args)))
     elif args.cmd == "install":
-        asyncio.run(cmd_install(args))
+        sys.exit(asyncio.run(cmd_install(args)))
     elif args.cmd == "uninstall":
-        asyncio.run(cmd_uninstall(args))
+        sys.exit(asyncio.run(cmd_uninstall(args)))
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except Exception as e:
+        print(f"❌ {e}", file=sys.stderr)
+        sys.exit(1)

@@ -7,12 +7,12 @@ cdtk-ctrl: 基于 CoreDevice RSD 底层通道的 iOS 原生硬件级自动化控
 import argparse
 import asyncio
 import json
-import os
 import sys
 import time
 
 from coredevice_session import CoreDeviceSession
 from pymobiledevice3.remote.core_device.app_service import AppServiceService
+from pymobiledevice3.remote.core_device.device_info import DeviceInfoService
 from pymobiledevice3.remote.core_device.hid_service import (
     touch_session,
     UniversalHIDServiceService,
@@ -22,6 +22,32 @@ from pymobiledevice3.remote.core_device.hid_service import (
 )
 
 async def cmd_launch(args):
+    import subprocess
+    
+    # 提取友好应用名
+    bundle = args.bundle_id
+    friendly_name = bundle.split(".")[-1].capitalize()
+    if "surge" in bundle.lower():
+        friendly_name = "Surge 网络代理"
+    elif "minis" in bundle.lower():
+        friendly_name = "Minis"
+    elif "wechat" in bundle.lower():
+        friendly_name = "微信"
+        
+    op_desc = getattr(args, "reason", None) or "正在执行自动化/环境检测"
+    
+    # 调起前发送操作横幅通知
+    if not getattr(args, "no_notify", False):
+        try:
+            subprocess.run([
+                "apple-notification", "schedule",
+                "--title", f"🤖 正在操作 {friendly_name}",
+                "--body", f"📌 当前步骤: {op_desc}（请先勿触碰屏幕，完成后会自动弹窗提醒切回）",
+                "--after", "0"
+            ], capture_output=True, timeout=3)
+        except Exception:
+            pass
+
     print(f"⚡ 正在通过 CoreDevice RSD 拉起应用: {args.bundle_id}...")
     async with CoreDeviceSession() as s:
         async with AppServiceService(s.rsd) as app_svc:
@@ -36,6 +62,9 @@ async def cmd_procs(args):
     async with CoreDeviceSession() as s:
         async with AppServiceService(s.rsd) as app_svc:
             procs = await app_svc.list_processes()
+            if not procs:
+                print("⚠️ 未发现运行中的进程或系统服务无响应。")
+                return 0
             print(f"\n📱 当前系统共运行 {len(procs)} 个进程:\n" + "-" * 65)
             print(f"{'PID':<8} {'类型':<10} {'应用 / 执行路径'}")
             print("-" * 65)
@@ -73,35 +102,103 @@ async def cmd_hid_list(args):
                 print(f"  • ServiceID: {sid:<6} 类型: {dtype:<12} 名称: {prod} {'[内置]' if builtin else ''}")
             print("-" * 60)
 
+# HID 触控坐标与分辨率无关：(0, 0) 为左上角，(65535, 65535) 为右下角，方向为屏幕原生竖屏
+HID_MAX = 65535
+
+def screen_size(display_info):
+    """主屏原生像素分辨率 (宽, 高)，与截图一致；像素 = 逻辑点 × pointScale"""
+    displays = (display_info or {}).get("displays") or []
+    primary = next((d for d in displays if d.get("primary")), None)
+    if not primary:
+        raise ValueError("无法获取主屏分辨率（displays 里没有 primary）")
+    size = primary.get("nativeSize")
+    if not size or len(size) != 2:
+        raise ValueError("主屏 nativeSize 不可用: %r" % (size,))
+    return int(size[0]), int(size[1])
+
+def to_hid(x, y, size):
+    """像素坐标 -> HID 坐标，取像素中心"""
+    w, h = size
+    if not (0 <= x < w and 0 <= y < h):
+        raise ValueError(f"坐标 ({x}, {y}) 超出屏幕范围 {w}x{h}")
+    return round((x + 0.5) * HID_MAX / w), round((y + 0.5) * HID_MAX / h)
+
+async def resolve_points(rsd, args, points):
+    """把命令行坐标统一转为 HID 坐标；带 --hid 时原样使用，只校验范围"""
+    try:
+        if getattr(args, "hid", False):
+            for x, y in points:
+                if not (0 <= x <= HID_MAX and 0 <= y <= HID_MAX):
+                    raise ValueError(f"HID 坐标 ({x}, {y}) 超出范围 0..{HID_MAX}")
+            return points
+        async with DeviceInfoService(rsd) as info:
+            size = screen_size(await info.get_display_info())
+        return [to_hid(x, y, size) for x, y in points]
+    except (ValueError, KeyError, TypeError) as e:
+        sys.exit(f"❌ {e}")
+
+async def _release_touch(hid, x, y, tsid):
+    """释放触点：取消态下也要真正发完，返回是否成功。
+
+    只 suppress(Exception)，不吞 KeyboardInterrupt / SystemExit；
+    被取消时继续等 shield 包住的任务完成，避免"以为发了其实没发"。
+    """
+    task = asyncio.ensure_future(
+        hid.send_touchscreen(TOUCHSCREEN_STATE_RELEASE, x, y, service_id=tsid)
+    )
+    while True:
+        try:
+            await asyncio.shield(task)
+            return True
+        except asyncio.CancelledError:
+            if task.done():
+                return not task.cancelled() and task.exception() is None
+            continue          # 释放没发完之前不放弃
+        except Exception:
+            return False
+
 async def cmd_tap(args):
     print(f"⚡ 正在向物理屏幕注入真实硬件触控点击: ({args.x}, {args.y})...")
     async with CoreDeviceSession() as s:
+        [(x, y)] = await resolve_points(s.rsd, args, [(args.x, args.y)])
         async with touch_session(s.rsd) as hid:
             tsid = args.service_id or DIGITIZER_SURFACE_MAIN_TOUCHSCREEN
-            await hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, args.x, args.y, service_id=tsid)
-            await asyncio.sleep(0.06)
-            await hid.send_touchscreen(TOUCHSCREEN_STATE_RELEASE, args.x, args.y, service_id=tsid)
+            try:
+                await hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, x, y, service_id=tsid)
+                await asyncio.sleep(0.06)
+            finally:
+                released = await _release_touch(hid, x, y, tsid)
+            if not released:
+                print("⚠️  触点释放失败，设备可能停留在按下状态", file=sys.stderr)
+                return 1
             print(f"✅ 触控点击已注入完成！坐标: ({args.x}, {args.y})")
+            return 0
 
 async def cmd_swipe(args):
     print(f"⚡ 正在向物理屏幕注入真实硬件滑动: ({args.x1}, {args.y1}) -> ({args.x2}, {args.y2})...")
     async with CoreDeviceSession() as s:
+        (x1, y1), (x2, y2) = await resolve_points(s.rsd, args, [(args.x1, args.y1), (args.x2, args.y2)])
         async with touch_session(s.rsd) as hid:
             tsid = args.service_id or DIGITIZER_SURFACE_MAIN_TOUCHSCREEN
             steps = max(args.steps, 5)
             duration = max(args.duration, 0.05)
             interval = duration / steps
             
-            for i in range(steps):
-                t = i / steps
-                cx = round(args.x1 + (args.x2 - args.x1) * t)
-                cy = round(args.y1 + (args.y2 - args.y1) * t)
-                await hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, cx, cy, service_id=tsid)
-                await asyncio.sleep(interval)
-            
-            await hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, args.x2, args.y2, service_id=tsid)
-            await hid.send_touchscreen(TOUCHSCREEN_STATE_RELEASE, args.x2, args.y2, service_id=tsid)
+            try:
+                for i in range(steps):
+                    t = i / steps
+                    cx = round(x1 + (x2 - x1) * t)
+                    cy = round(y1 + (y2 - y1) * t)
+                    await hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, cx, cy, service_id=tsid)
+                    await asyncio.sleep(interval)
+                await hid.send_touchscreen(TOUCHSCREEN_STATE_CONTACT, x2, y2, service_id=tsid)
+            finally:
+                released = await _release_touch(hid, x2, y2, tsid)
+            if not released:
+                print("⚠️  触点释放失败，设备可能停留在按下状态", file=sys.stderr)
+                return 1
             print(f"✅ 硬件滑动已执行完成！耗时: {duration:.2f}s, 步数: {steps}")
+            return 0
 
 def main():
     parser = argparse.ArgumentParser(description="cdtk-ctrl: iOS 原生硬件级自动化控制中枢")
@@ -109,40 +206,52 @@ def main():
 
     # launch
     p_launch = subparsers.add_parser("launch", help="通过 CoreDevice 原生拉起任意 App")
-    p_launch.add_argument("bundle_id", help="应用 Bundle Identifier (如 com.meituan.imeituan)")
+    p_launch.add_argument("bundle_id", help="应用 Bundle Identifier (如 com.example.demo)")
     p_launch.add_argument("--no-kill", action="store_true", help="不强制杀死已有实例")
+    p_launch.add_argument("-r", "--reason", "--op", dest="reason", help="本次操作的具体目的与说明（用于向系统弹出提示横幅）")
+    p_launch.add_argument("--no-notify", action="store_true", help="不发送系统横幅通知")
 
     # procs
     p_procs = subparsers.add_parser("procs", help="列出当前运行的 App 与进程")
     p_procs.add_argument("-f", "--filter", help="关键字过滤")
-    p_procs.add_argument("--apps-only", action="store_true", default=True, help="仅列出带 UI 的 App 进程")
-    p_procs.add_argument("--all", dest="apps_only", action="store_false", help="列出全部系统进程")
+    p_procs.add_argument("--apps-only", action="store_true", help="仅列出带 UI 的 App 进程")
+    p_procs.add_argument("--all", dest="apps_only", action="store_false", help="列出全部系统进程（默认）")
 
     # hid-list
     subparsers.add_parser("hid-list", help="列出底层硬件输入设备 (触摸屏/键盘/按键)")
 
     # tap
     p_tap = subparsers.add_parser("tap", help="向物理屏幕注入真实硬件触控点击")
-    p_tap.add_argument("x", type=int, help="X 坐标 (像素)")
-    p_tap.add_argument("y", type=int, help="Y 坐标 (像素)")
+    p_tap.add_argument("x", type=int, help="X 坐标 (像素，原生竖屏方向，与截图一致)")
+    p_tap.add_argument("y", type=int, help="Y 坐标 (像素，原生竖屏方向，与截图一致)")
+    p_tap.add_argument("--hid", action="store_true", help="坐标直接按 HID 归一化值 0..65535 解释，不做换算")
     p_tap.add_argument("--service-id", type=int, default=257, help="HID ServiceID (默认 257 物理触摸屏)")
 
     # swipe
     p_swipe = subparsers.add_parser("swipe", help="向物理屏幕注入真实硬件滑动")
-    p_swipe.add_argument("x1", type=int, help="起点 X 坐标")
-    p_swipe.add_argument("y1", type=int, help="起点 Y 坐标")
-    p_swipe.add_argument("x2", type=int, help="终点 X 坐标")
-    p_swipe.add_argument("y2", type=int, help="终点 Y 坐标")
+    p_swipe.add_argument("x1", type=int, help="起点 X 坐标 (像素)")
+    p_swipe.add_argument("y1", type=int, help="起点 Y 坐标 (像素)")
+    p_swipe.add_argument("x2", type=int, help="终点 X 坐标 (像素)")
+    p_swipe.add_argument("y2", type=int, help="终点 Y 坐标 (像素)")
+    p_swipe.add_argument("--hid", action="store_true", help="坐标直接按 HID 归一化值 0..65535 解释，不做换算")
     p_swipe.add_argument("-d", "--duration", type=float, default=0.25, help="滑动持续秒数 (默认 0.25s)")
     p_swipe.add_argument("-s", "--steps", type=int, default=15, help="插值步数 (默认 15)")
     p_swipe.add_argument("--service-id", type=int, default=257, help="HID ServiceID (默认 257)")
 
     args = parser.parse_args()
-    if args.subcommand == "launch": asyncio.run(cmd_launch(args))
-    elif args.subcommand == "procs": asyncio.run(cmd_procs(args))
-    elif args.subcommand == "hid-list": asyncio.run(cmd_hid_list(args))
-    elif args.subcommand == "tap": asyncio.run(cmd_tap(args))
-    elif args.subcommand == "swipe": asyncio.run(cmd_swipe(args))
+    if args.subcommand == "launch": sys.exit(asyncio.run(cmd_launch(args)))
+    elif args.subcommand == "procs": sys.exit(asyncio.run(cmd_procs(args)))
+    elif args.subcommand == "hid-list": sys.exit(asyncio.run(cmd_hid_list(args)))
+    elif args.subcommand == "tap": sys.exit(asyncio.run(cmd_tap(args)))
+    elif args.subcommand == "swipe": sys.exit(asyncio.run(cmd_swipe(args)))
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except Exception as e:
+        print(f"❌ {e}", file=sys.stderr)
+        sys.exit(1)

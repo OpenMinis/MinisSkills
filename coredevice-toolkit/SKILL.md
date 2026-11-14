@@ -1,145 +1,208 @@
 ---
 name: coredevice-toolkit
-description: "iOS 免电脑、免越狱 CoreDevice RSD 极客工具链 (CDTK)。利用 Surge 本地回环反射 (10.7.0.1=reflect) + Node.js TLS-PSK 桥接 + 纯用户态协议栈 (pmd-pytcp)，在 iPhone 单机内部建立苹果底层开发者通信隧道，提供本地开发侧载、原生进程调度、硬件诊断、沙盒管理、描述文件管理及崩溃透视全套 CLI 工具。触发词：coredevice-toolkit, cdtk, cdtk-install, cdtk-ctrl, cdtk-profile, cdtk-fs, cdtk-diag, cdtk-crash, cdtk-inspect, CoreDevice RSD。"
-compatibility: "iOS 18.0+ (Verified), iOS 17.x (Experimental), Node.js, Python 3.10+, Surge 5.10+"
+description: "On-device CoreDevice RSD toolchain (CDTK) for iPhone — no Mac, no jailbreak. Builds Apple's developer tunnel inside the phone (loopback reflect + TLS-PSK + userspace TCP/IP): sideload IPAs, inject taps, read sandboxes, manage profiles, crash/battery diagnostics. Triggers: cdtk, CoreDevice."
+compatibility: "iOS 18.0+ (verified on iOS 27.3) · Minis/iSH (Alpine aarch64) · Node.js 18+ · Python 3.10+ · pymobiledevice3 >=11.34,<12 · Surge >=5.23 for loopback"
 ---
 
-# CoreDevice RSD 极客工具箱 (iOS 单机开发者中枢)
+# CoreDevice RSD toolchain (CDTK)
 
-本 Skill 将原本必须通过 USB 数据线连接 Mac/Xcode 才能调用的苹果底层开发者特权（CoreDevice RSD 加密隧道），通过 **Surge 本地回环反射 + 纯用户态网络协议栈** 完整搬迁至 iPhone 单机内部。
+Operate the iPhone's own CoreDevice/RSD developer services **from the phone itself** —
+no cable, no Mac, no Xcode, no jailbreak. Everything below runs inside Minis/iSH and
+talks to the device's `remoted` over a local loopback.
 
----
+## When to use it
 
-## 一、 前置准备与环境要求
+- Sideload, re-sign or uninstall an IPA on this phone → `cdtk-install`
+- Launch apps, list processes, inject taps/swipes → `cdtk-ctrl`
+- Read an app sandbox (`Documents`/`Library`) or the media partition → `cdtk-fs`
+- Crash reports, battery health, system logs → `cdtk-crash`, `cdtk-diag`
+- Configuration profiles, home-screen layout, Jetsam exemption → `cdtk-profile`, `cdtk-springboard`, `cdtk-proc`
+- "Is the tunnel working at all?" → `cdtk-doctor`
 
-1. **系统版本**：
-   - **已实测验证 (Verified)**：iOS 18.0+（包含当前真机环境）；
-   - **实验性支持 (Experimental)**：iOS 17.0 ~ 17.7（因部分小版本系统 remoted 守护进程可能仅监听 IPv6 Link-Local 或存在端口漂移，欢迎社区测试反馈）；
-   - 需在系统【设置 ➡️ 隐私与安全性】中开启「开发者模式」；
-2. **本地回环基建**：Surge 启用 `10.7.0.1 = reflect` 与 `tun-included-routes = 10.7.0.1/32`（详见 [Surge 回环配置指南](references/SURGE_LOOPBACK.md)）；
-3. **配对文件**：手机与电脑配对生成的 `.plist` 文件或 SideStore 配对文件（详见 [配对文件指南](references/PAIRING_GUIDE.md)）；
-4. **一键初始化**：在终端运行 `sh /var/minis/skills/coredevice-toolkit/scripts/setup.sh`，自动安装依赖并将全套 CLI 注册至全局路径。
+Use `ictrl-phone-control` instead when the task is *tap this button by its label*; CDTK's
+`tap` is a blind coordinate injection with no view tree.
 
----
-
-## 二、 架构原理：单机莫比乌斯环 🔌🔄
+## How it works
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        iPhone 单机内部 (Non-Jailbroken)                 │
-│                                                                        │
-│   [ 应用层 / CLI 工具: cdtk-* ]                                         │
-│       │                                                                │
-│       ▼                                                                │
-│   coredevice_session.py (CoreDeviceSession 异步上下文管理器)            │
-│       │                                                                │
-│       ├── Node.js TLS-PSK 桥接 (通过 stdin 安全投递 PSK，0 命令行泄露) │
-│       ▼                                                                │
-│   pmd-pytcp (纯用户态 TCP/IP 协议栈，无 root 免虚拟网卡拨号)            │
-│       │                                                                │
-│       ▼                                                                │
-│   发往 10.7.0.1:49152 (目标：本地开发者配对服务)                         │
-│       │                                                                │
-│       ▼                                                                │
-│   Surge IP Rewrite (10.7.0.1 = reflect 本地反射回环)                   │
-│       │                                                                │
-│       ▼                                                                │
-│   iOS 系统内核守护进程: remoted / launchd (85 大官方 Remote Services)   │
-└────────────────────────────────────────────────────────────────────────┘
+ cdtk-* CLI  →  coredevice_session.py  →  node tls_psk_proxy.js (TLS-PSK, key via stdin)
+             →  pmd-pytcp (userspace TCP/IP, no root, no utun device)
+             →  10.7.0.1:49152   ←  Surge `10.7.0.1 = reflect` bounces it back to remoted
 ```
 
-### 依赖与上游 API 说明
-- **用户态协议栈 (`UserspaceTun` & `UserspaceDialPlane`)**：iOS 环境下无 root 权限，无法创建内核级虚拟网卡（`utun` 设备节点）。本工具链采用 `pymobiledevice3` 原生提供的 `remote.userspace_tunnel` 与 `pmd-pytcp`（纯 Python 实现的 L2 协议栈），在内存中虚拟出 TCP/IP 握手层，实现非越狱环境下的用户态直接通信。
-- **环境依赖版本**：
-  - `python3` (>=3.10)
-  - `nodejs` (>=18.0)
-  - `pymobiledevice3` (>=11.34.0)
-  - `pmd-pytcp` (>=0.1.0)
-  - `cryptography` (>=41.0.0)
+`remoted` listens on the device itself; the loopback makes it reachable without an
+entitlement Apple would otherwise require. `pymobiledevice3` supplies the RSD client,
+`pmd-pytcp` supplies the in-memory L2 stack (a non-jailbroken process cannot create `utun`).
 
----
+## Prerequisites (all four need a human)
 
-## 三、 专属核心 CLI 工具矩阵 (`cdtk-*`)
+1. iPhone with **Developer Mode** on (Settings → Privacy & Security → Developer Mode).
+2. A local-loopback rule: Surge `10.7.0.1 = reflect` + `tun-included-routes = 10.7.0.1/32`
+   — see `references/SURGE_LOOPBACK.md`. Any VPN that can reflect `10.7.0.1/32` back to the
+   device works; WireGuard-style clients have no equivalent and will fail with
+   `ConnectionRefusedError` on every command.
+3. A RemotePairing record exported **on the device** (StikPair, or wloc on a computer) —
+   see `references/PAIRING_GUIDE.md`. Put it at `/root/.cdtk/pairing/`, mode `0600`.
+   It contains an Ed25519 private key: never commit it, never put it in a synced folder.
+4. Minis host (iSH / Alpine aarch64), `node` ≥ 18 and `python3` ≥ 3.10.
 
-安装后可在终端直接调用以下 7 大全局命令行神器：
+## Install and verify
 
-### 1. `cdtk-install`（免电脑开发侧载与自签直装）
-- **功能**：自动动态发现本地证书与描述文件、自动签名（支持自定义 App 展现名称与 Bundle ID 避免冲突），并通过底层 `installation_proxy` 原生推流直装进入系统。
-- **常用命令**：
-  ```bash
-  cdtk-install list                     # 查看全量已安装应用与元数据
-  cdtk-install install app.ipa          # 原生签名并直装 IPA
-  cdtk-install install app.ipa -b com.demo.app -n "测试分身" -y # 多开分身直装
-  cdtk-install uninstall <bundle_id> -y # 原生反注册卸载
-  ```
+```bash
+sh scripts/setup.sh     # installs deps, copies the shared library, registers cdtk-* in /usr/local/bin
+cdtk-doctor             # six steps; the last one creates a real tunnel
+```
 
-### 2. `cdtk-ctrl`（原生应用生命周期与硬件触控控制）
-- **功能**：基于 `com.apple.coredevice.appservice` 与 `dtuhidd`，免无障碍权限直接拉起/保活前后台 App，列出全系统 400+ 正在运行的进程，枚举物理触控/按键设备。
-- **常用命令**：
-  ```bash
-  cdtk-ctrl launch <bundle_id>          # 原生拉起任意 App (如 com.apple.Preferences)
-  cdtk-ctrl procs                       # 列出系统前后台正在运行的全部 App 进程
-  cdtk-ctrl hid-list                    # 枚举底层硬件输入设备 (触摸屏/键盘/按键)
-  cdtk-ctrl tap <x> <y>                 # 向物理屏幕注入底层硬件级触控点击
-  cdtk-ctrl swipe <x1> <y1> <x2> <y2>   # 注入底层硬件级滑动轨迹
-  ```
+`setup.sh` is an *installing* action: it copies `coredevice_session.py` and
+`tls_psk_proxy.js` into site-packages and overwrites `/usr/local/bin/cdtk-*`. Do not re-run it
+on a working install. Alpine's Python is PEP-668 managed, so the script passes
+`--break-system-packages` when pip supports it, and installs `pymobiledevice3` with
+`--no-deps` — `sslpsk-pmd3` has no musl/aarch64 wheel and would otherwise compile and fail.
 
-### 3. `cdtk-profile`（免确认静默描述文件管理器）
-- **功能**：基于 `com.apple.mobile.MCInstall.shim.remote`，彻底告别 Safari 弹窗 ➡️ 设置 ➡️ 输两遍密码确认的繁琐流程，免跳转一键管理证书与配置。
-- **常用命令**：
-  ```bash
-  cdtk-profile list                     # 查看当前系统已安装的全部描述文件
-  cdtk-profile install cert.mobileconfig -y # 协议层直接下发安装描述文件
-  cdtk-profile remove <PayloadIdentifier> -y # 静默移除指定的描述文件
-  ```
+`cdtk-doctor` checks, in order: runtimes · Python modules · pairing file and its mode ·
+loopback port (with an `RPPairing` fingerprint) · Pair-Verify · `createListener`. **Only step 6
+proves the channel works** — Pair-Verify merely validates the host signature, so a green
+steps 1–5 can still send zero bytes. Each failure prints the fix command.
 
-### 4. `cdtk-fs`（免越狱应用沙盒穿透与媒体管理）
-- **功能**：基于 `house_arrest`（沙盒软禁穿透服务）与 `afc`，免越狱穿透自签与开发 App 沙盒完整文件系统（`Documents`、`Library`、`tmp`），导出内部 SQLite 数据库，管理系统媒体分区。
-- **常用命令**：
-  ```bash
-  cdtk-fs app ls <bundle_id> [/path]    # 查看应用沙盒内部完整目录树
-  cdtk-fs app pull <bid> <rem> <loc>    # 提取沙盒文件 (如导出 App 内部数据库)
-  cdtk-fs media ls [/path]              # 查看系统媒体分区 (相册/下载/图书)
-  cdtk-fs media pull <rem> <loc>        # 从媒体分区拉取文件
-  ```
+Expected shape of a healthy run (redacted):
 
-### 5. `cdtk-diag`（硬件真实健康度与系统实时内核日志）
-- **功能**：基于 `diagnostics_relay` 与 `syslog_relay`，绕过应用层伪装，直读电池出厂设计容量、真实循环次数与电芯电压，实时监听系统内核与沙盒级实时运行日志。
-- **常用命令**：
-  ```bash
-  cdtk-diag hw                          # 读取真实电池硬件报告 (循环/容量/序列号)
-  cdtk-diag log -f "CoreDevice" -t 10   # 实时监听 10 秒包含关键字的系统内核日志
-  ```
+```
+4. Checking Loopback Network Connectivity (10.7.0.1:49152):
+  ✅ Loopback port reachable
+  ✅ RSD listener answers RPPairing on 49152
+5. Checking Handshake with iOS Remote Services:
+  ✅ RSD handshake identity matches pairing record (xxxxxxxx…)
+  ✅ Apple Pair-Verify protocol handshake successful (PSK negotiated)
+6. Establishing Real Tunnel (createListener):
+  ✅ Tunnel listener created on device (port xxxxx) — encrypted channel verified
+```
 
-### 6. `cdtk-crash`（系统深处崩溃与闪退日志透视器）
-- **功能**：基于 `crashreportcopymobile` 协议，免电脑秒级拉取系统 `.ips` 崩溃与诊断日志，结构化解析异常代码（EXC_BAD_ACCESS）、终止原因与触发线程调用栈。
-- **常用命令**：
-  ```bash
-  cdtk-crash list                       # 查看最近系统全量崩溃与 Jetsam 诊断日志
-  cdtk-crash view <filename.ips>        # 结构化深度解析异常码与崩溃线程栈
-  cdtk-crash pull <filename.ips>        # 导出原始崩溃日志到本地分析
-  cdtk-crash latest [app_name]          # 一键速查最近一次闪退日志
-  ```
+## Tools
 
-### 7. `cdtk-inspect`（全局 WebKit / H5 远程调试穿透）
-- **功能**：基于 `webinspector` 协议，跨进程探测并挂载系统中所有正在运行的 WebKit 页面、H5 混合应用视窗与 JS 上下文，提供实时页面结构与通信排障。
-- **常用命令**：
-  ```bash
-  cdtk-inspect list                     # 列出全机所有挂载 WebKit 引擎的页面与 ID
-  ```
+| Command | Purpose |
+| --- | --- |
+| `cdtk-doctor` | Six-step environment check; the only honest "does it work" test |
+| `cdtk-install` | `list` / `info` / `install` / `uninstall` IPAs, local re-sign |
+| `cdtk-ctrl` | `launch` / `procs` / `hid-list` / `tap` / `swipe` |
+| `cdtk-fs` | `media` and `app` sandbox: `ls` / `cat` / `pull` |
+| `cdtk-diag` | `battery` / `hw` / `log` / `perf` |
+| `cdtk-crash` | `list` / `view` / `pull` / `latest` — system-wide `.ips` reports |
+| `cdtk-profile` | `list` / `install` / `remove` configuration profiles |
+| `cdtk-springboard` | `backup` / `apply` home-screen layout |
+| `cdtk-proc` | `mem` (Jetsam waiver) / `signal` (stop, cont, term, kill) |
+| `cdtk-inspect` | `list` / `eval` / `dump` / `nav` WebKit pages — `eval` needs `-y` |
+| `cdtk-notify` | `start` / `step` / `done` banners; needs Minis' `apple-notification`, exits 3 without it |
 
----
+## Common commands
 
-## 四、 安全规范与凭据防护机制 🛡️
+```bash
+cdtk-install list                       # user apps; -a includes system apps, -f filters
+cdtk-install info com.example.app       # sandbox path, signing identity, App Groups
+cdtk-install install app.ipa -y         # sign locally and install; falls back to rcodesign
+cdtk-install install app.ipa -b com.example.app2 -n "Second copy" -y
+cdtk-install uninstall com.example.app -y
 
-1. **AI / 自动化调用最高安全准则 (Mandatory Safety Rule)**：
-   - **绝对禁止静默执行修改**：在未向用户发起询问并获得明确聊天答复许可前，**严禁**执行任何安装/移除描述文件（`cdtk-profile install/remove`）、安装/卸载应用（`cdtk-install install/uninstall`）或覆写应用沙盒文件操作！
-   - 只有在获得用户明确授权后，方可在命令行中附加 `-y / --yes` 执行。若无 `-y`，CLI 进程将主动输出阻断提示并安全退出（退出码 1）；
-2. **配对文件（Private Key）强隔离与权限阻断**：
-   - 配对文件 `.plist` 包含设备的 Ed25519 签名私钥，相当于全权设备信任凭据；
-   - **禁止全盘盲目搜索**：工具链仅允许从显式参数、`CDTK_PAIRING_FILE` 或专用工作区目录 `/var/minis/workspace/cdtk/*.plist` 读取；
-   - **强制权限拦截**：严禁加载权限过宽（Group / Other 可读）的配对文件！若文件权限不符合 `chmod 600`（属主独占只读/读写），底座将主动抛出 `PermissionError` 拒绝启动并提供阻断修复指引；
-3. **进程间通信（IPC）零泄露与防僵尸回收**：
-   - TLS-PSK 预共享密钥全部经由标准输入（`stdin`）安全传递给 Node 桥接进程，严禁通过命令行参数（`argv`）传递，避免系统进程表（`ps`）泄露；
-   - Node 代理子进程监听 `stdin.on('close')` 与 `SIGTERM`，在父进程异常断开或退出时联动自动自毁；
-   - 本地 Unix Domain Socket 部署在严格受限的 `0700` 专用私有临时目录中，会话生命周期结束后自动进行物理级清理。
+cdtk-ctrl procs --apps-only             # running apps
+cdtk-ctrl tap 585 642                   # pixel coords, native portrait, matches a screenshot
+cdtk-ctrl swipe 585 1200 585 1800
+cdtk-ctrl launch com.apple.Preferences  # --no-kill activates instead of restarting
+
+cdtk-fs app pull com.example.app Library/Preferences/x.plist ./x.plist
+cdtk-crash latest -s                    # parse the newest crash, save it under workspace
+cdtk-springboard backup layout.plist    # always back up before apply
+```
+
+`tap`/`swipe` take **pixels** and convert to HID (0..65535) using the primary display's
+`nativeSize`; `--hid` passes raw values through. Out-of-range coordinates exit non-zero
+without injecting anything — a mis-scaled tap would otherwise land silently in the wrong place.
+
+## Safety rules
+
+Destructive or credential-touching subcommands require `-y/--yes`: `cdtk-install install|uninstall`,
+`cdtk-profile install|remove`, `cdtk-proc signal`, `cdtk-springboard apply`, `cdtk-inspect eval`.
+Without the flag they print what they *would* do and exit 1.
+
+Ask the human before running any of them, and say the exact target out loud — a profile install
+can add a root CA or an MDM enrollment, `springboard apply` replaces every page, and a single
+`tap` on a Settings/erase screen can wipe the device.
+
+`cdtk-ctrl tap|swipe|launch` have no `-y` gate (they are the point of the tool): state the
+coordinates and the intended control first, and never inject input while a setup, restore or
+payment screen is frontmost.
+
+## Troubleshooting
+
+**Every command fails with `ConnectionRefusedError 10.7.0.1:49152`, or connects and reads 0 bytes.**
+Two shapes: `RST/Refused` means nothing listens; TCP connect then silence means the loopback layer
+accepted the connection but `remoted` never answered (Surge < 5.23 drops `[IP Rewrite]` silently).
+`coredevice_session` probes for the `RPPairing` magic to tell a live listener from a silent one, and
+resolves the port as `CDTK_RSD_PORT` → `/tmp/.cdtk_rsd_port.json` → 49152 → a scan with fingerprints
+(`CDTK_SCAN_BUDGET`, default 60 s).
+
+**Two cdtk commands at once — one of them drops mid-way or reads 0 bytes.**
+`remoted` replaces a peer **by source address**, before reading any handshake. Over a single-device
+loopback every process shares that address, so only one RSD session can be live at a time; a port scan
+replaces peers thousands of times and will kill whatever else is running. `CoreDeviceSession`
+therefore holds `/tmp/.cdtk_session.lock` (`flock`) for the whole tunnel and `cdtk-doctor` steps 4–6
+share it — a second command prints "another cdtk session is using the device, queueing…" and waits.
+`CDTK_LOCK_TIMEOUT` (default 120 s, `0` = wait forever) bounds the wait, `CDTK_NO_LOCK=1` opts out.
+Automation that needs several commands should call them **in series**, not with `&`. Real parallelism
+requires a different loopback source address per session.
+
+**The loopback answers RPPairing but there is still no listener.**
+`remoted` closed it: dual-identity re-attach, lock-screen suspend, or an evicted concurrent session.
+Unlocking, rebooting and reconnecting the proxy do not restore it — replugging USB once does.
+
+**Pair-Verify passes but `createListener` returns 0 bytes — the pairing record is stale.**
+Changing the **lock screen passcode** (or restoring / re-pairing) drops every host that was registered under the
+other passcode state. The old record still signs, so steps 1–5 of `cdtk-doctor` stay green and only the real tunnel
+fails, with `0 bytes read on a total of 9 expected bytes`. Export a fresh record and confirm the identity actually
+changed before suspecting the loopback; `references/PAIRING_GUIDE.md` has the details.
+
+**Handshake identity.**
+`remoted` remembers each peer's handshake UUID; a different UUID triggers re-attach, which closes
+every listener that peer advertised. Both Pair-Verify and the RSD handshake therefore present the
+pairing record's `identifier`. `CDTK_HOST_UUID` overrides it, `CDTK_DEBUG=1` prints what is used, and
+`cdtk-doctor` step 5 fails if the two disagree.
+
+**`cdtk-ctrl launch <the host app's own bundle id>` kills the host.**
+`launch` defaults to `kill_existing=True`: it terminates the target before starting it, so launching
+the app that runs this toolchain is suicide (PID changes, no `.ips`). Use `--no-kill` to only activate.
+
+**Does a finished command keep the tunnel open?**
+No. Each command is its own process; the RSD session and the Node child are released on exit (no
+leftover process, no listening port one second later). A session killed with `timeout`/SIGKILL leaves
+a `cdtk_*` directory containing `relay.sock`; `cdtk-doctor` sweeps those older than a day whose pid is
+gone (`--no-sweep` skips it). The port cache is kept by design.
+
+## Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `CDTK_PAIRING_FILE` | Explicit pairing record (skips the search) |
+| `CDTK_RSD_HOST` / `CDTK_RSD_PORT` | Loopback address / pin the control port |
+| `CDTK_RSD_SCAN=0`, `CDTK_RSD_SCAN_RANGE`, `CDTK_SCAN_BUDGET` | Port discovery tuning |
+| `CDTK_RSD_PORT_CACHE` | Where the discovered port is cached |
+| `CDTK_HOST_UUID` | Override the handshake identity |
+| `CDTK_LOCK_TIMEOUT` / `CDTK_LOCK_FILE` / `CDTK_NO_LOCK=1` | Session lock |
+| `CDTK_NODE_PROXY` | Explicit `tls_psk_proxy.js` path |
+| `CDTK_SIGN_CERT` / `CDTK_SIGN_PROV` / `CDTK_SIGN_PASS` | Signing assets for `cdtk-install` |
+| `CDTK_DEBUG=1` | Debug output (handshake UUID, port resolution) |
+
+## Testing without a device
+
+```bash
+python3 tests/test_cdtk_ctrl.py   # coordinate conversion: 8 cases, no device, no pymobiledevice3
+sh tests/smoke.sh                 # guards docs-vs-code drift and the session lock
+```
+
+## Notes and limits
+
+- Verified on iPhone 14 / iOS 27.3 with Minis 1.16. Other versions are untested; iOS 17.x is
+  experimental (some builds only listen on IPv6 link-local).
+- `cdtk-install` needs signing assets (`--cert`, `--prov`, `--password` or `CDTK_SIGN_*`). Unsigned
+  third-party IPAs can usually be installed with a forced re-sign; App Store IPAs cannot.
+- `cdtk-fs` and `cdtk-inspect` can read credentials a site or app stores. Read only what the task
+  needs, and never print tokens or cookies into the transcript.
+- The toolchain drives Apple-private services. It works today on the versions above and may break on
+  an OS update; `cdtk-doctor` is the first thing to run when it does.

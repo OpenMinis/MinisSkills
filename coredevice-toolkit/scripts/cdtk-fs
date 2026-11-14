@@ -8,26 +8,71 @@ import argparse
 import asyncio
 import os
 import sys
-from pathlib import Path
 
 from coredevice_session import CoreDeviceSession
 from pymobiledevice3.services.afc import AfcService
 from pymobiledevice3.services.house_arrest import HouseArrestService
 
 async def get_app_service(rsd, bundle_id):
+    first_err = None
     try:
         h = HouseArrestService(rsd, documents_only=False)
         await h.send_command(bundle_id, "VendContainer")
         return h, "container"
-    except Exception:
-        pass
-    
+    except Exception as e:
+        # VendContainer 被拒是正常的（应用没声明容器共享）；超时/断连也应回退，其它错误直接抛
+        import asyncio as _aio
+        from pymobiledevice3.exceptions import PyMobileDevice3Exception
+        if not isinstance(e, (PyMobileDevice3Exception, RuntimeError, OSError, _aio.TimeoutError)):
+            raise
+        first_err = e
+        try:
+            await h.close()          # 这条连接已经建立，回退前必须关掉，否则每次调用泄漏一个
+        except Exception:
+            pass
+
     try:
         h = HouseArrestService(rsd, documents_only=True)
         await h.send_command(bundle_id, "VendDocuments")
         return h, "documents"
     except Exception as e:
         raise RuntimeError(f"无法访问应用 {bundle_id} 的沙盒: {e}")
+
+async def _is_remote_dir(svc, remote_path):
+    try:
+        st = await svc.stat(remote_path)
+        return st.get("st_ifmt") == "S_IFDIR"
+    except Exception:
+        return False
+
+def local_target(local_path, remote_path):
+    """把目标归一化成"真正会被写入的路径"。目录型远端不支持导出（那是递归拉整棵目录）。"""
+    name = os.path.basename(str(remote_path).rstrip("/"))
+    if not name:
+        raise SystemExit("❌ 目标路径看起来是目录，不支持整目录导出: %s" % remote_path)
+    if os.path.isdir(local_path) or str(local_path).endswith("/"):
+        if os.path.exists(local_path) and not os.path.isdir(local_path):
+            raise SystemExit("❌ 本地路径是文件却以 / 结尾: %s" % local_path)
+        local_path = os.path.join(local_path, name)
+    os.makedirs(os.path.dirname(os.path.abspath(local_path)), exist_ok=True)
+    return local_path
+
+async def report_export(svc, local_path, remote_path):
+    """落盘后校验：必须是文件，且字节数与远端一致，才报成功。"""
+    try:
+        st = await svc.stat(remote_path)
+        want = int(st.get("st_size", -1))
+    except Exception:
+        want = -1
+    if not os.path.isfile(local_path):
+        print("❌ 导出失败：目标不是文件: %s" % local_path, file=sys.stderr)
+        return 1
+    got = os.path.getsize(local_path)
+    if want >= 0 and got != want:
+        print("❌ 导出不完整：本地 %d 字节，远端 %d 字节" % (got, want), file=sys.stderr)
+        return 1
+    print("✅ 导出成功！保存至本地: %s (%d 字节)" % (local_path, got))
+    return 0
 
 async def cmd_media_ls(args):
     print("⚡ 正在通过 CoreDevice RSD 连接 iOS 原生媒体分区 (AFC)...")
@@ -58,11 +103,12 @@ async def cmd_media_pull(args):
     print(f"⚡ 正在从媒体分区导出文件: {args.remote_path} -> {args.local_path}...")
     async with CoreDeviceSession() as s:
         afc = AfcService(s.rsd)
-        data = await afc.get_file_contents(args.remote_path)
-        os.makedirs(os.path.dirname(os.path.abspath(args.local_path)), exist_ok=True)
-        with open(args.local_path, "wb") as f:
-            f.write(data)
-        print(f"✅ 导出成功！保存至本地: {args.local_path} ({len(data)} 字节)")
+        if await _is_remote_dir(afc, args.remote_path):
+            print("❌ 这是目录，不支持整目录导出: %s" % args.remote_path, file=sys.stderr)
+            return 1
+        dst = local_target(args.local_path, args.remote_path)
+        await afc.pull(args.remote_path, dst)
+        return await report_export(afc, dst, args.remote_path)
 
 async def cmd_app_ls(args):
     print(f"⚡ 正在穿透应用沙盒: {args.bundle_id}...")
@@ -87,11 +133,12 @@ async def cmd_app_pull(args):
     print(f"⚡ 正在从应用沙盒导出: {args.bundle_id}:{args.remote_path} -> {args.local_path}...")
     async with CoreDeviceSession() as s:
         h, _ = await get_app_service(s.rsd, args.bundle_id)
-        data = await h.get_file_contents(args.remote_path)
-        os.makedirs(os.path.dirname(os.path.abspath(args.local_path)), exist_ok=True)
-        with open(args.local_path, "wb") as f:
-            f.write(data)
-        print(f"✅ 导出成功！保存至本地: {args.local_path} ({len(data)} 字节)")
+        if await _is_remote_dir(h, args.remote_path):
+            print("❌ 这是目录，不支持整目录导出: %s" % args.remote_path, file=sys.stderr)
+            return 1
+        dst = local_target(args.local_path, args.remote_path)
+        await h.pull(args.remote_path, dst)
+        return await report_export(h, dst, args.remote_path)
 
 async def cmd_app_cat(args):
     async with CoreDeviceSession() as s:
@@ -118,7 +165,7 @@ def main():
     p_app = subparsers.add_parser("app", help="穿透第三方应用沙盒容器 (Documents/Library)")
     a_sub = p_app.add_subparsers(dest="subaction", required=True)
     a_ls = a_sub.add_parser("ls", help="列出应用沙盒目录")
-    a_ls.add_argument("bundle_id", help="应用 Bundle Identifier (如 com.nssurge.inc.surge-ios.1)")
+    a_ls.add_argument("bundle_id", help="应用 Bundle Identifier (如 com.example.demo)")
     a_ls.add_argument("path", nargs="?", default="", help="沙盒相对路径")
     a_cat = a_sub.add_parser("cat", help="输出应用沙盒文件内容")
     a_cat.add_argument("bundle_id", help="应用 Bundle Identifier")
@@ -131,13 +178,21 @@ def main():
     args = parser.parse_args()
 
     if args.target == "media":
-        if args.subaction == "ls": asyncio.run(cmd_media_ls(args))
-        elif args.subaction == "cat": asyncio.run(cmd_media_cat(args))
-        elif args.subaction == "pull": asyncio.run(cmd_media_pull(args))
+        if args.subaction == "ls": sys.exit(asyncio.run(cmd_media_ls(args)))
+        elif args.subaction == "cat": sys.exit(asyncio.run(cmd_media_cat(args)))
+        elif args.subaction == "pull": sys.exit(asyncio.run(cmd_media_pull(args)))
     elif args.target == "app":
-        if args.subaction == "ls": asyncio.run(cmd_app_ls(args))
-        elif args.subaction == "cat": asyncio.run(cmd_app_cat(args))
-        elif args.subaction == "pull": asyncio.run(cmd_app_pull(args))
+        if args.subaction == "ls": sys.exit(asyncio.run(cmd_app_ls(args)))
+        elif args.subaction == "cat": sys.exit(asyncio.run(cmd_app_cat(args)))
+        elif args.subaction == "pull": sys.exit(asyncio.run(cmd_app_pull(args)))
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except Exception as e:
+        print(f"❌ {e}", file=sys.stderr)
+        sys.exit(1)
