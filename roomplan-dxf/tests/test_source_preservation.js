@@ -1,0 +1,25 @@
+'use strict';
+const assert=require('assert');
+const {ceilingSolids}=require('../scripts/lib/ceiling-3d');
+const {zoneCeilings}=require('../scripts/lib/ceiling-reconstruct');
+const I=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+const room={identifier:'synthetic',story:0,vertices:[{x:0,z:0},{x:4,z:0},{x:4,z:4},{x:0,z:4}],ceiling:[{polygon:[[0,0],[1,0],[1,.19469455],[0,.19469455]],transform:[1,0,0,0,0,1,0,0,0,0,1,0,0,.84,0,1]}]};
+let model={rooms:[room],surfaces:[]};
+let z=zoneCeilings(model)[0];assert(Math.abs(z.ceilingArea-.19469455)<1e-10);
+let c=ceilingSolids(model).ceilings[0];assert(c.surfaces.length===1);assert.strictEqual(c.heightMin,null);assert.strictEqual(c.parts[0].heightMin,null);assert.strictEqual(c.heightLabel,null);
+room.floorHeight=0;c=ceilingSolids(model).ceilings[0];assert.strictEqual(c.heightMin,.84);assert.strictEqual(c.floorBasis,'supplied-floor-level');
+room.floorHeight=-10;
+model.surfaces=[{kind:'floor',story:0,transform:I,polygonCorners:[{x:0,y:0,z:0},{x:4,y:0,z:0},{x:4,y:0,z:4},{x:0,y:0,z:4}]}];
+c=ceilingSolids(model).ceilings[0];assert.strictEqual(c.heightMin,.84);assert.strictEqual(c.floorBasis,'covering floor polygon');
+room.ceiling.push(JSON.parse(JSON.stringify(room.ceiling[0])));
+const result=ceilingSolids(model);assert.strictEqual(result.ceilings[0].surfaces.length,2);assert(result.warnings.some(w=>w.code==='usdz.ceiling-overlap-unresolved'));
+// These synthetic surfaces are VERTICAL planes (zero plan extent), so no
+// plan-union envelope exists: the arithmetic sum is kept WITH the fallback flag
+// instead of silently returning 0. Horizontal stacking is covered by
+// tests/test_ceiling_envelope.js.
+const zz=zoneCeilings(model)[0];
+assert.strictEqual(zz.ceilingEnvelope.usedFallback,true);
+assert(Math.abs(zz.ceilingArea-2*.19469455)<1e-10,`fallback surface sum ${zz.ceilingArea}`);
+assert(Math.abs(zz.surfaceAreaSumM2-2*.19469455)<1e-9,`surface sum ${zz.surfaceAreaSumM2}`);
+assert.strictEqual(zz.stackedCount,2);
+console.log('source preservation: vertical upstand / low .84 / datum precedence / unknown null / duplicate retained and warned / vertical plane keeps surface-sum fallback PASS');

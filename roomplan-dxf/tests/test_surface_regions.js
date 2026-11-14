@@ -1,0 +1,27 @@
+'use strict';
+const assert=require('assert');
+const {buildRegistry}=require('../scripts/lib/surface-regions');
+const records=[1,2,3].map((x)=>({sourceRegionId:`SR test.${x}`,status:'supplied',source:`rooms[].ceiling[${x-1}]`,roomIdentifier:'test',story:0,ceilingAreaM2:x}));
+records.push({zoneKey:'room:low',story:1,status:'reconstructed',method:'section'});
+const before=JSON.stringify(records),hash='synthetic-sha';
+const override={sourceSHA256:hash,groups:[{id:'K1',confirmation:'user-confirmed',members:['SR test.1','SR test.2']}]};
+const r=buildRegistry(records,hash,override);
+assert.equal(r.groups[0].areaM2,3);assert.equal(r.groups[0].faceCount,2);
+assert.equal(r.regions.length,4);assert.equal(r.regions[3].origin,'reconstructed');
+assert(r.regions[3].id.startsWith('SR reconstructed:'));
+assert.equal(JSON.stringify(records),before);assert.equal(buildRegistry(records,hash).groups.length,0);
+assert.throws(()=>buildRegistry(records,'wrong',override),/SHA256/);
+assert.throws(()=>buildRegistry(records,hash,{...override,groups:[{...override.groups[0],confirmation:'candidate'}]}),/confirmed/);
+assert.throws(()=>buildRegistry(records,hash,{...override,groups:[{...override.groups[0],members:['SR test.1','missing']}]}),/Unknown/);
+assert.equal(r.regions.reduce((s,r)=>s+(r.areaM2||0),0),6); // groups never counted again
+const {buildReport,quantitiesCSV}=require('../scripts/lib/quantities');
+const {renderMarkdown}=require('../scripts/lib/out-md');
+const {buildUsda}=require('../scripts/lib/usda-export');
+const model={kind:'optimized',surfaces:[],objects:[],rooms:[]};
+const report=buildReport(model,{});report.surfaceRegions=r;
+assert(quantitiesCSV(report).includes('SurfaceRegionGroupReference'));
+assert(renderMarkdown(report).includes('SR test.1'));
+model.surfaceRegions=r;
+const usd=buildUsda(model,{});assert(usd.text.includes('SurfaceRegionRegistry'));
+const lint=require('./lib/usda-lint').lint(usd.text);assert(lint.ok,JSON.stringify(lint.errors));
+console.log('surface-regions: synthetic provenance, scoped grouping, non-additive CSV/MD/USD checks passed');

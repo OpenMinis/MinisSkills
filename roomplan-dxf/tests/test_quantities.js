@@ -1,0 +1,95 @@
+'use strict';
+const assert=require('assert');
+const {buildReport,quantitiesCSV,csvCell,polygon3D}=require('../scripts/lib/quantities');
+const I=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+const wall={identifier:'w',kind:'wall',story:0,dimensions:{x:4,y:2.5,z:.1},transform:I};
+const door={identifier:'d',kind:'door',story:0,parentIdentifier:'w',dimensions:{x:.9,y:2.1,z:0},transform:I};
+function capture(surfaces,extra={}){return {kind:'raw',sourceSHA256:'test',surfaces,objects:[],...extra};}
+let checks=0;function check(f){f();checks++;}
+const r=buildReport(capture([wall,door]));
+check(()=>assert.strictEqual(r.totals.wallAreaGross.value,10));
+check(()=>assert(Math.abs(r.totals.doorArea.value-1.89)<1e-10));
+check(()=>assert(Math.abs(r.totals.wallAreaNet.value-8.11)<1e-10));
+check(()=>assert.strictEqual(r.elements[0].area.status,'estimated'));
+const orphan=buildReport(capture([wall,{...door,parentIdentifier:null}]));
+check(()=>assert.strictEqual(orphan.totals.wallAreaNet.value,10));
+check(()=>assert.strictEqual(orphan.totals.wallAreaNet.coverage,'partial'));
+const duplicate=buildReport(capture([{...wall,sourceRoomIndex:0},{...wall,sourceRoomIndex:1}]),{rooms:[{identifier:'a'},{identifier:'b'}]});
+check(()=>assert.strictEqual(duplicate.totals.wallAreaGross.value,10));
+check(()=>assert.strictEqual(duplicate.elements[0].roomRefs.length,2));
+check(()=>assert.deepStrictEqual(duplicate.rooms.map(q=>q.roomSideCounts.wall),[1,1]));
+const corners=[{x:0,y:0,z:0},{x:4,y:0,z:0},{x:4,y:3,z:0},{x:0,y:3,z:0}];
+const floor={identifier:'f',kind:'floor',story:0,transform:I,polygonCorners:corners,dimensions:{x:4,y:3,z:0}};
+check(()=>assert.strictEqual(buildReport(capture([floor])).totals.floorArea.value,12));
+const tilt=I.slice();tilt[5]=Math.cos(.7);tilt[6]=Math.sin(.7);tilt[9]=-Math.sin(.7);tilt[10]=Math.cos(.7);
+check(()=>assert(Math.abs(buildReport(capture([{...floor,transform:tilt}])).totals.floorArea.value-12)<1e-10));
+check(()=>assert.strictEqual(buildReport(capture([{...floor,curve:{radius:2}}])).totals.floorArea.value,null));
+check(()=>assert.strictEqual(buildReport(capture([{...floor,polygonCorners:[...corners.slice(0,3),{x:0,y:3,z:1}]}])).totals.floorArea.value,null));
+check(()=>assert.strictEqual(buildReport(capture([{...wall,curve:{radius:2}}])).totals.wallAreaGross.value,null));
+check(()=>assert.strictEqual(buildReport(capture([{...wall,dimensions:{}}])).totals.wallAreaGross.value,null));
+const overlap=buildReport(capture([wall,door,{...door,identifier:'d2'}]));
+check(()=>assert.strictEqual(overlap.totals.wallAreaNet.value,null));
+check(()=>assert(overlap.elements[0].netArea.reason.includes('overlapping')));
+const outside=I.slice();outside[12]=10;
+check(()=>assert.strictEqual(buildReport(capture([wall,{...door,transform:outside}])).totals.wallAreaNet.value,null));
+const offplane=I.slice();offplane[14]=1;
+check(()=>assert.strictEqual(buildReport(capture([wall,{...door,transform:offplane}])).totals.wallAreaNet.value,null));
+const rooms=[{identifier:'r',story:0,area:13,vertices:[{x:0,z:0},{x:4,z:0},{x:4,z:3},{x:0,z:3}]}];
+const rr=buildReport(capture([],{kind:'optimized',rooms}));
+check(()=>assert.strictEqual(rr.rooms[0].declaredArea.value,13));
+check(()=>assert.strictEqual(rr.rooms[0].polygonArea.value,12));
+check(()=>assert.strictEqual(rr.rooms[0].polygonMinusDeclared,-1));
+check(()=>assert.strictEqual(rr.rooms[0].volume.value,null));
+check(()=>assert.strictEqual(rr.rooms[0].ceilingArea.value,null));
+check(()=>assert.strictEqual(csvCell('=SUM(1)'),"'=SUM(1)"));
+check(()=>assert.strictEqual(csvCell('  @run'),"'  @run"));
+check(()=>assert.strictEqual(csvCell('a;"b\nc'),'"a;""b\nc"'));
+check(()=>assert.strictEqual(csvCell(-3),'-3'));
+check(()=>assert.strictEqual(quantitiesCSV(r).charCodeAt(0),0xfeff));
+check(()=>assert(quantitiesCSV(r).includes('Kat;Tip;ID;')));
+const before=JSON.stringify(capture([wall,door]));buildReport(capture([wall,door]));
+check(()=>assert.strictEqual(JSON.stringify(capture([wall,door])),before));
+check(()=>assert.strictEqual(buildReport(capture([])).totals.wallAreaGross.value,null));
+check(()=>assert(polygon3D([{x:0,y:0,z:0},{x:4,y:0,z:0},{x:0,y:3,z:0},{x:4,y:3,z:0}]).error));
+const fbox=buildReport(capture([{...floor,polygonCorners:[],dimensions:{x:4,y:0,z:3}}]));
+check(()=>assert.strictEqual(fbox.totals.floorArea.value,12));
+check(()=>assert.strictEqual(fbox.elements[0].area.status,'estimated'));
+check(()=>assert.strictEqual(buildReport(capture([{...floor,polygonCorners:[],dimensionsProvenance:'DXF placeholder'}])).totals.floorArea.value,null));
+// paint (trade) area: a SEPARATE field beside netArea, free-opening threshold
+const pw={identifier:'pw',kind:'wall',story:0,dimensions:{x:4,y:2.5,z:.15},transform:I};
+const win=(id,area)=>({identifier:id,kind:'window',story:0,parentIdentifier:'pw',dimensions:{x:area,y:1,z:0},transform:I});
+const paintOf=(...openings)=>buildReport(capture([pw,...openings]));
+const small=paintOf(win('pa',1));
+check(()=>assert.strictEqual(small.elements[0].paintArea.value,10));
+check(()=>assert.strictEqual(small.elements[0].netArea.value,9));
+const big=paintOf(win('pb',4));
+check(()=>assert.strictEqual(big.elements[0].paintArea.value,9));
+check(()=>assert.strictEqual(big.elements[0].netArea.value,6));
+check(()=>assert.strictEqual(big.elements[0].paintRule.deductedM2,1));
+check(()=>assert.strictEqual(paintOf(win('pc',3)).elements[0].paintArea.value,10));
+check(()=>assert.strictEqual(paintOf(win('pd',2),win('pe',2)).elements[0].paintArea.value,10));
+check(()=>assert.strictEqual(buildReport(capture([pw])).elements[0].paintArea.value,10));
+check(()=>assert.strictEqual(buildReport(capture([pw])).totals.paintArea.value,10));
+check(()=>assert.strictEqual(big.totals.paintArea.value,9));
+check(()=>assert.strictEqual(big.totals.wallAreaNet.value,6));
+check(()=>assert.strictEqual(buildReport(capture([pw])).conventions.paintFreeOpeningM2,3));
+check(()=>assert.strictEqual(require('../scripts/lib/quantities').PAINT_FREE_OPENING_M2,3));
+check(()=>assert.strictEqual(buildReport(capture([])).totals.paintArea.value,null));
+check(()=>assert.strictEqual(buildReport(capture([pw,{...win('pf',4),parentIdentifier:null}])).totals.paintArea.coverage,'partial'));
+check(()=>assert(quantitiesCSV(big).includes('Povrsina_bojanje_m2')));
+
+// A room with no polygon and no declared area must not produce a complete
+// livingArea of 0 - unknown is never zero (found on the real an anonymized reference example scan).
+check(()=>{
+  const room={identifier:'r1',story:0,label:'Soba'};
+  const capture={kind:'raw',sourceSHA256:'b'.repeat(64),surfaces:[],objects:[],rooms:[room]};
+  const report=buildReport(capture,null);
+  const living=report.totals.livingArea;
+  assert.strictEqual(living.value,null);
+  assert.strictEqual(living.status,'unavailable');
+  assert.strictEqual(living.coverage,'partial');
+  assert(/no measurable area/.test(living.reason||''),living.reason);
+  assert.strictEqual(report.totals.roomsWithoutArea.value,1);
+});
+console.log(`quantities: ${checks} checks passed`);
+

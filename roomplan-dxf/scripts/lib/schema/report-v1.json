@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:roomplan-dxf:schema:report-v1",
+  "title": "roomplan-dxf report-v1 — computed result",
+  "description": "Computed quantities report produced by scripts/lib/quantities.js buildReport. Contract: SPEC.md section 3 (report-v1), section 4 (provenance). One kernel, many outputs: DXF, CSV, Markdown and apps consume this document and never re-derive geometry. Canonical names only: no M2 suffix, no legacy 'report1' token, no element 'key'. Self-contained: every $ref points inside this document.",
+  "type": "object",
+  "required": ["schemaVersion", "source", "totals", "elements", "warnings", "assumptions"],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": { "const": "roomplan.report/1" },
+    "engine": { "type": "string" },
+    "source": {
+      "type": "object",
+      "required": ["sha256", "byteCount", "dialect", "captureSchema"],
+      "additionalProperties": true,
+      "properties": {
+        "sha256": { "type": ["string", "null"] },
+        "byteCount": { "type": ["integer", "null"], "minimum": 0 },
+        "dialect": { "type": ["string", "null"] },
+        "captureSchema": { "const": "roomplan.capture/1" }
+      }
+    },
+    "conventions": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Units, coordinate space, membership rules, tolerances. Narrative only — never a place to hide a number."
+    },
+    "assumptions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "SPEC section 3: plain strings, one assumption each. Replaces the old conventions.caveat string."
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["floorArea", "ceilingArea", "wallAreaGross", "wallAreaNet", "openingArea", "wallLength", "paintArea", "livingArea", "roomsWithoutArea", "counts"],
+      "properties": {
+        "floorArea": { "$ref": "#/$defs/measure" },
+        "ceilingArea": { "$ref": "#/$defs/measure" },
+        "wallAreaGross": { "$ref": "#/$defs/measure" },
+        "wallAreaNet": { "$ref": "#/$defs/measure" },
+        "openingArea": { "$ref": "#/$defs/measure", "description": "doors + windows + unclassed openings, one subtotal" },
+        "wallLength": { "$ref": "#/$defs/measure", "description": "summed wall run length (dimensions.x or polygonCorners span)" },
+        "paintArea": { "$ref": "#/$defs/measure", "description": "trade rule with the free-opening threshold, never a replacement for wallAreaNet" },
+        "livingArea": { "$ref": "#/$defs/measure", "description": "plan-statistics totals.livingArea (interior areas, wall footprints removed, G-9); unavailable when the statistics block refused the capture" },
+        "roomsWithoutArea": { "$ref": "#/$defs/measure", "description": "count of rooms with neither a computed polygon area nor a declared area" },
+        "doorArea": { "$ref": "#/$defs/measure" },
+        "windowArea": { "$ref": "#/$defs/measure" },
+        "volume": { "$ref": "#/$defs/measure", "description": "always unavailable today; kept so a consumer cannot mistake absence for zero" },
+        "uniqueElementCount": { "type": "integer", "minimum": 0 },
+        "unlinkedOpeningIds": { "type": "array", "items": { "type": "string" } },
+        "counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 },
+          "required": ["roomCount", "wallCount", "doorCount", "windowCount", "objectCount"],
+          "properties": {
+            "roomCount": { "type": "integer", "minimum": 0 },
+            "wallCount": { "type": "integer", "minimum": 0 },
+            "doorCount": { "type": "integer", "minimum": 0 },
+            "windowCount": { "type": "integer", "minimum": 0 },
+            "objectCount": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "elements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/element" }
+    },
+    "rooms": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/room" }
+    },
+    "stories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["story", "totals", "rooms"],
+        "properties": {
+          "story": { "type": ["integer", "null"] },
+          "totals": { "type": "object" },
+          "rooms": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/warning" },
+      "description": "Every entry carries code, message and severity; extra fields (roomIdentifier, differenceM2) are allowed and kept."
+    },
+    "statistics": {
+      "type": ["object", "null"],
+      "description": "plan-statistics.js block (G-9): totals, levels, rooms, costs. null when the module refused the capture; the refusal is then a warning."
+    },
+    "handoff": {
+      "type": ["object", "null"],
+      "description": "handoff.js scope (G-10): quantities[], gaps[], levels[], assumptions[], codesApplied. null when refused, with a warning."
+    },
+    "sourceReferences": { "type": "object", "additionalProperties": true },
+    "summary": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "measure": {
+      "type": "object",
+      "description": "SPEC section 4. status = provenance ONLY; coverage = completeness ONLY with included/expected. The old single field that held both is defect C-6 and is gone.",
+      "required": ["value", "status", "coverage", "included", "expected", "reason"],
+      "additionalProperties": true,
+      "properties": {
+        "value": { "type": ["number", "null"] },
+        "status": { "enum": ["supplied", "computed", "reconstructed", "estimated", "unavailable"] },
+        "coverage": { "enum": ["complete", "partial"] },
+        "included": { "type": "integer", "minimum": 0 },
+        "expected": { "type": "integer", "minimum": 0 },
+        "reason": { "type": ["string", "null"], "minLength": 1 },
+        "method": { "type": ["string", "null"] },
+        "byStatus": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "required": ["code", "message", "severity"],
+      "additionalProperties": true,
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "severity": { "enum": ["info", "warning", "error"] }
+      }
+    },
+    "element": {
+      "type": "object",
+      "required": ["id", "kind", "story", "area", "roomRefs"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["wall", "floor", "door", "window", "opening", "object"] },
+        "story": { "type": ["integer", "null"] },
+        "category": { "type": ["string", "null"] },
+        "area": { "$ref": "#/$defs/measure", "description": "gross area; was grossAreaM2" },
+        "netArea": { "$ref": "#/$defs/measure", "description": "geometric net after opening subtraction" },
+        "paintArea": { "$ref": "#/$defs/measure", "description": "trade paint area (free-opening threshold), never replaces netArea" },
+        "length": { "$ref": "#/$defs/measure", "description": "wall run length" },
+        "thickness": { "$ref": "#/$defs/measure" },
+        "roomRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["roomIdentifier", "coverage"],
+            "additionalProperties": true,
+            "properties": {
+              "roomIdentifier": { "type": "string" },
+              "coverage": { "enum": ["supplied", "inferred"] },
+              "method": { "type": ["string", "null"] }
+            }
+          },
+          "description": "was roomMemberships. References, NOT additive room-side quantities."
+        },
+        "slopeCut": { "type": ["object", "null"], "additionalProperties": true },
+        "sourceRecords": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+      }
+    },
+    "room": {
+      "type": "object",
+      "required": ["identifier", "story", "declaredArea", "polygonArea", "ceilingArea"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "identifier": { "type": "string" },
+        "story": { "type": ["integer", "null"] },
+        "label": { "type": ["string", "null"] },
+        "declaredArea": { "$ref": "#/$defs/measure", "description": "the producer's number; never added to a computed one" },
+        "polygonArea": { "$ref": "#/$defs/measure" },
+        "polygonMinusDeclared": { "type": ["number", "null"] },
+        "ceilingArea": { "$ref": "#/$defs/measure" },
+        "volume": { "$ref": "#/$defs/measure" }
+      }
+    }
+  }
+}
