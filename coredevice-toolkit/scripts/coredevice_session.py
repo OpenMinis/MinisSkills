@@ -226,9 +226,29 @@ def host_handshake_uuid(record=None):
     return default_handshake_uuid()
 
 
+def _is_stale_pairing_failure(err):
+    """设备接受了 pair-verify，却在派生会话密钥那一步直接 FIN。
+
+    特征：`createListener` 的第一帧读到 0 字节就 EOF（`0 bytes read on a total of 9
+    expected bytes`）。换锁屏密码、恢复系统或重新配对之后，旧记录就是这样：签名对得上
+    （Pair-Verify 只验 host 签名），但设备端已经没有这条 host 注册，于是不认这份记录、
+    不派生密钥，直接关连接。
+
+    这一条必须单独认出来，不能被当成端口问题：
+    - 端口层失败要扫描 49152-65535，而端口明明活着、握手也过了，扫几分钟是白扫；
+    - 用户拿到的提示应该是「重导配对记录」，不是「重插 USB」。
+    """
+    if isinstance(err, asyncio.IncompleteReadError):
+        return len(getattr(err, "partial", b"") or b"") == 0
+    text = "%s %r" % (type(err).__name__, err)
+    return "0 bytes read on a total of 9 expected bytes" in text
+
 def _is_port_level_failure(err):
     """端口层失败（该扫端口） vs 设备层失败（端口活着但没醒，别扫）。"""
     if isinstance(err, asyncio.TimeoutError):
+        return False
+    if _is_stale_pairing_failure(err):
+        # 端口活着、pair-verify 都过了，只是设备不认这份配对记录 —— 扫描毫无意义
         return False
     text = "%s %r" % (type(err).__name__, err)
     return any(k in text for k in ("Refused", "ConnectionReset", "IncompleteReadError",
@@ -645,6 +665,28 @@ class CoreDeviceSession:
                 print("[cdtk] 使用扫描发现的控制端口 %d" % ctl_port, file=sys.stderr)
             break
         else:
+            if _is_stale_pairing_failure(last_err):
+                # 端口活着、握手也过了，只是设备不认这份配对记录。
+                # 这条必须和「回环没通 / listener 没了」分开报，否则用户会去重插 USB。
+                msg = (
+                    "配对记录已失效：设备接受了 Pair-Verify，但拒绝用它派生隧道密钥。\n"
+                    "  （现象：createListener 读到 0 字节即 EOF）\n"
+                    "Pair-Verify 只校验 host 签名，查不出设备端还有没有这条 host 注册，\n"
+                    "所以握手阶段永远是通过的，只有真建隧道时才会暴露。\n"
+                    "常见起因：改过锁屏密码、恢复过系统、或在这台手机上重新配对过。\n"
+                    "  ① 重新导出一份配对记录（StikPair，或电脑上的 wloc）；\n"
+                    "  ② cp '<新导出>.plist' /root/.cdtk/pairing/rp_pairing_file.plist\n"
+                    "     chmod 600 /root/.cdtk/pairing/rp_pairing_file.plist\n"
+                    "  ③ 确认身份确实换了（identifier 是稳定 UUID，不是设备 UDID）：\n"
+                    "     python3 -c \"import plistlib;print(plistlib.load(open("
+                    "'/root/.cdtk/pairing/rp_pairing_file.plist','rb'))['identifier'])\"\n"
+                    "  ④ cdtk-doctor 第 6 步复查。\n"
+                    "注意：这不是回环问题，重插 USB 与重启手机都不会有用。\n"
+                    "详见 references/PAIRING_GUIDE_zh.md 的「配对记录什么时候会失效」。"
+                )
+                await self._release_lock()
+                raise ConnectionError(msg) from last_err
+
             msg = (
                 f"无法连接到 CoreDevice RSD 本地回环 ({HOST}:{','.join(str(p) for p in tried) or PORT}): {last_err}\n"
                 "连接握手失败，请逐项检查以下要点：\n"
