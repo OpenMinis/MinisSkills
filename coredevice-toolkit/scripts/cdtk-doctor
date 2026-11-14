@@ -339,7 +339,10 @@ class Doctor:
             print(f"  {PASS} {msg}")
         except Exception as e:
             err_str = str(e) or type(e).__name__
-            zero_bytes = isinstance(e, asyncio.IncompleteReadError) or "0 bytes read" in err_str
+            cds_mod = self._load_cds()
+            zero_bytes = (cds_mod._is_stale_pairing_failure(e)
+                          if hasattr(cds_mod, "_is_stale_pairing_failure")
+                          else isinstance(e, asyncio.IncompleteReadError) or "0 bytes read" in err_str)
             if zero_bytes:
                 print(f"  {FAIL} " + ("Pair-Verify passed, but the device tears down every encrypted request (0 bytes)"
                                       if not is_zh else "Pair-Verify 已通过，但设备对一切加密请求直接断连（0 字节）"))
@@ -348,13 +351,18 @@ class Doctor:
                     "so it refuses to derive tunnel keys from it" if not is_zh else
                     "配对记录已失配：设备端已经没有这条 host 注册，拒绝用它派生隧道密钥",
                     ("This layer cannot be caught by Pair-Verify — it only checks the host signature.\n"
-                     "      1) Re-export the pairing file from StikPair;\n"
+                     "      Usual cause: the lock-screen passcode was set or changed after the record was\n"
+                     "      exported, or the phone was restored / re-paired.\n"
+                     "      This is NOT a loopback problem — replugging USB and rebooting will not help.\n"
+                     "      1) Re-export the pairing file from StikPair (after the passcode change);\n"
                      "      2) cp '<new>.plist' /root/.cdtk/pairing/rp_pairing_file.plist && chmod 600 /root/.cdtk/pairing/rp_pairing_file.plist\n"
                      "      3) Confirm the identity really changed:\n"
                      "         python3 -c \"import plistlib;print(plistlib.load(open('/root/.cdtk/pairing/rp_pairing_file.plist','rb'))['identifier'])\"")
                     if not is_zh else
                     ("这一层 Pair-Verify 抓不到 —— 它只验 host 签名，不查设备端有没有这条 host 记录。\n"
-                     "      ① 用 StikPair 重新导出配对文件；\n"
+                     "      常见起因：导出记录之后设过或改过锁屏密码，或恢复系统 / 重新配对过。\n"
+                     "      这不是回环问题，重插 USB、重启手机都不会有用。\n"
+                     "      ① 用 StikPair 重新导出配对文件（要在改密码之后导）；\n"
                      "      ② cp '<新导出>.plist' /root/.cdtk/pairing/rp_pairing_file.plist && chmod 600 /root/.cdtk/pairing/rp_pairing_file.plist\n"
                      "      ③ 确认身份确实换成了新的一条：\n"
                      "         python3 -c \"import plistlib;print(plistlib.load(open('/root/.cdtk/pairing/rp_pairing_file.plist','rb'))['identifier'])\"")
