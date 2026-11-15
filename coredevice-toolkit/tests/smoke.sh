@@ -142,5 +142,23 @@ for name, ok in checks:
 sys.exit(bad)
 PY
 
+# 5. A stale pairing record must be told apart from a dead loopback. If someone collapses the
+#    two again, the fix (re-export the record) turns back into "replug USB" advice.
+python3 - "$SRC" <<'PY' || fail=1
+import sys, pathlib
+src = pathlib.Path(sys.argv[1])
+cds = (src / "coredevice_session.py").read_text(encoding="utf-8")
+checks = [
+    ("stale: _is_stale_pairing_failure()", "def _is_stale_pairing_failure(" in cds),
+    ("stale: excluded from port scan",     "if _is_stale_pairing_failure(err):" in cds),
+    ("stale: own error message",           "配对记录已失效" in cds or "pairing record is stale" in cds.lower()),
+]
+bad = 0
+for name, ok in checks:
+    print(f"{name}".ljust(58) + ("ok" if ok else "FAIL"))
+    bad = bad or (0 if ok else 1)
+sys.exit(bad)
+PY
+
 [ "$fail" -eq 0 ] && echo "smoke: PASS" || echo "smoke: FAIL"
 exit "$fail"
