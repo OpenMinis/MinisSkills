@@ -1,0 +1,534 @@
+{
+  "_meta": {
+    "repo": "ArchiPlan editor; source commit identified below",
+    "commit": "299ed31eab20275aa65e442083ca651efc80af07",
+    "commitDate": "Tue Sep 29 12:44:49 2026 +0200",
+    "purpose": "Fixture for scripts/lib/handoff.js (G-10). The inputs are the plan.json files INSIDE the real test packages; the reference numbers are the committed reference outputs of the same handoff on those packages (tests/fixtures/skills/*.handoff.json, produced by the Python skill and held equal to handoff.ts by tests/skills-parity.test.ts).",
+    "files": [
+      "tests/skills-parity.test.ts (compares handoffScope() with the Python reference for 3 packages)",
+      "tests/fixtures/skills/web-project-package.handoff.json (reference output, copied expectations)",
+      "tests/fixtures/skills/native-project-package.handoff.json (reference output, copied expectations)",
+      "tests/fixtures/web-project-package.zip :: plan.json (case 1 input, verbatim)",
+      "tests/fixtures/native-project-package.zip :: plan.json (case 2 input, verbatim + the room ring documented below)",
+      "src/lib/skills/handoff.ts (the ported function)"
+    ],
+    "translation": "No invented numbers. Both inputs are the plan.json records extracted verbatim from the zip fixtures. Case 2 additionally carries the room polygon that ArchiPlan roomDetection derives (the fixture plan.json only stores the label centre); handoff.ts read its areas from plan.statistics, our port measures them.",
+    "intentionalDeviation": {
+      "what": "livingArea / floorArea / ceilingArea are numbers for case 2 where the ArchiPlan reference output has null",
+      "why": "handoff.ts only READS plan.statistics; the native fixture package has no statistics block, so the reference shows null. Our port derives the areas itself (interior-area.js + ceiling-reconstruct.js), which is exactly the gap this port closes. Reference null vs ours 10.9725-style numbers is expected, not a bug.",
+      "referenceNulls": {
+        "case2": {
+          "summary.livingArea": null,
+          "levels[0].livingArea": null,
+          "levels[0].rooms[0].floorArea": null,
+          "levels[0].rooms[0].boundaryWallRun": null
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "web-project-package",
+      "package": "tests/fixtures/web-project-package.zip",
+      "referenceOutput": "tests/fixtures/skills/web-project-package.handoff.json (committed; handoff.ts output equals it per skills-parity.test.ts)",
+      "input": {
+        "walls": [
+          {
+            "id": "1f7f2e5a-d4b4-4eed-94b5-c394d5ab9826",
+            "start": {
+              "x": 0,
+              "y": 0
+            },
+            "end": {
+              "x": 4,
+              "y": 0
+            },
+            "height": 2.735,
+            "thickness": 0.15,
+            "level": 0
+          },
+          {
+            "id": "c1ed4121-6131-4cd4-a3f2-e5a1e7443559",
+            "start": {
+              "x": 4,
+              "y": 0
+            },
+            "end": {
+              "x": 4,
+              "y": 3
+            },
+            "height": 2.5,
+            "thickness": 0.15,
+            "level": 0
+          },
+          {
+            "id": "5c6627b9-a7a7-4e66-9a30-af80657f774e",
+            "start": {
+              "x": 4,
+              "y": 3
+            },
+            "end": {
+              "x": 0,
+              "y": 3
+            },
+            "height": 2.5,
+            "thickness": 0.15,
+            "level": 0
+          },
+          {
+            "id": "6d124a59-37e3-4059-8190-c1f0bfef3955",
+            "start": {
+              "x": 0,
+              "y": 3
+            },
+            "end": {
+              "x": 0,
+              "y": 0
+            },
+            "height": 2.5,
+            "thickness": 0.15,
+            "level": 0
+          }
+        ],
+        "openings": [],
+        "furniture": [
+          {
+            "id": "e0019492-45d0-475a-8acf-2d109106d1aa",
+            "category": "chair",
+            "center": {
+              "x": 1.0050000000000001,
+              "y": 1.2025000000000001
+            },
+            "angle": 0.6544984694978736,
+            "width": 1.3,
+            "depth": 0.825,
+            "level": 0
+          }
+        ],
+        "rooms": [],
+        "notes": [
+          {
+            "id": "962c8fd5-f688-4919-b868-2e18e7ab055b",
+            "text": "Web note",
+            "position": {
+              "x": 2,
+              "y": 1
+            },
+            "fontSize": 0.18,
+            "colorHex": "#123456",
+            "angle": 0.20943951023931953
+          }
+        ],
+        "levels": [
+          {
+            "id": "0e6184cf-950b-4446-891d-6a9d23525fda",
+            "index": 0,
+            "name": "Ground Floor"
+          }
+        ],
+        "underlay": {
+          "imageFilename": "web-underlay-21539630.png",
+          "center": {
+            "x": 1.2,
+            "y": 0.9
+          },
+          "widthMeters": 6
+        }
+      },
+      "expected": {
+        "title": "QA Web Package",
+        "summary": {
+          "levelCount": 1,
+          "roomCount": 0,
+          "wallCount": 4,
+          "doorCount": 0,
+          "windowCount": 0,
+          "furnitureCount": 1,
+          "wallRun": 14.0,
+          "wallAreaNet": 35.94,
+          "livingArea": null,
+          "grossArea": null
+        },
+        "levels": [
+          {
+            "index": 0,
+            "name": "Ground Floor",
+            "wallRun": 14.0,
+            "wallAreaGross": 35.94,
+            "wallAreaNet": 35.94,
+            "openingArea": 0,
+            "doorCount": 0,
+            "windowCount": 0,
+            "wallCount": 4,
+            "furnitureCount": 1
+          }
+        ],
+        "quantityKeys": [
+          "wallAreaNetLevel",
+          "wallAreaGrossLevel",
+          "wallRunLevel",
+          "doors",
+          "windows"
+        ],
+        "quantityValues": {
+          "wallAreaNetLevel": 35.94,
+          "wallAreaGrossLevel": 35.94,
+          "wallRunLevel": 14.0,
+          "doors": 0,
+          "windows": 0
+        },
+        "gapContains": [
+          "No room labels: per-room quantities are unavailable; only level totals are reported."
+        ],
+        "derivations": {
+          "wallRunLevel": "4 + 3 + 4 + 3 = 14 m centreline",
+          "wallAreaGrossLevel": "4 x 2.735 + 3 x 2.5 + 4 x 2.5 + 3 x 2.5 = 10.94 + 7.5 + 10 + 7.5 = 35.94 m2 (per-wall heights, not one default)",
+          "livingAreaLevel": "absent: the package has no rooms, so no room has a measured area (ArchiPlan prints null, we omit the quantity and say so in gaps[])"
+        }
+      }
+    },
+    {
+      "id": "native-project-package",
+      "package": "tests/fixtures/native-project-package.zip",
+      "referenceOutput": "tests/fixtures/skills/native-project-package.handoff.json (committed); see _meta.intentionalDeviation",
+      "input": {
+        "walls": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "start": {
+              "x": 0,
+              "y": 0
+            },
+            "end": {
+              "x": 6,
+              "y": 0
+            },
+            "height": 2.735,
+            "thickness": 0.275,
+            "level": 0,
+            "material": "future-material",
+            "extension": {
+              "future": true
+            }
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "start": {
+              "x": 6,
+              "y": 0
+            },
+            "end": {
+              "x": 6,
+              "y": 4
+            },
+            "height": 2.735,
+            "thickness": 0.275,
+            "level": 0
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "start": {
+              "x": 6,
+              "y": 4
+            },
+            "end": {
+              "x": 0,
+              "y": 4
+            },
+            "height": 2.735,
+            "thickness": 0.275,
+            "level": 0
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000004",
+            "start": {
+              "x": 0,
+              "y": 4
+            },
+            "end": {
+              "x": 0,
+              "y": 0
+            },
+            "height": 2.735,
+            "thickness": 0.275,
+            "level": 0
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000005",
+            "start": {
+              "x": 0,
+              "y": 0
+            },
+            "end": {
+              "x": 3.2,
+              "y": 1.35
+            },
+            "height": 2.615,
+            "thickness": 0.185,
+            "level": 2
+          }
+        ],
+        "openings": [
+          {
+            "id": "00000000-0000-4000-8000-000000000010",
+            "wallID": "00000000-0000-4000-8000-000000000001",
+            "position": 0.3,
+            "width": 0.915,
+            "height": 2.035,
+            "kind": "door",
+            "style": "single",
+            "hingeLeft": true,
+            "opensInward": false
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000011",
+            "wallID": "00000000-0000-4000-8000-000000000002",
+            "position": 0.3,
+            "width": 0.915,
+            "height": 2.035,
+            "kind": "door",
+            "style": "double",
+            "hingeLeft": false,
+            "opensInward": true
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000012",
+            "wallID": "00000000-0000-4000-8000-000000000003",
+            "position": 0.3,
+            "width": 0.915,
+            "height": 2.035,
+            "kind": "door",
+            "style": "sliding",
+            "hingeLeft": true,
+            "opensInward": true
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000013",
+            "wallID": "00000000-0000-4000-8000-000000000004",
+            "position": 0.3,
+            "width": 0.915,
+            "height": 2.035,
+            "kind": "door",
+            "style": "patio",
+            "hingeLeft": false,
+            "opensInward": false
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000020",
+            "wallID": "00000000-0000-4000-8000-000000000001",
+            "position": 0.75,
+            "width": 1.235,
+            "height": 1.115,
+            "sillHeight": 0.735,
+            "kind": "window",
+            "style": "fixed"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000021",
+            "wallID": "00000000-0000-4000-8000-000000000002",
+            "position": 0.75,
+            "width": 1.235,
+            "height": 1.115,
+            "sillHeight": 0.835,
+            "kind": "window",
+            "style": "sliding"
+          }
+        ],
+        "furniture": [
+          {
+            "id": "00000000-0000-4000-8000-000000000050",
+            "category": "chair",
+            "center": {
+              "x": 2.3,
+              "y": 1.7
+            },
+            "angle": 0.5235987755982988,
+            "width": 0.555,
+            "depth": 0.625,
+            "level": 0,
+            "photos": [
+              "chair.png"
+            ],
+            "note": "Keep furniture note",
+            "price": 456.75
+          }
+        ],
+        "rooms": [
+          {
+            "id": "00000000-0000-4000-8000-000000000040",
+            "name": "QA Kitchen",
+            "center": {
+              "x": 3,
+              "y": 2
+            },
+            "colorHex": "#aaccdd",
+            "ceilingHeight": 2.735,
+            "level": 0,
+            "photos": [
+              "chair.png"
+            ],
+            "note": "Keep room note",
+            "polygon": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 6,
+                "y": 0
+              },
+              {
+                "x": 6,
+                "y": 4
+              },
+              {
+                "x": 0,
+                "y": 4
+              }
+            ],
+            "polygonSource": "derived by ArchiPlan roomDetection.polygonFromEdges over the four level-0 walls (wall centrelines); plan.json stores only the label centre"
+          }
+        ],
+        "notes": [
+          {
+            "id": "00000000-0000-4000-8000-000000000080",
+            "text": "Pinned note",
+            "position": {
+              "x": 1,
+              "y": 2
+            }
+          }
+        ],
+        "levels": [
+          {
+            "id": "00000000-0000-4000-8000-000000000030",
+            "name": "Entry",
+            "index": 0
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000031",
+            "name": "Loft",
+            "index": 2
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000032",
+            "name": "Future Floor",
+            "index": 3
+          }
+        ],
+        "planNotes": "Keep the complete plan notes",
+        "underlay": {
+          "imageFilename": "chair.png",
+          "center": {
+            "x": 3,
+            "y": 2
+          },
+          "widthMeters": 6
+        },
+        "vendor": {
+          "original": "Keep me"
+        }
+      },
+      "expected": {
+        "title": "QA Project Package",
+        "summary": {
+          "levelCount": 3,
+          "roomCount": 1,
+          "wallCount": 5,
+          "doorCount": 4,
+          "windowCount": 2,
+          "furnitureCount": 1,
+          "wallRun": 23.473,
+          "wallAreaNet": 53.58,
+          "livingArea": 21.326,
+          "grossArea": 24.397
+        },
+        "levels": [
+          {
+            "index": 0,
+            "name": "Entry",
+            "wallRun": 20.0,
+            "wallAreaGross": 54.7,
+            "wallAreaNet": 44.498,
+            "openingArea": 10.202,
+            "doorCount": 4,
+            "windowCount": 2,
+            "wallCount": 4,
+            "furnitureCount": 1,
+            "livingArea": 21.326
+          },
+          {
+            "index": 2,
+            "name": "Loft",
+            "wallRun": 3.473,
+            "wallAreaGross": 9.082,
+            "wallAreaNet": 9.082,
+            "openingArea": 0,
+            "doorCount": 0,
+            "windowCount": 0,
+            "wallCount": 1,
+            "furnitureCount": 0,
+            "livingArea": null
+          },
+          {
+            "index": 3,
+            "name": "Future Floor",
+            "wallRun": 0,
+            "wallAreaGross": 0,
+            "wallAreaNet": 0,
+            "openingArea": 0,
+            "doorCount": 0,
+            "windowCount": 0,
+            "wallCount": 0,
+            "furnitureCount": 0,
+            "livingArea": null
+          }
+        ],
+        "room": {
+          "name": "QA Kitchen",
+          "floorArea": 21.326,
+          "ceilingArea": 21.326,
+          "ceilingMethod": "flat",
+          "ceilingHeight": 2.735,
+          "boundaryWallRun": 20.0,
+          "boundaryWallAreaGross": 54.7,
+          "boundaryWallAreaNet": 44.498,
+          "boundaryDoorCount": 4,
+          "boundaryWindowCount": 2,
+          "boundaryWallCount": 4
+        },
+        "quantityKeys": [
+          "floorArea",
+          "ceilingArea",
+          "wallAreaNetRoom",
+          "wallRunRoom",
+          "livingAreaLevel",
+          "wallAreaNetLevel",
+          "wallAreaGrossLevel",
+          "wallRunLevel",
+          "doors",
+          "windows"
+        ],
+        "quantityValues": {
+          "floorArea": 21.326,
+          "ceilingArea": 21.326,
+          "wallAreaNetRoom": 44.498,
+          "wallRunRoom": 20.0,
+          "livingAreaLevel": 21.326,
+          "wallAreaNetLevel": 44.498,
+          "wallAreaGrossLevel": 54.7,
+          "wallRunLevel": 20.0,
+          "doors": 4,
+          "windows": 2
+        },
+        "gapContains": [],
+        "derivations": {
+          "floorArea": "(6 - 0.275) x (4 - 0.275) = 21.325625 m2 interior faces (interior-area.js)",
+          "ceilingArea": "ceiling-reconstruct.reconstructCeilingForRoom over the four flat-topped walls: no wall top varies, so method \"flat\" and ceiling = floor area",
+          "boundary": "room has no supplied boundaryWallIDs, so membership is geometric: the four level-0 wall centrelines sit inside the ring -> run 20 m, gross 54.7, net 44.49785",
+          "levels2and3": "livingArea is null (unknown) on levels without a measurable room; ArchiPlan printed null too because its statistics block was absent"
+        }
+      }
+    }
+  ]
+}

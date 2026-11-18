@@ -1,0 +1,597 @@
+{
+  "_meta": {
+    "repo": "ArchiPlan editor; source commit identified below",
+    "commit": "299ed31eab20275aa65e442083ca651efc80af07",
+    "commitDate": "Tue Sep 29 12:44:49 2026 +0200",
+    "files": [
+      "tests/planStatistics.test.ts (both `it` blocks: expected numbers)",
+      "tests/fixtures/project.ts (rectangleWalls: 4 m x 3 m centreline rectangle, 15 cm walls, height 250 cm)",
+      "tests/fixtures/handoff-plan.json (native QA plan, copied verbatim as the second case input)",
+      "src/lib/utils/planStatistics.ts (the ported function)",
+      "tests/interior-area.test.ts (interior-face convention, 0.20 m walls -> 10.64 m2 baseline)"
+    ],
+    "purpose": "Fixture for scripts/lib/plan-statistics.js (G-9). Expected numbers are the assertions in ArchiPlan tests/planStatistics.test.ts, not values read back out of our port."
+  },
+  "cases": [
+    {
+      "id": "studio-4x3-interior-face",
+      "sourceTest": "planStatistics.test.ts :: writes a derived statistics block that matches the interior-face area convention",
+      "sourceFixture": "tests/fixtures/project.ts roomProject() rectangleWalls()",
+      "translation": "capture-v1 JSON written by hand from the TS fixture: the web plan is in centimetres, this is the same plan in metres (4 x 3 m centreline, 0.15 m walls, 2.50 m tall, one 0.90 x 2.10 m door, room \"Studio\" 4 x 3 m). No number was invented: the transform/dimensions follow rectangleWalls() and the opening follows the test override.",
+      "input": {
+        "schemaVersion": "roomplan.capture/1",
+        "source": {
+          "sha256": null,
+          "byteCount": null,
+          "dialect": "archiplan-webpack",
+          "producer": "ArchiPlan web editor",
+          "metadata": {
+            "derivation": "Translated to capture-v1 from ArchiPlan tests/fixtures/project.ts rectangleWalls() + the room/opening overrides in tests/planStatistics.test.ts",
+            "unitsNote": "ArchiPlan stores centimetres on the web side (400 x 300 cm, thickness 15 cm, height 250 cm); this fixture is the same plan in metres, as capture-v1 requires"
+          }
+        },
+        "units": "metres",
+        "axes": {
+          "world": "y-up",
+          "plan": "x,-z"
+        },
+        "surfaces": [
+          {
+            "identifier": "a-0",
+            "kind": "wall",
+            "story": 0,
+            "dimensions": {
+              "x": 4.0,
+              "y": 2.5,
+              "z": 0.15
+            },
+            "transform": [
+              1.0,
+              0,
+              0.0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              -0.0,
+              0,
+              1.0,
+              0,
+              0,
+              0,
+              0,
+              1
+            ],
+            "wallThickness": 0.15
+          },
+          {
+            "identifier": "a-1",
+            "kind": "wall",
+            "story": 0,
+            "dimensions": {
+              "x": 3.0,
+              "y": 2.5,
+              "z": 0.15
+            },
+            "transform": [
+              0.0,
+              0,
+              1.0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              -1.0,
+              0,
+              0.0,
+              0,
+              4,
+              0,
+              0,
+              1
+            ],
+            "wallThickness": 0.15
+          },
+          {
+            "identifier": "a-2",
+            "kind": "wall",
+            "story": 0,
+            "dimensions": {
+              "x": 4.0,
+              "y": 2.5,
+              "z": 0.15
+            },
+            "transform": [
+              -1.0,
+              0,
+              0.0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              -0.0,
+              0,
+              -1.0,
+              0,
+              4,
+              0,
+              3,
+              1
+            ],
+            "wallThickness": 0.15
+          },
+          {
+            "identifier": "a-3",
+            "kind": "wall",
+            "story": 0,
+            "dimensions": {
+              "x": 3.0,
+              "y": 2.5,
+              "z": 0.15
+            },
+            "transform": [
+              0.0,
+              0,
+              -1.0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              1.0,
+              0,
+              0.0,
+              0,
+              0,
+              0,
+              3,
+              1
+            ],
+            "wallThickness": 0.15
+          },
+          {
+            "identifier": "door-a",
+            "parentIdentifier": "a-0",
+            "kind": "door",
+            "story": 0,
+            "dimensions": {
+              "x": 0.9,
+              "y": 2.1,
+              "z": 0
+            },
+            "transform": [
+              1.0,
+              0,
+              0.0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              -0.0,
+              0,
+              1.0,
+              0,
+              2,
+              0,
+              0,
+              1
+            ]
+          }
+        ],
+        "objects": [],
+        "rooms": [
+          {
+            "identifier": "room-a",
+            "label": "Studio",
+            "category": "room",
+            "story": 0,
+            "area": 12,
+            "vertices": [
+              {
+                "x": 0,
+                "z": 0
+              },
+              {
+                "x": 4,
+                "z": 0
+              },
+              {
+                "x": 4,
+                "z": 3
+              },
+              {
+                "x": 0,
+                "z": 3
+              }
+            ]
+          }
+        ],
+        "levels": [
+          {
+            "index": 0,
+            "name": "Ground Floor"
+          }
+        ],
+        "meta": {
+          "project": "Regression plan"
+        }
+      },
+      "expected": {
+        "totals": {
+          "livingArea": 10.9725,
+          "grossArea": 12.0225,
+          "wallAreaGross": 35,
+          "wallAreaNet": 33.11,
+          "openingArea": 1.89,
+          "wallLength": 14,
+          "roomCount": 1,
+          "wallCount": 4,
+          "doorCount": 1,
+          "windowCount": 0,
+          "furnitureCount": 0,
+          "roomsWithoutArea": 0
+        },
+        "levelIndices": [
+          0
+        ],
+        "levelsEqualTotals": true,
+        "rooms": [
+          {
+            "id": "room-a",
+            "name": "Studio",
+            "level": 0,
+            "floorArea": 10.9725,
+            "floorOpening": false,
+            "ceilingHeight": 2.4
+          }
+        ],
+        "costs": {
+          "openingCost": 0,
+          "furnitureCost": 0,
+          "totalCost": 0,
+          "pricedOpeningCount": 0,
+          "pricedFurnitureCount": 0
+        },
+        "derivations": {
+          "livingArea": "(4 - 0.15) x (3 - 0.15) = 3.85 x 2.85 = 10.9725 (interior faces, 15 cm walls)",
+          "grossArea": "10.9725 + SUM(length x thickness)/2 = 10.9725 + 14 x 0.15 / 2 = 12.0225",
+          "wallAreaGross": "14 x 2.5 = 35 (wall.height wins over defaults.ceilingHeight 2.4)",
+          "wallAreaNet": "35 - 0.90 x 2.10 = 35 - 1.89 = 33.11",
+          "ceilingHeight": "room has no ceilingHeight -> defaults.ceilingHeight 2.4"
+        }
+      }
+    },
+    {
+      "id": "qa-kitchen-native-plan",
+      "sourceTest": "planStatistics.test.ts :: replaces a stale statistics block from an imported native package and counts unenclosed rooms",
+      "sourceFixture": "tests/fixtures/handoff-plan.json (copied verbatim) + plan.furniture[0].price = 456.75 (the test override)",
+      "translation": "None: tests/fixtures/handoff-plan.json is copied byte-for-byte as the case input (plan.json shape, metres). Only the test's own price override is applied.",
+      "input": {
+        "walls": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "start": {
+              "x": 0,
+              "y": 0
+            },
+            "end": {
+              "x": 6,
+              "y": 0
+            },
+            "height": 2.735,
+            "thickness": 0.275,
+            "level": 0,
+            "material": "future-material",
+            "extension": {
+              "future": true
+            }
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "start": {
+              "x": 6,
+              "y": 0
+            },
+            "end": {
+              "x": 6,
+              "y": 4
+            },
+            "height": 2.735,
+            "thickness": 0.275,
+            "level": 0
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "start": {
+              "x": 6,
+              "y": 4
+            },
+            "end": {
+              "x": 0,
+              "y": 4
+            },
+            "height": 2.735,
+            "thickness": 0.275,
+            "level": 0
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000004",
+            "start": {
+              "x": 0,
+              "y": 4
+            },
+            "end": {
+              "x": 0,
+              "y": 0
+            },
+            "height": 2.735,
+            "thickness": 0.275,
+            "level": 0
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000005",
+            "start": {
+              "x": 0,
+              "y": 0
+            },
+            "end": {
+              "x": 3.2,
+              "y": 1.35
+            },
+            "height": 2.615,
+            "thickness": 0.185,
+            "level": 2
+          }
+        ],
+        "openings": [
+          {
+            "id": "00000000-0000-4000-8000-000000000010",
+            "wallID": "00000000-0000-4000-8000-000000000001",
+            "position": 0.3,
+            "width": 0.915,
+            "height": 2.035,
+            "kind": "door",
+            "style": "single",
+            "hingeLeft": true,
+            "opensInward": false
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000011",
+            "wallID": "00000000-0000-4000-8000-000000000002",
+            "position": 0.3,
+            "width": 0.915,
+            "height": 2.035,
+            "kind": "door",
+            "style": "double",
+            "hingeLeft": false,
+            "opensInward": true
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000012",
+            "wallID": "00000000-0000-4000-8000-000000000003",
+            "position": 0.3,
+            "width": 0.915,
+            "height": 2.035,
+            "kind": "door",
+            "style": "sliding",
+            "hingeLeft": true,
+            "opensInward": true
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000013",
+            "wallID": "00000000-0000-4000-8000-000000000004",
+            "position": 0.3,
+            "width": 0.915,
+            "height": 2.035,
+            "kind": "door",
+            "style": "patio",
+            "hingeLeft": false,
+            "opensInward": false
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000020",
+            "wallID": "00000000-0000-4000-8000-000000000001",
+            "position": 0.75,
+            "width": 1.235,
+            "height": 1.115,
+            "sillHeight": 0.735,
+            "kind": "window",
+            "style": "fixed"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000021",
+            "wallID": "00000000-0000-4000-8000-000000000002",
+            "position": 0.75,
+            "width": 1.235,
+            "height": 1.115,
+            "sillHeight": 0.835,
+            "kind": "window",
+            "style": "sliding"
+          }
+        ],
+        "furniture": [
+          {
+            "id": "00000000-0000-4000-8000-000000000050",
+            "category": "chair",
+            "center": {
+              "x": 2.3,
+              "y": 1.7
+            },
+            "angle": 0.5235987755982988,
+            "width": 0.555,
+            "depth": 0.625,
+            "level": 0,
+            "photos": [
+              "chair.png"
+            ],
+            "note": "Keep furniture note",
+            "price": 456.75
+          }
+        ],
+        "rooms": [
+          {
+            "id": "00000000-0000-4000-8000-000000000040",
+            "name": "QA Kitchen",
+            "center": {
+              "x": 3,
+              "y": 2
+            },
+            "colorHex": "#aaccdd",
+            "ceilingHeight": 2.735,
+            "level": 0,
+            "photos": [
+              "chair.png"
+            ],
+            "note": "Keep room note",
+            "polygon": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 6,
+                "y": 0
+              },
+              {
+                "x": 6,
+                "y": 4
+              },
+              {
+                "x": 0,
+                "y": 4
+              }
+            ],
+            "polygonSource": "derived by ArchiPlan roomDetection.polygonFromEdges over the four level-0 walls (wall centrelines); the fixture plan.json stores only the label centre"
+          }
+        ],
+        "notes": [
+          {
+            "id": "00000000-0000-4000-8000-000000000080",
+            "text": "Pinned note",
+            "position": {
+              "x": 1,
+              "y": 2
+            }
+          }
+        ],
+        "levels": [
+          {
+            "id": "00000000-0000-4000-8000-000000000030",
+            "name": "Entry",
+            "index": 0
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000031",
+            "name": "Loft",
+            "index": 2
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000032",
+            "name": "Future Floor",
+            "index": 3
+          }
+        ],
+        "planNotes": "Keep the complete plan notes",
+        "underlay": {
+          "imageFilename": "chair.png",
+          "center": {
+            "x": 3,
+            "y": 2
+          },
+          "widthMeters": 6
+        },
+        "vendor": {
+          "original": "Keep me"
+        }
+      },
+      "expected": {
+        "totals": {
+          "roomCount": 1,
+          "wallCount": 5,
+          "doorCount": 4,
+          "windowCount": 2,
+          "furnitureCount": 1,
+          "roomsWithoutArea": 0,
+          "livingArea": 21.325625,
+          "grossArea": 24.396888,
+          "wallAreaGross": 63.782185,
+          "wallAreaNet": 53.580035,
+          "openingArea": 10.20215,
+          "wallLength": 23.473111
+        },
+        "levelIndices": [
+          0,
+          2,
+          3
+        ],
+        "levelTotals": {
+          "0": {
+            "livingArea": 21.325625,
+            "wallAreaGross": 54.7,
+            "wallAreaNet": 44.49785,
+            "openingArea": 10.20215,
+            "wallLength": 20,
+            "wallCount": 4,
+            "doorCount": 4,
+            "windowCount": 2,
+            "furnitureCount": 1,
+            "roomCount": 1
+          },
+          "2": {
+            "livingArea": 0,
+            "wallAreaGross": 9.082185,
+            "wallAreaNet": 9.082185,
+            "openingArea": 0,
+            "wallLength": 3.473111,
+            "wallCount": 1,
+            "doorCount": 0,
+            "windowCount": 0,
+            "furnitureCount": 0,
+            "roomCount": 0
+          },
+          "3": {
+            "livingArea": 0,
+            "wallAreaGross": 0,
+            "wallAreaNet": 0,
+            "openingArea": 0,
+            "wallLength": 0,
+            "wallCount": 0,
+            "doorCount": 0,
+            "windowCount": 0,
+            "furnitureCount": 0,
+            "roomCount": 0
+          }
+        },
+        "rooms": [
+          {
+            "id": "00000000-0000-4000-8000-000000000040",
+            "name": "QA Kitchen",
+            "level": 0,
+            "floorArea": 21.325625,
+            "floorAreaGreaterThan": 20,
+            "ceilingHeight": 2.735
+          }
+        ],
+        "costs": {
+          "openingCost": 0,
+          "furnitureCost": 456.75,
+          "totalCost": 456.75,
+          "pricedOpeningCount": 0,
+          "pricedFurnitureCount": 1
+        },
+        "derivations": {
+          "livingArea": "(6 - 0.275) x (4 - 0.275) = 5.725 x 3.725 = 21.325625 (interior faces of the 0.275 m walls); the ArchiPlan test asserts only > 20 m2",
+          "level0wallAreaGross": "20 x 2.735 = 54.7",
+          "level0openingArea": "4 x 0.915 x 2.035 + 2 x 1.235 x 1.115 = 7.4481 + 2.75405 = 10.20215",
+          "level0wallAreaNet": "54.7 - 10.20215 = 44.49785",
+          "level2": "hypot(3.2, 1.35) x 2.615 = 3.473111 x 2.615 = 9.082185",
+          "grossArea": "21.325625 + (20 x 0.275 + 3.473111 x 0.185) / 2 = 21.325625 + 3.071263 = 24.396888"
+        }
+      }
+    }
+  ]
+}

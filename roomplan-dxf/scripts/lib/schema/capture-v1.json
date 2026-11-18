@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:roomplan-dxf:schema:capture-v1",
+  "title": "roomplan-dxf capture-v1 — normalised input",
+  "description": "Normalised capture produced by scripts/lib/capture-export.js buildCapture. Contract: SPEC.md section 3 (capture-v1), section 4 (provenance). Consumers never read vendor JSON directly. Canonical names only: units/axes/stories/raw at the top level, dialect inside source, polygonXZ/declaredArea on rooms, provenance on every record. Self-contained: every $ref points inside this document.",
+  "type": "object",
+  "required": ["schemaVersion", "units", "axes", "source", "stories", "surfaces", "objects", "rooms", "meta", "raw"],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": { "const": "roomplan.capture/1" },
+    "units": { "const": "metres" },
+    "axes": {
+      "type": "object",
+      "required": ["world", "plan"],
+      "additionalProperties": false,
+      "properties": {
+        "world": { "const": "y-up" },
+        "plan": { "const": "x,-z" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["sha256", "bytes", "dialect", "dialectEvidence"],
+      "additionalProperties": true,
+      "properties": {
+        "filename": { "type": ["string", "null"], "description": "only with --geo" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "dialect": { "type": ["string", "null"] },
+        "dialectEvidence": { "type": "array", "items": { "type": "string" } },
+        "producer": { "type": ["string", "null"] },
+        "originalBytesPreserved": { "type": "boolean" },
+        "originalBytesEmbedded": { "type": "boolean" }
+      }
+    },
+    "stories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["story", "label"],
+        "additionalProperties": true,
+        "properties": {
+          "story": { "type": "integer" },
+          "label": { "type": "string", "minLength": 1 },
+          "floorElevation": { "type": ["number", "null"] }
+        }
+      }
+    },
+    "alignment": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "matrix": { "type": ["array", "null"], "minItems": 16, "maxItems": 16 },
+        "applied": { "const": false }
+      }
+    },
+    "surfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "story", "provenance"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": ["string", "null"] },
+          "identifier": { "type": ["string", "null"] },
+          "kind": { "enum": ["wall", "floor", "door", "window", "opening"] },
+          "story": { "type": ["integer", "null"] },
+          "parentIdentifier": { "type": ["string", "null"] },
+          "dimensions": { "type": "object", "additionalProperties": true },
+          "transform": { "type": "array", "minItems": 16, "maxItems": 16 },
+          "polygonCorners": { "type": ["array", "null"] },
+          "provenance": { "$ref": "#/$defs/provenance" }
+        }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["provenance"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": ["string", "null"] },
+          "identifier": { "type": ["string", "null"] },
+          "category": { "type": ["string", "null"] },
+          "story": { "type": ["integer", "null"] },
+          "provenance": { "$ref": "#/$defs/provenance" }
+        }
+      }
+    },
+    "rooms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["identifier", "story", "polygonXZ", "declaredArea", "provenance"],
+        "additionalProperties": true,
+        "properties": {
+          "identifier": { "type": ["string", "null"] },
+          "label": { "type": ["string", "null"] },
+          "category": { "type": ["string", "null"] },
+          "story": { "type": ["integer", "null"] },
+          "polygonXZ": {
+            "type": ["array", "null"],
+            "description": "source XZ outline; was `vertices`. null when the source room has no measured polygon",
+            "items": {
+              "type": "object",
+              "required": ["x", "z"],
+              "additionalProperties": false,
+              "properties": { "x": { "type": "number" }, "z": { "type": "number" } }
+            }
+          },
+          "declaredArea": { "type": ["number", "null"], "description": "the producer's area; was `area`; never added to a computed one" },
+          "floorHeight": { "type": ["number", "null"] },
+          "ceilingPlane": { "type": ["array", "null"] },
+          "provenance": { "$ref": "#/$defs/provenance" }
+        }
+      }
+    },
+    "meta": { "type": "object", "additionalProperties": true },
+    "raw": {
+      "type": "object",
+      "required": ["opaque", "excluded"],
+      "additionalProperties": true,
+      "description": "Nothing is dropped silently: what we could not read and what we deliberately excluded.",
+      "properties": {
+        "opaque": { "type": "array", "items": { "type": "string" } },
+        "excluded": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "conventions": { "type": "object", "additionalProperties": true },
+    "completeness": { "type": "object", "additionalProperties": true },
+    "privacy": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "description": "SPEC section 4. status = provenance, coverage = completeness. A capture record is `supplied`, but its coverage is `partial` when the producer did not supply the geometry the contract wants.",
+      "required": ["status", "coverage", "reason"],
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["supplied", "computed", "reconstructed", "estimated", "unavailable"] },
+        "coverage": { "enum": ["complete", "partial"] },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
